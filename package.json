@@ -1,10 +1,11 @@
 {
   "name": "plazmer-server",
   "version": "3.0.0",
-  "description": "PLAZMER Online Co-op Shooter - Full Feature Version",
+  "description": "PLAZMER - Online Multiplayer Shooter with Socket.IO",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
