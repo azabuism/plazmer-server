@@ -8,447 +8,810 @@ const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } 
 
 app.use(express.static('public'));
 
-const WORLD_W = 2400;
-const WORLD_H = 2400;
+// ========== CONSTANTS ==========
+const WORLD_W = 3000, WORLD_H = 3000;
 const PLAYER_COLORS = ['#00f2ff', '#ff6600', '#00ff66', '#ff00ff'];
-const WEAPONS = ['NORMAL', 'SPREAD', 'LASER', 'MISSILE', 'REFLECT', 'FLAME', 'FREEZE', 'THUNDER', 'PLASMA', 'BOOMERANG'];
+const MAX_PLAYERS_PER_ROOM = 4;
 
-let players = {};
-let enemies = {};
-let items = [];
-let walls = [];
-let wave = 0;
-let enemyIdCounter = 0;
-let itemIdCounter = 0;
-let gameStarted = false;
-let hostId = null;
-let bossActive = false;
-let mobSpawnTimer = 0;
+// ========== ROOM MANAGEMENT ==========
+const rooms = new Map(); // roomId -> RoomState
 
-// 壁を生成
-function generateWalls() {
-    walls = [];
-    const wallCount = 15 + wave * 3;
+class RoomState {
+    constructor(roomId, hostId) {
+        this.roomId = roomId;
+        this.hostId = hostId;
+        this.players = new Map(); // odlığı -> PlayerState
+        this.enemies = new Map();
+        this.items = [];
+        this.walls = [];
+        this.wave = 0;
+        this.gameStarted = false;
+        this.enemyIdCounter = 0;
+        this.itemIdCounter = 0;
+        this.bossActive = false;
+        this.currentBoss = null;
+        this.mobSpawnTimer = 0;
+        this.waveTimer = 0;
+    }
+}
+
+class PlayerState {
+    constructor(id, name, color, isHost) {
+        this.id = id;
+        this.name = name;
+        this.color = color;
+        this.isHost = isHost;
+        this.ready = isHost; // Host is always ready
+        this.x = WORLD_W / 2 + (Math.random() - 0.5) * 100;
+        this.y = WORLD_H / 2 + (Math.random() - 0.5) * 100;
+        this.angle = -Math.PI / 2;
+        this.hp = 100;
+        this.maxHp = 100;
+        this.score = 0;
+        this.dashing = false;
+    }
+}
+
+// ========== HELPER FUNCTIONS ==========
+function generateRoomId() {
+    let id;
+    do {
+        id = String(Math.floor(1000 + Math.random() * 9000));
+    } while (rooms.has(id));
+    return id;
+}
+
+function generateWalls(wave) {
+    const walls = [];
+    const sz = 250;
+    const rng = () => Math.random();
     
-    for (let i = 0; i < wallCount; i++) {
-        const isHorizontal = Math.random() > 0.5;
-        const w = isHorizontal ? 100 + Math.random() * 200 : 30;
-        const h = isHorizontal ? 30 : 100 + Math.random() * 200;
-        
-        let x, y, valid = false;
-        for (let attempt = 0; attempt < 20; attempt++) {
-            x = 200 + Math.random() * (WORLD_W - 400);
-            y = 200 + Math.random() * (WORLD_H - 400);
-            
-            // 中央付近は避ける（スポーン地点）
-            const centerDist = Math.sqrt((x - WORLD_W/2)**2 + (y - WORLD_H/2)**2);
-            if (centerDist > 300) {
-                valid = true;
-                break;
+    // Border walls
+    walls.push({ x: -50, y: -50, w: WORLD_W + 100, h: 50 });
+    walls.push({ x: -50, y: WORLD_H, w: WORLD_W + 100, h: 50 });
+    walls.push({ x: -50, y: 0, w: 50, h: WORLD_H });
+    walls.push({ x: WORLD_W, y: 0, w: 50, h: WORLD_H });
+    
+    // Random interior walls
+    for (let x = 0; x < WORLD_W; x += sz) {
+        for (let y = 0; y < WORLD_H; y += sz) {
+            // Keep center clear for spawn
+            if (Math.hypot(x - WORLD_W / 2, y - WORLD_H / 2) < 400) continue;
+            if (rng() < 0.15 + wave * 0.01) {
+                walls.push({ x: x + 20, y: y + 20, w: sz - 40, h: sz - 40 });
             }
-        }
-        
-        if (valid) {
-            walls.push({ x, y, w, h, id: 'wall_' + i });
         }
     }
     
     return walls;
 }
 
-function generateSpawnPosition() {
-    let x, y, valid = false;
-    
-    for (let attempt = 0; attempt < 50; attempt++) {
-        const side = Math.floor(Math.random() * 4);
-        switch(side) {
-            case 0: x = Math.random() * WORLD_W; y = -50; break;
-            case 1: x = WORLD_W + 50; y = Math.random() * WORLD_H; break;
-            case 2: x = Math.random() * WORLD_W; y = WORLD_H + 50; break;
-            case 3: x = -50; y = Math.random() * WORLD_H; break;
+function checkWallCollision(walls, x, y, radius = 0) {
+    for (const w of walls) {
+        if (x + radius > w.x && x - radius < w.x + w.w &&
+            y + radius > w.y && y - radius < w.y + w.h) {
+            return true;
         }
-        valid = true;
-        break;
     }
-    
-    return { x, y };
+    return false;
 }
 
-function spawnEnemy() {
-    const pos = generateSpawnPosition();
-    const types = ['normal', 'fast', 'tank', 'shooter'];
-    const type = types[Math.floor(Math.random() * types.length)];
+function findSpawnPosition(room, minDistFromPlayers = 400) {
+    for (let attempt = 0; attempt < 50; attempt++) {
+        const x = 200 + Math.random() * (WORLD_W - 400);
+        const y = 200 + Math.random() * (WORLD_H - 400);
+        
+        if (checkWallCollision(room.walls, x, y, 50)) continue;
+        
+        let tooClose = false;
+        for (const [, player] of room.players) {
+            if (Math.hypot(player.x - x, player.y - y) < minDistFromPlayers) {
+                tooClose = true;
+                break;
+            }
+        }
+        
+        if (!tooClose) return { x, y };
+    }
     
-    const stats = {
-        normal: { hp: 3 + wave, speed: 1.5, size: 20, color: '#f0f' },
-        fast: { hp: 2 + Math.floor(wave/2), speed: 3, size: 15, color: '#ff0' },
-        tank: { hp: 8 + wave * 2, speed: 0.8, size: 30, color: '#f80' },
-        shooter: { hp: 4 + wave, speed: 1, size: 22, color: '#f00' }
-    };
+    // Fallback to corners
+    const corners = [
+        { x: 300, y: 300 },
+        { x: WORLD_W - 300, y: 300 },
+        { x: 300, y: WORLD_H - 300 },
+        { x: WORLD_W - 300, y: WORLD_H - 300 }
+    ];
+    return corners[Math.floor(Math.random() * corners.length)];
+}
+
+// ========== ENEMY TYPES ==========
+const ENEMY_TYPES = {
+    slime: { hp: 3, speed: 1.5, size: 12, color: '#00ff00', score: 50, name: 'CELL' },
+    bat: { hp: 2, speed: 3, size: 10, color: '#00ffff', score: 60, name: 'DRONE' },
+    skull: { hp: 10, speed: 1.8, size: 18, color: '#ffffff', score: 150, name: 'SENTRY', shoots: true },
+    ghost: { hp: 15, speed: 2, size: 20, color: '#ff88ff', score: 180, name: 'PHASE' },
+    knight: { hp: 30, speed: 1.5, size: 25, color: '#ffaa00', score: 300, name: 'GUARD', shielded: true },
+    dragon: { hp: 60, speed: 2, size: 35, color: '#ff4400', score: 500, name: 'BLASTER', shoots: true },
+    golem: { hp: 100, speed: 0.8, size: 45, color: '#cc9966', score: 600, name: 'TANK' }
+};
+
+const BOSS_TYPES = [
+    { name: 'CORE-α', color: '#ff0000', baseHp: 300, size: 60 },
+    { name: 'MATRIX-β', color: '#0088ff', baseHp: 500, size: 70 },
+    { name: 'REACTOR-γ', color: '#00ff44', baseHp: 700, size: 80 },
+    { name: 'NEXUS-δ', color: '#ff00ff', baseHp: 900, size: 90 },
+    { name: 'OMEGA-Ω', color: '#ffff00', baseHp: 1200, size: 100 }
+];
+
+function createEnemy(room, type, x, y) {
+    const template = ENEMY_TYPES[type];
+    const waveScale = 1 + room.wave * 0.1;
     
-    const id = 'enemy_' + (enemyIdCounter++);
-    const s = stats[type];
     const enemy = {
-        id, x: pos.x, y: pos.y, type,
-        hp: s.hp, maxHp: s.hp, speed: s.speed, size: s.size, color: s.color, angle: 0
+        id: 'enemy_' + (room.enemyIdCounter++),
+        type,
+        x, y,
+        hp: Math.floor(template.hp * waveScale),
+        maxHp: Math.floor(template.hp * waveScale),
+        speed: template.speed,
+        size: template.size,
+        color: template.color,
+        score: template.score,
+        name: template.name,
+        shoots: template.shoots || false,
+        shielded: template.shielded || false,
+        isBoss: false,
+        timer: 0,
+        frozen: 0,
+        burning: 0
     };
     
-    enemies[id] = enemy;
+    room.enemies.set(enemy.id, enemy);
     return enemy;
 }
 
-function spawnBoss() {
-    const playerCount = Object.keys(players).length || 1;
-    const bossTypes = ['GUARDIAN', 'DESTROYER', 'SWARM', 'TITAN', 'PHANTOM'];
-    const bossType = bossTypes[(wave - 1) % bossTypes.length];
+function createBoss(room) {
+    const bossIndex = (room.wave - 1) % BOSS_TYPES.length;
+    const template = BOSS_TYPES[bossIndex];
+    const playerCount = room.players.size;
+    const waveScale = 1 + Math.floor((room.wave - 1) / 5) * 0.5;
+    const multiScale = 1 + (playerCount - 1) * 0.5;
     
-    const baseHp = 150 + wave * 50;
-    const scaledHp = Math.floor(baseHp * (1 + (playerCount - 1) * 0.4));
+    const pos = findSpawnPosition(room, 600);
     
-    const id = 'boss_' + (enemyIdCounter++);
     const boss = {
-        id, x: WORLD_W / 2, y: 200,
-        type: 'boss', bossType,
-        hp: scaledHp, maxHp: scaledHp,
-        speed: 1.2, size: 70, color: '#f00',
-        isBoss: true, angle: 0
+        id: 'boss_' + (room.enemyIdCounter++),
+        type: 'boss',
+        bossType: bossIndex,
+        x: pos.x,
+        y: pos.y,
+        hp: Math.floor((template.baseHp + room.wave * 30) * waveScale * multiScale),
+        maxHp: Math.floor((template.baseHp + room.wave * 30) * waveScale * multiScale),
+        speed: 1.2 - bossIndex * 0.1,
+        size: template.size + room.wave * 2,
+        color: template.color,
+        score: 3000 + room.wave * 500,
+        name: template.name,
+        isBoss: true,
+        timer: 0,
+        attackTimer: 0,
+        frozen: 0,
+        burning: 0
     };
     
-    enemies[id] = boss;
-    bossActive = true;
+    room.enemies.set(boss.id, boss);
+    room.currentBoss = boss;
+    room.bossActive = true;
     
-    // 新しいWaveでは壁を再生成
-    walls = generateWalls();
-    
-    io.emit('bossSpawn', { boss, walls });
     return boss;
 }
 
-function spawnItem(x, y) {
-    const types = ['power', 'weapon', 'option', 'bomb', 'heal'];
-    const weights = [40, 20, 15, 10, 15];
+function spawnMob(room) {
+    if (!room.bossActive) return null;
     
-    const total = weights.reduce((a, b) => a + b, 0);
-    let rand = Math.random() * total;
-    let type = types[0];
-    for (let i = 0; i < types.length; i++) {
-        rand -= weights[i];
-        if (rand <= 0) { type = types[i]; break; }
-    }
+    const mobCount = Array.from(room.enemies.values()).filter(e => !e.isBoss).length;
+    if (mobCount >= 30) return null;
     
-    const id = 'item_' + (itemIdCounter++);
-    const item = { id, x, y, type };
-    items.push(item);
+    const pos = findSpawnPosition(room, 300);
+    
+    const types = ['slime', 'bat'];
+    if (room.wave >= 3) types.push('skull', 'ghost');
+    if (room.wave >= 5) types.push('knight');
+    if (room.wave >= 7) types.push('dragon');
+    
+    const type = types[Math.floor(Math.random() * types.length)];
+    return createEnemy(room, type, pos.x, pos.y);
+}
+
+// ========== ITEM TYPES ==========
+const ITEM_TYPES = {
+    N: { color: '#ffff00', name: 'NORMAL' },
+    S: { color: '#ff5555', name: 'SPREAD' },
+    P: { color: '#00ffff', name: 'LASER' },
+    M: { color: '#aa00ff', name: 'MISSILE' },
+    R: { color: '#0088ff', name: 'REFLECT' },
+    F: { color: '#ff8800', name: 'FLAME' },
+    Z: { color: '#88ffff', name: 'FREEZE' },
+    T: { color: '#ffff00', name: 'THUNDER' },
+    X: { color: '#ff00ff', name: 'PLASMA' },
+    B: { color: '#ff8800', name: 'BOOMERANG' },
+    O: { color: '#00ff00', name: 'OPTION' },
+    C: { color: '#00ffff', name: 'CHAIN' },
+    H: { color: '#ff0066', name: 'HEAL' }, // Heart
+    SABER: { color: '#00ff88', name: 'SABER' },
+    RAIL: { color: '#ff00aa', name: 'RAILGUN' }
+};
+
+function spawnItem(room, x, y, type) {
+    const item = {
+        id: 'item_' + (room.itemIdCounter++),
+        x, y,
+        type,
+        color: ITEM_TYPES[type]?.color || '#fff'
+    };
+    room.items.push(item);
     return item;
 }
 
-function findNearestPlayer(x, y) {
-    let nearest = null, minDist = Infinity;
-    Object.values(players).forEach(p => {
-        if (p.hp <= 0) return;
-        const d = Math.sqrt((p.x - x)**2 + (p.y - y)**2);
-        if (d < minDist) { minDist = d; nearest = p; }
-    });
-    return nearest;
-}
-
-// 壁との衝突判定
-function checkWallCollision(x, y, radius) {
-    for (const wall of walls) {
-        const closestX = Math.max(wall.x, Math.min(x, wall.x + wall.w));
-        const closestY = Math.max(wall.y, Math.min(y, wall.y + wall.h));
-        const dist = Math.sqrt((x - closestX)**2 + (y - closestY)**2);
-        if (dist < radius) return wall;
-    }
-    return null;
-}
-
-function gameLoop() {
-    if (!gameStarted || Object.keys(players).length === 0) return;
+function dropItems(room, x, y, isBoss) {
+    const items = [];
     
-    // 敵の移動
-    Object.values(enemies).forEach(enemy => {
-        const target = findNearestPlayer(enemy.x, enemy.y);
-        if (target) {
-            const dx = target.x - enemy.x;
-            const dy = target.y - enemy.y;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-            
-            if (dist > 0) {
-                let newX = enemy.x + (dx / dist) * enemy.speed;
-                let newY = enemy.y + (dy / dist) * enemy.speed;
-                
-                // 壁との衝突チェック
-                if (!checkWallCollision(newX, newY, enemy.size)) {
-                    enemy.x = newX;
-                    enemy.y = newY;
+    if (isBoss) {
+        // Boss drops 3-5 items
+        const dropCount = 3 + Math.floor(Math.random() * 3);
+        const types = ['S', 'P', 'M', 'R', 'F', 'Z', 'T', 'X', 'O', 'C', 'B', 'SABER', 'RAIL'];
+        
+        for (let i = 0; i < dropCount; i++) {
+            const angle = (Math.PI * 2 / dropCount) * i;
+            const type = types[Math.floor(Math.random() * types.length)];
+            items.push(spawnItem(room, x + Math.cos(angle) * 50, y + Math.sin(angle) * 50, type));
+        }
+    } else {
+        // Regular enemy drops
+        if (Math.random() < 0.08) {
+            const types = ['N', 'S', 'P', 'M', 'R', 'F', 'Z', 'T', 'X', 'B'];
+            items.push(spawnItem(room, x, y, types[Math.floor(Math.random() * types.length)]));
+        }
+        if (Math.random() < 0.03) {
+            items.push(spawnItem(room, x + 20, y, 'H'));
+        }
+        if (Math.random() < 0.02) {
+            const bonus = ['O', 'C', 'SABER', 'RAIL'];
+            items.push(spawnItem(room, x - 20, y, bonus[Math.floor(Math.random() * bonus.length)]));
+        }
+    }
+    
+    return items;
+}
+
+// ========== GAME LOOP ==========
+function updateRoom(room) {
+    if (!room.gameStarted) return;
+    
+    room.waveTimer++;
+    room.mobSpawnTimer++;
+    
+    // Start first wave
+    if (room.wave === 0 && room.waveTimer > 60) {
+        startWave(room);
+    }
+    
+    // Spawn mobs during boss fight
+    if (room.bossActive && room.mobSpawnTimer >= 60) {
+        room.mobSpawnTimer = 0;
+        const spawnCount = Math.min(3, 1 + Math.floor(room.wave / 3));
+        for (let i = 0; i < spawnCount; i++) {
+            const mob = spawnMob(room);
+            if (mob) {
+                io.to(room.roomId).emit('enemySpawn', mob);
+            }
+        }
+    }
+    
+    // Update enemies
+    for (const [, enemy] of room.enemies) {
+        updateEnemy(room, enemy);
+    }
+    
+    // Sync to clients
+    if (room.waveTimer % 3 === 0) {
+        const enemyData = Array.from(room.enemies.values()).map(e => ({
+            id: e.id,
+            x: e.x,
+            y: e.y,
+            hp: e.hp,
+            maxHp: e.maxHp,
+            frozen: e.frozen,
+            burning: e.burning
+        }));
+        io.to(room.roomId).emit('gameSync', { enemies: enemyData, items: room.items });
+    }
+}
+
+function updateEnemy(room, enemy) {
+    if (enemy.hp <= 0) return;
+    
+    enemy.timer++;
+    
+    // Status effects
+    if (enemy.burning > 0) {
+        enemy.burning--;
+        if (enemy.timer % 20 === 0) {
+            enemy.hp -= 1;
+        }
+    }
+    
+    // Find nearest player
+    let nearestPlayer = null;
+    let minDist = Infinity;
+    
+    for (const [, player] of room.players) {
+        if (player.hp <= 0) continue;
+        const dist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+        if (dist < minDist) {
+            minDist = dist;
+            nearestPlayer = player;
+        }
+    }
+    
+    if (!nearestPlayer) return;
+    
+    // Movement
+    const speed = enemy.frozen > 0 ? enemy.speed * 0.3 : enemy.speed;
+    if (enemy.frozen > 0) enemy.frozen--;
+    
+    const angle = Math.atan2(nearestPlayer.y - enemy.y, nearestPlayer.x - enemy.x);
+    const vx = Math.cos(angle) * speed;
+    const vy = Math.sin(angle) * speed;
+    
+    if (!checkWallCollision(room.walls, enemy.x + vx, enemy.y + vy, enemy.size)) {
+        enemy.x += vx;
+        enemy.y += vy;
+    }
+    
+    // Collision with player
+    if (minDist < enemy.size + 15 && !nearestPlayer.dashing) {
+        io.to(room.roomId).emit('playerDamage', {
+            playerId: nearestPlayer.id,
+            damage: enemy.isBoss ? 20 : 10
+        });
+    }
+    
+    // Boss attacks
+    if (enemy.isBoss) {
+        enemy.attackTimer++;
+        executeBossAttack(room, enemy, nearestPlayer);
+    }
+    
+    // Shooting enemies
+    if (enemy.shoots && enemy.timer % 90 === 0) {
+        io.to(room.roomId).emit('enemyShoot', {
+            x: enemy.x,
+            y: enemy.y,
+            angle: angle,
+            speed: 5
+        });
+    }
+}
+
+function executeBossAttack(room, boss, target) {
+    const attacks = [];
+    
+    switch (boss.bossType) {
+        case 0: // CORE-α - Radial bursts
+            if (boss.attackTimer % 90 === 0) {
+                for (let i = 0; i < 16; i++) {
+                    const a = (Math.PI * 2 / 16) * i;
+                    attacks.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 4, vy: Math.sin(a) * 4 });
                 }
-                enemy.angle = Math.atan2(dy, dx);
             }
-        }
-    });
-    
-    // Mobスポーン
-    if (bossActive) {
-        mobSpawnTimer++;
-        if (mobSpawnTimer > 50) {
-            mobSpawnTimer = 0;
-            const mobCount = Math.min(2 + Math.floor(wave / 2), 5);
-            for (let i = 0; i < mobCount; i++) {
-                const enemy = spawnEnemy();
-                io.emit('enemySpawn', enemy);
+            break;
+            
+        case 1: // MATRIX-β - Spiral
+            if (boss.attackTimer % 60 === 0) {
+                for (let i = 0; i < 8; i++) {
+                    const a = (Math.PI * 2 / 8) * i + boss.timer * 0.02;
+                    attacks.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5 });
+                }
             }
-        }
+            break;
+            
+        case 2: // REACTOR-γ - Ground pound
+            if (boss.attackTimer % 120 === 0) {
+                for (let i = 0; i < 24; i++) {
+                    const a = (Math.PI * 2 / 24) * i;
+                    attacks.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 6, vy: Math.sin(a) * 6, size: 10 });
+                }
+                io.to(room.roomId).emit('screenShake', 20);
+            }
+            break;
+            
+        case 3: // NEXUS-δ - Double spiral
+            if (boss.attackTimer % 10 === 0) {
+                const a = boss.timer * 0.15;
+                attacks.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5, color: '#f0f' });
+                attacks.push({ x: boss.x, y: boss.y, vx: Math.cos(a + Math.PI) * 5, vy: Math.sin(a + Math.PI) * 5, color: '#f0f' });
+            }
+            break;
+            
+        case 4: // OMEGA-Ω - Everything
+            if (boss.attackTimer % 8 === 0) {
+                const a = boss.timer * 0.1;
+                for (let i = 0; i < 4; i++) {
+                    const aa = a + (Math.PI / 2) * i;
+                    attacks.push({ x: boss.x, y: boss.y, vx: Math.cos(aa) * 4, vy: Math.sin(aa) * 4, color: '#ff0' });
+                }
+            }
+            if (boss.attackTimer % 120 === 0) {
+                for (let i = 0; i < 32; i++) {
+                    const a = (Math.PI * 2 / 32) * i;
+                    attacks.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5 });
+                }
+                io.to(room.roomId).emit('screenShake', 25);
+            }
+            break;
     }
     
-    io.emit('gameSync', { enemies, items });
+    if (attacks.length > 0) {
+        io.to(room.roomId).emit('enemyBullets', attacks);
+    }
 }
 
-setInterval(gameLoop, 50);
+function startWave(room) {
+    room.wave++;
+    room.waveTimer = 0;
+    room.walls = generateWalls(room.wave);
+    
+    io.to(room.roomId).emit('waveStart', {
+        wave: room.wave,
+        walls: room.walls
+    });
+    
+    // Spawn boss after delay
+    setTimeout(() => {
+        if (room.gameStarted) {
+            const boss = createBoss(room);
+            io.to(room.roomId).emit('bossSpawn', boss);
+        }
+    }, 1500);
+}
 
+function damageEnemy(room, enemyId, damage, weaponType, attackerId) {
+    const enemy = room.enemies.get(enemyId);
+    if (!enemy || enemy.hp <= 0) return;
+    
+    // Shield reduction
+    if (enemy.shielded && weaponType !== 'FLAME' && weaponType !== 'THUNDER') {
+        damage = Math.floor(damage / 2);
+    }
+    
+    // Freeze bonus
+    if (weaponType === 'FREEZE' && enemy.type === 'golem') {
+        damage *= 2;
+    }
+    
+    enemy.hp -= damage;
+    
+    io.to(room.roomId).emit('enemyHit', {
+        id: enemyId,
+        damage,
+        hp: enemy.hp,
+        maxHp: enemy.maxHp
+    });
+    
+    if (enemy.hp <= 0) {
+        const items = dropItems(room, enemy.x, enemy.y, enemy.isBoss);
+        
+        io.to(room.roomId).emit('enemyDefeated', {
+            id: enemyId,
+            x: enemy.x,
+            y: enemy.y,
+            isBoss: enemy.isBoss,
+            score: enemy.score,
+            items
+        });
+        
+        room.enemies.delete(enemyId);
+        
+        // Update attacker score
+        const attacker = room.players.get(attackerId);
+        if (attacker) {
+            attacker.score += enemy.score;
+            io.to(room.roomId).emit('scoreUpdate', {
+                playerId: attackerId,
+                score: attacker.score
+            });
+        }
+        
+        // Boss defeated
+        if (enemy.isBoss) {
+            room.bossActive = false;
+            room.currentBoss = null;
+            
+            // Clear remaining mobs
+            for (const [id, e] of room.enemies) {
+                if (!e.isBoss) {
+                    io.to(room.roomId).emit('enemyDefeated', { id, x: e.x, y: e.y, isBoss: false, score: 0, items: [] });
+                    room.enemies.delete(id);
+                }
+            }
+            
+            io.to(room.roomId).emit('bossDefeated', { wave: room.wave });
+            
+            // Next wave after delay
+            setTimeout(() => {
+                if (room.gameStarted) {
+                    startWave(room);
+                }
+            }, 3000);
+        }
+    }
+}
+
+// Game loop interval
+setInterval(() => {
+    for (const [, room] of rooms) {
+        updateRoom(room);
+    }
+}, 50);
+
+// ========== SOCKET HANDLERS ==========
 io.on('connection', (socket) => {
     console.log('Player connected:', socket.id);
     
-    const colorIndex = Object.keys(players).length % PLAYER_COLORS.length;
-    players[socket.id] = {
-        id: socket.id,
-        name: 'Player' + (Object.keys(players).length + 1),
-        x: WORLD_W / 2 + (Math.random() - 0.5) * 100,
-        y: WORLD_H / 2 + (Math.random() - 0.5) * 100,
-        angle: -Math.PI / 2,
-        color: PLAYER_COLORS[colorIndex],
-        hp: 100, maxHp: 100, score: 0,
-        power: 1, bombs: 3, options: 0,
-        weapon: 'NORMAL', unlockedWeapons: ['NORMAL'],
-        formation: 'FOLLOW', dashing: false, isHost: false, ready: false
-    };
+    let currentRoom = null;
     
-    if (!hostId) {
-        hostId = socket.id;
-        players[socket.id].isHost = true;
-    }
-    
-    socket.emit('init', {
-        myId: socket.id, players, enemies, items, walls, wave,
-        isHost: socket.id === hostId, gameStarted,
-        worldSize: { w: WORLD_W, h: WORLD_H }
+    // Create room
+    socket.on('createRoom', (data) => {
+        const roomId = generateRoomId();
+        const room = new RoomState(roomId, socket.id);
+        const player = new PlayerState(socket.id, data.name || 'Host', PLAYER_COLORS[0], true);
+        
+        room.players.set(socket.id, player);
+        rooms.set(roomId, room);
+        currentRoom = room;
+        
+        socket.join(roomId);
+        
+        socket.emit('roomCreated', {
+            roomId,
+            playerId: socket.id,
+            players: Array.from(room.players.values())
+        });
+        
+        console.log(`Room ${roomId} created by ${socket.id}`);
     });
     
-    socket.broadcast.emit('playerJoined', players[socket.id]);
+    // Join room
+    socket.on('joinRoom', (data) => {
+        const room = rooms.get(data.roomId);
+        
+        if (!room) {
+            socket.emit('joinError', 'Room not found');
+            return;
+        }
+        
+        if (room.players.size >= MAX_PLAYERS_PER_ROOM) {
+            socket.emit('joinError', 'Room is full');
+            return;
+        }
+        
+        if (room.gameStarted) {
+            socket.emit('joinError', 'Game already started');
+            return;
+        }
+        
+        const colorIndex = room.players.size % PLAYER_COLORS.length;
+        const player = new PlayerState(socket.id, data.name || 'Player', PLAYER_COLORS[colorIndex], false);
+        
+        room.players.set(socket.id, player);
+        currentRoom = room;
+        
+        socket.join(data.roomId);
+        
+        socket.emit('roomJoined', {
+            roomId: data.roomId,
+            playerId: socket.id,
+            players: Array.from(room.players.values()),
+            hostId: room.hostId
+        });
+        
+        socket.to(data.roomId).emit('playerJoined', player);
+        
+        console.log(`Player ${socket.id} joined room ${data.roomId}`);
+    });
     
-    socket.on('move', (data) => {
-        if (players[socket.id]) {
-            players[socket.id].x = data.x;
-            players[socket.id].y = data.y;
-            players[socket.id].angle = data.angle;
-            players[socket.id].dashing = data.dashing || false;
-            socket.broadcast.emit('playerMoved', {
-                id: socket.id, x: data.x, y: data.y, angle: data.angle, dashing: data.dashing
+    // Ready toggle
+    socket.on('toggleReady', () => {
+        if (!currentRoom) return;
+        const player = currentRoom.players.get(socket.id);
+        if (player && !player.isHost) {
+            player.ready = !player.ready;
+            io.to(currentRoom.roomId).emit('playerReady', {
+                playerId: socket.id,
+                ready: player.ready
             });
         }
     });
     
-    socket.on('ready', (isReady) => {
-        if (players[socket.id]) {
-            players[socket.id].ready = isReady;
-            io.emit('playerReady', { id: socket.id, ready: isReady });
-        }
-    });
-    
-    socket.on('setName', (name) => {
-        if (players[socket.id]) {
-            players[socket.id].name = name.substring(0, 12) || 'Player';
-            io.emit('playerNameChanged', { id: socket.id, name: players[socket.id].name });
-        }
-    });
-    
+    // Start game (host only)
     socket.on('startGame', () => {
-        if (socket.id === hostId && !gameStarted) {
-            gameStarted = true;
-            wave = 1;
-            enemies = {};
-            items = [];
-            bossActive = false;
-            mobSpawnTimer = 0;
+        if (!currentRoom || currentRoom.hostId !== socket.id) return;
+        
+        currentRoom.gameStarted = true;
+        currentRoom.wave = 0;
+        currentRoom.waveTimer = 0;
+        currentRoom.walls = generateWalls(0);
+        
+        // Reset all players
+        for (const [, player] of currentRoom.players) {
+            player.hp = 100;
+            player.score = 0;
+            player.x = WORLD_W / 2 + (Math.random() - 0.5) * 100;
+            player.y = WORLD_H / 2 + (Math.random() - 0.5) * 100;
+        }
+        
+        io.to(currentRoom.roomId).emit('gameStarted', {
+            players: Array.from(currentRoom.players.values()),
+            walls: currentRoom.walls,
+            worldSize: { w: WORLD_W, h: WORLD_H }
+        });
+        
+        console.log(`Game started in room ${currentRoom.roomId}`);
+    });
+    
+    // Player movement
+    socket.on('move', (data) => {
+        if (!currentRoom) return;
+        const player = currentRoom.players.get(socket.id);
+        if (player) {
+            player.x = data.x;
+            player.y = data.y;
+            player.angle = data.angle;
+            player.dashing = data.dashing || false;
             
-            Object.values(players).forEach(p => {
-                p.hp = 100; p.score = 0; p.power = 1; p.bombs = 3; p.options = 0;
-                p.weapon = 'NORMAL'; p.unlockedWeapons = ['NORMAL'];
-                p.x = WORLD_W / 2 + (Math.random() - 0.5) * 100;
-                p.y = WORLD_H / 2 + (Math.random() - 0.5) * 100;
+            socket.to(currentRoom.roomId).emit('playerMoved', {
+                playerId: socket.id,
+                x: data.x,
+                y: data.y,
+                angle: data.angle,
+                dashing: data.dashing
             });
-            
-            walls = generateWalls();
-            io.emit('gameStarted', { wave, walls, players });
-            
-            setTimeout(() => { if (gameStarted) spawnBoss(); }, 3000);
         }
     });
     
+    // Bullet fired
     socket.on('shoot', (bulletData) => {
-        io.emit('bulletFired', {
+        if (!currentRoom) return;
+        socket.to(currentRoom.roomId).emit('bulletFired', {
             ...bulletData,
-            ownerId: socket.id,
-            color: bulletData.color || players[socket.id]?.color || '#fff'
+            ownerId: socket.id
         });
     });
     
+    // Hit enemy
     socket.on('hitEnemy', (data) => {
-        const enemy = enemies[data.enemyId];
-        if (!enemy) return;
-        
-        enemy.hp -= (data.damage || 1);
-        
-        if (enemy.hp <= 0) {
-            const isBoss = enemy.isBoss;
+        if (!currentRoom) return;
+        damageEnemy(currentRoom, data.enemyId, data.damage, data.weaponType, socket.id);
+    });
+    
+    // Collect item
+    socket.on('collectItem', (itemId) => {
+        if (!currentRoom) return;
+        const index = currentRoom.items.findIndex(i => i.id === itemId);
+        if (index !== -1) {
+            const item = currentRoom.items[index];
+            currentRoom.items.splice(index, 1);
             
-            if (isBoss) {
-                for (let i = 0; i < 7; i++) {
-                    const angle = (i / 7) * Math.PI * 2;
-                    const item = spawnItem(enemy.x + Math.cos(angle) * 60, enemy.y + Math.sin(angle) * 60);
-                    io.emit('itemSpawn', item);
-                }
-            } else if (Math.random() < 0.18) {
-                const item = spawnItem(enemy.x, enemy.y);
-                io.emit('itemSpawn', item);
-            }
-            
-            if (players[socket.id]) {
-                players[socket.id].score += isBoss ? 1000 * wave : 100;
-                io.emit('scoreUpdate', { id: socket.id, score: players[socket.id].score });
-            }
-            
-            io.emit('enemyDefeated', { id: enemy.id, x: enemy.x, y: enemy.y, isBoss });
-            delete enemies[enemy.id];
-            
-            if (isBoss) {
-                bossActive = false;
-                wave++;
-                io.emit('waveComplete', { wave });
-                setTimeout(() => {
-                    if (gameStarted && Object.keys(players).length > 0) spawnBoss();
-                }, 5000);
-            }
-        } else {
-            io.emit('enemyHit', { id: enemy.id, hp: enemy.hp });
+            io.to(currentRoom.roomId).emit('itemCollected', {
+                itemId,
+                playerId: socket.id,
+                type: item.type
+            });
         }
     });
     
-    socket.on('useBomb', () => {
-        const p = players[socket.id];
-        if (p && p.bombs > 0) {
-            p.bombs--;
+    // Use bomb
+    socket.on('useBomb', (data) => {
+        if (!currentRoom) return;
+        
+        // Damage all enemies in range
+        for (const [, enemy] of currentRoom.enemies) {
+            const dist = Math.hypot(enemy.x - data.x, enemy.y - data.y);
+            if (dist < 600) {
+                damageEnemy(currentRoom, enemy.id, 80, 'BOMB', socket.id);
+            }
+        }
+        
+        io.to(currentRoom.roomId).emit('bombUsed', {
+            playerId: socket.id,
+            x: data.x,
+            y: data.y
+        });
+    });
+    
+    // Player damaged
+    socket.on('playerDamaged', (data) => {
+        if (!currentRoom) return;
+        const player = currentRoom.players.get(socket.id);
+        if (player) {
+            player.hp -= data.damage;
             
-            Object.values(enemies).forEach(enemy => {
-                const dx = enemy.x - p.x;
-                const dy = enemy.y - p.y;
-                if (Math.sqrt(dx*dx + dy*dy) < 600) {
-                    enemy.hp -= enemy.isBoss ? 40 : 150;
-                    if (enemy.hp <= 0) {
-                        io.emit('enemyDefeated', { id: enemy.id, x: enemy.x, y: enemy.y, isBoss: enemy.isBoss });
-                        delete enemies[enemy.id];
-                    }
-                }
+            io.to(currentRoom.roomId).emit('playerHpChanged', {
+                playerId: socket.id,
+                hp: player.hp
             });
             
-            io.emit('bombUsed', { playerId: socket.id, x: p.x, y: p.y, bombs: p.bombs });
-        }
-    });
-    
-    socket.on('collectItem', (itemId) => {
-        const index = items.findIndex(i => i.id === itemId);
-        if (index === -1) return;
-        
-        const item = items[index];
-        const p = players[socket.id];
-        if (!p) return;
-        
-        items.splice(index, 1);
-        
-        switch (item.type) {
-            case 'power': p.power = Math.min(p.power + 1, 10); break;
-            case 'weapon':
-                const locked = WEAPONS.filter(w => !p.unlockedWeapons.includes(w));
-                if (locked.length > 0) {
-                    const newW = locked[Math.floor(Math.random() * locked.length)];
-                    p.unlockedWeapons.push(newW);
-                    p.weapon = newW;
-                    io.emit('weaponUnlocked', { playerId: socket.id, weapon: newW });
+            if (player.hp <= 0) {
+                // Check if all players dead
+                const allDead = Array.from(currentRoom.players.values()).every(p => p.hp <= 0);
+                
+                if (allDead) {
+                    currentRoom.gameStarted = false;
+                    io.to(currentRoom.roomId).emit('gameOver', {
+                        finalWave: currentRoom.wave
+                    });
                 } else {
-                    p.power = Math.min(p.power + 1, 10);
+                    // Respawn
+                    player.hp = 50;
+                    player.x = WORLD_W / 2;
+                    player.y = WORLD_H / 2;
+                    
+                    io.to(currentRoom.roomId).emit('playerRespawn', {
+                        playerId: socket.id,
+                        x: player.x,
+                        y: player.y,
+                        hp: player.hp
+                    });
                 }
-                break;
-            case 'option': p.options = Math.min(p.options + 1, 4); break;
-            case 'bomb': p.bombs = Math.min(p.bombs + 1, 5); break;
-            case 'heal': p.hp = Math.min(p.hp + 30, p.maxHp); break;
-        }
-        
-        io.emit('itemCollected', {
-            itemId, playerId: socket.id, type: item.type,
-            playerState: { power: p.power, bombs: p.bombs, options: p.options, hp: p.hp, weapon: p.weapon, unlockedWeapons: p.unlockedWeapons }
-        });
-    });
-    
-    socket.on('switchWeapon', (weapon) => {
-        if (players[socket.id]?.unlockedWeapons.includes(weapon)) {
-            players[socket.id].weapon = weapon;
-            io.emit('weaponChanged', { id: socket.id, weapon });
-        }
-    });
-    
-    socket.on('changeFormation', (formation) => {
-        if (players[socket.id]) {
-            players[socket.id].formation = formation;
-            io.emit('formationChanged', { id: socket.id, formation });
-        }
-    });
-    
-    socket.on('playerDamaged', (damage) => {
-        const p = players[socket.id];
-        if (p && !p.dashing) {
-            p.hp -= damage;
-            if (p.hp <= 0) {
-                p.hp = 0;
-                io.emit('playerDied', { id: socket.id });
-                const alive = Object.values(players).filter(pl => pl.hp > 0);
-                if (alive.length === 0) {
-                    gameStarted = false;
-                    io.emit('gameOver', { finalWave: wave });
-                }
-            } else {
-                io.emit('playerHpChanged', { id: socket.id, hp: p.hp });
             }
         }
     });
     
+    // Leave room
+    socket.on('leaveRoom', () => {
+        handleDisconnect();
+    });
+    
+    // Disconnect
     socket.on('disconnect', () => {
+        handleDisconnect();
         console.log('Player disconnected:', socket.id);
-        const wasHost = socket.id === hostId;
-        delete players[socket.id];
-        
-        if (wasHost) {
-            const remaining = Object.keys(players);
-            if (remaining.length > 0) {
-                hostId = remaining[0];
-                players[hostId].isHost = true;
-                io.emit('hostChanged', { newHostId: hostId });
-            } else {
-                hostId = null;
-                gameStarted = false;
-            }
-        }
-        
-        io.emit('playerLeft', socket.id);
-        
-        if (Object.keys(players).length === 0) {
-            gameStarted = false;
-            enemies = {};
-            items = [];
-            walls = [];
-            wave = 0;
-        }
     });
+    
+    function handleDisconnect() {
+        if (!currentRoom) return;
+        
+        currentRoom.players.delete(socket.id);
+        socket.leave(currentRoom.roomId);
+        
+        if (currentRoom.players.size === 0) {
+            // Delete empty room
+            rooms.delete(currentRoom.roomId);
+            console.log(`Room ${currentRoom.roomId} deleted (empty)`);
+        } else {
+            // Transfer host if needed
+            if (currentRoom.hostId === socket.id) {
+                const newHost = currentRoom.players.keys().next().value;
+                currentRoom.hostId = newHost;
+                const hostPlayer = currentRoom.players.get(newHost);
+                if (hostPlayer) {
+                    hostPlayer.isHost = true;
+                    hostPlayer.ready = true;
+                }
+                
+                io.to(currentRoom.roomId).emit('hostChanged', { newHostId: newHost });
+            }
+            
+            io.to(currentRoom.roomId).emit('playerLeft', socket.id);
+        }
+        
+        currentRoom = null;
+    }
 });
 
+// ========== SERVER START ==========
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`PLAZMER Server on port ${PORT}`));
+server.listen(PORT, () => {
+    console.log(`PLAZMER Server running on port ${PORT}`);
+});
