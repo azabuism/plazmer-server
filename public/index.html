@@ -7,776 +7,371 @@
     <script src="/socket.io/socket.io.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            background: #000;
-            color: #fff;
-            font-family: 'Courier New', monospace;
-            overflow: hidden;
-            touch-action: none;
-        }
-        
-        canvas {
-            display: block;
-            margin: 0 auto;
-        }
-        
-        .overlay {
-            position: fixed;
-            inset: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            background: rgba(0,0,0,0.95);
-            z-index: 100;
-        }
-        
-        .title { font-size: 3rem; color: #0ff; text-shadow: 0 0 20px #0ff; margin-bottom: 1rem; }
-        .subtitle { font-size: 1rem; color: #888; margin-bottom: 2rem; }
-        
-        .panel {
-            background: rgba(0,30,60,0.9);
-            border: 2px solid #0ff;
-            padding: 2rem;
-            border-radius: 10px;
-            text-align: center;
-            max-width: 400px;
-            width: 90%;
-        }
-        
-        input {
-            width: 100%;
-            padding: 12px;
-            font-size: 1.2rem;
-            background: #001a2e;
-            color: #0ff;
-            border: 2px solid #0ff;
-            border-radius: 5px;
-            text-align: center;
-            margin-bottom: 15px;
-        }
-        
-        .btn {
-            padding: 15px 30px;
-            font-size: 1.2rem;
-            font-weight: bold;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            margin: 5px;
-            transition: 0.3s;
-        }
-        
-        .btn-primary {
-            background: linear-gradient(45deg, #0ff, #08f);
-            color: #000;
-        }
-        
-        .btn-start {
-            background: linear-gradient(45deg, #0f0, #0a0);
-            color: #000;
-        }
-        
-        .btn:hover { transform: scale(1.05); }
-        
-        .player-list {
-            background: #001020;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 15px 0;
-            text-align: left;
-        }
-        
-        .player-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 8px;
-            border-bottom: 1px solid #0ff3;
-        }
-        
-        .player-dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-        }
-        
-        .status { color: #0f0; margin: 10px 0; }
-        
-        #ui-layer {
-            position: fixed;
-            top: 0;
-            left: 0;
-            pointer-events: none;
-            z-index: 50;
-        }
-        
-        .hud {
-            position: fixed;
-            top: 10px;
-            left: 10px;
-            font-size: 0.9rem;
-            color: #0ff;
-        }
-        
-        .hud-right {
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            text-align: right;
-        }
-        
-        .boss-bar {
-            position: fixed;
-            top: 50px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 60%;
-            max-width: 400px;
-            display: none;
-        }
-        
-        .boss-bar-bg {
-            background: #333;
-            height: 20px;
-            border-radius: 10px;
-            overflow: hidden;
-        }
-        
-        .boss-bar-fill {
-            background: linear-gradient(90deg, #f00, #f80);
-            height: 100%;
-            transition: width 0.2s;
-        }
-        
-        .boss-name {
-            text-align: center;
-            color: #f00;
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
-        
-        /* Mobile controls */
-        .mobile-controls {
-            position: fixed;
-            bottom: 20px;
-            left: 0;
-            right: 0;
-            display: none;
-            justify-content: space-between;
-            padding: 0 20px;
-            pointer-events: none;
-        }
-        
-        .joystick-area {
-            width: 120px;
-            height: 120px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 50%;
-            border: 2px solid rgba(0,255,255,0.3);
-            pointer-events: auto;
-            position: relative;
-        }
-        
-        .joystick-knob {
-            width: 50px;
-            height: 50px;
-            background: rgba(0,255,255,0.5);
-            border-radius: 50%;
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-        }
-        
-        .action-buttons {
-            display: flex;
-            gap: 10px;
-            pointer-events: auto;
-        }
-        
-        .action-btn {
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            background: rgba(255,255,255,0.2);
-            border: 2px solid #0ff;
-            color: #0ff;
-            font-weight: bold;
-            font-size: 0.7rem;
-        }
-        
-        @media (hover: none) {
-            .mobile-controls { display: flex; }
-        }
+        body { background: #000; color: #fff; font-family: 'Courier New', monospace; overflow: hidden; touch-action: none; user-select: none; }
+        canvas { display: block; }
+        .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.95); z-index: 100; }
+        .title-main { font-size: clamp(2rem, 8vw, 4rem); color: #0ff; text-shadow: 0 0 30px #0ff, 0 0 60px #08f; letter-spacing: 0.3em; margin-bottom: 0.5rem; }
+        .title-sub { font-size: clamp(0.8rem, 3vw, 1.2rem); color: #888; margin-bottom: 1.5rem; }
+        .panel { background: linear-gradient(180deg, rgba(0,40,80,0.9) 0%, rgba(0,20,40,0.95) 100%); border: 2px solid #0ff; border-radius: 15px; padding: 1.5rem; max-width: 400px; width: 90%; box-shadow: 0 0 30px rgba(0,255,255,0.3); }
+        .panel-title { color: #0ff; font-size: 1.2rem; text-align: center; margin-bottom: 1rem; text-shadow: 0 0 10px #0ff; }
+        input[type="text"] { width: 100%; padding: 12px; font-size: 1.1rem; font-family: inherit; background: rgba(0,20,40,0.8); color: #0ff; border: 2px solid #0ff; border-radius: 8px; text-align: center; margin-bottom: 12px; outline: none; }
+        input::placeholder { color: #068; }
+        .btn { display: block; width: 100%; padding: 15px; font-size: 1.1rem; font-weight: bold; font-family: inherit; border: none; border-radius: 8px; cursor: pointer; transition: all 0.3s; margin-bottom: 10px; }
+        .btn-primary { background: linear-gradient(135deg, #0ff 0%, #08f 100%); color: #000; }
+        .btn-success { background: linear-gradient(135deg, #0f0 0%, #080 100%); color: #000; }
+        .btn-secondary { background: transparent; color: #0ff; border: 2px solid #0ff; }
+        .btn:hover { transform: scale(1.02); filter: brightness(1.2); }
+        .btn:active { transform: scale(0.98); }
+        .player-list { background: rgba(0,10,20,0.8); border-radius: 8px; padding: 10px; margin: 15px 0; max-height: 200px; overflow-y: auto; }
+        .player-item { display: flex; align-items: center; gap: 10px; padding: 8px; border-bottom: 1px solid rgba(0,255,255,0.2); }
+        .player-item:last-child { border-bottom: none; }
+        .player-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+        .player-name { flex: 1; }
+        .player-status { font-size: 0.8rem; color: #0f0; }
+        .player-status.not-ready { color: #888; }
+        .status-text { text-align: center; color: #0ff; font-size: 0.9rem; margin: 10px 0; }
+        #hud { position: fixed; top: 0; left: 0; right: 0; padding: 10px; pointer-events: none; z-index: 50; display: none; }
+        .hud-top { display: flex; justify-content: space-between; align-items: flex-start; }
+        .hud-left, .hud-right { background: rgba(0,0,0,0.7); padding: 8px 12px; border-radius: 8px; font-size: 0.85rem; }
+        .hud-left { color: #0ff; }
+        .hud-right { text-align: right; }
+        .hp-bar { width: 150px; height: 12px; background: #300; border-radius: 6px; overflow: hidden; margin-top: 5px; }
+        .hp-fill { height: 100%; background: linear-gradient(90deg, #0f0, #8f0); transition: width 0.3s; }
+        .boss-container { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); width: 80%; max-width: 500px; display: none; z-index: 50; }
+        .boss-name { text-align: center; color: #f00; font-weight: bold; font-size: 1.1rem; text-shadow: 0 0 10px #f00; margin-bottom: 5px; }
+        .boss-bar { height: 20px; background: #300; border-radius: 10px; overflow: hidden; border: 2px solid #f00; }
+        .boss-fill { height: 100%; background: linear-gradient(90deg, #f00, #f80); transition: width 0.2s; }
+        .weapon-display { position: fixed; bottom: 80px; left: 10px; background: rgba(0,0,0,0.8); padding: 8px 15px; border-radius: 8px; border: 1px solid #0ff; font-size: 0.9rem; z-index: 50; display: none; }
+        .weapon-name { color: #0ff; font-weight: bold; }
+        .power-level { color: #ff0; margin-left: 10px; }
+        .mobile-controls { position: fixed; bottom: 0; left: 0; right: 0; height: 180px; display: none; pointer-events: none; z-index: 60; }
+        .joystick-container { position: absolute; bottom: 20px; left: 20px; width: 120px; height: 120px; pointer-events: auto; }
+        .joystick-base { width: 100%; height: 100%; background: rgba(255,255,255,0.1); border: 2px solid rgba(0,255,255,0.5); border-radius: 50%; }
+        .joystick-knob { position: absolute; width: 50px; height: 50px; background: rgba(0,255,255,0.6); border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+        .action-buttons { position: absolute; bottom: 20px; right: 20px; display: flex; gap: 10px; pointer-events: auto; }
+        .action-btn { width: 60px; height: 60px; border-radius: 50%; background: rgba(255,255,255,0.15); border: 2px solid; color: #fff; font-size: 0.65rem; font-weight: bold; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .btn-dash { border-color: #0ff; color: #0ff; }
+        .btn-bomb { border-color: #f80; color: #f80; }
+        .btn-switch { border-color: #0f0; color: #0f0; }
+        .btn-form { border-color: #f0f; color: #f0f; }
+        .action-btn:active { background: rgba(255,255,255,0.3); }
+        @media (hover: none) and (pointer: coarse) { .mobile-controls { display: block; } }
+        .message-container { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 70; }
+        .game-message { font-size: 2rem; color: #fff; text-shadow: 0 0 20px #0ff; text-align: center; animation: messagePop 2s forwards; }
+        @keyframes messagePop { 0% { opacity: 0; transform: scale(0.5); } 20% { opacity: 1; transform: scale(1.2); } 30% { transform: scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translateY(-50px); } }
+        .gameover-content { text-align: center; }
+        .gameover-title { font-size: 3rem; color: #f00; text-shadow: 0 0 30px #f00; margin-bottom: 1rem; }
+        .gameover-stats { font-size: 1.2rem; color: #0ff; margin: 1rem 0; }
     </style>
 </head>
 <body>
     <canvas id="game"></canvas>
-    
-    <!-- Start Screen -->
     <div id="start-screen" class="overlay">
-        <h1 class="title">PLAZMER</h1>
-        <p class="subtitle">Online Co-op Shooter</p>
-        
+        <h1 class="title-main">PLAZMER</h1>
+        <p class="title-sub">ONLINE CO-OP SHOOTER</p>
         <div class="panel">
+            <div class="panel-title">JOIN GAME</div>
             <input type="text" id="player-name" placeholder="YOUR NAME" maxlength="12">
-            <button class="btn btn-primary" onclick="joinGame()">JOIN GAME</button>
-            <p style="margin-top:15px; color:#666; font-size:0.8rem;">
-                Waiting for server connection...
-            </p>
-            <p id="connection-status" style="color:#ff0; font-size:0.8rem;"></p>
+            <button class="btn btn-primary" onclick="joinGame()">CONNECT</button>
+            <p id="connection-status" class="status-text">Connecting to server...</p>
         </div>
     </div>
-    
-    <!-- Lobby Screen -->
     <div id="lobby-screen" class="overlay" style="display:none;">
-        <h1 class="title">LOBBY</h1>
-        
+        <h1 class="title-main">LOBBY</h1>
         <div class="panel">
+            <div class="panel-title">PLAYERS</div>
             <div class="player-list" id="player-list"></div>
-            <p class="status" id="lobby-status">Waiting for players...</p>
-            <button class="btn btn-start" id="start-btn" style="display:none;" onclick="startGame()">
-                START GAME
-            </button>
-            <p style="margin-top:15px; color:#666; font-size:0.8rem;">
-                WAVE <span id="wave-display">1</span>
-            </p>
+            <p class="status-text" id="lobby-status">Waiting for players...</p>
+            <button class="btn btn-success" id="start-btn" onclick="startGame()" style="display:none;">START GAME</button>
+            <button class="btn btn-secondary" id="ready-btn" onclick="toggleReady()" style="display:none;">READY</button>
         </div>
     </div>
-    
-    <!-- HUD -->
-    <div id="ui-layer">
-        <div class="hud">
-            <div>WAVE: <span id="hud-wave">1</span></div>
-            <div>SCORE: <span id="hud-score">0</span></div>
-        </div>
-        <div class="hud hud-right">
-            <div id="players-hud"></div>
-        </div>
-        <div class="boss-bar" id="boss-bar">
-            <div class="boss-name" id="boss-name">BOSS</div>
-            <div class="boss-bar-bg">
-                <div class="boss-bar-fill" id="boss-hp"></div>
+    <div id="gameover-screen" class="overlay" style="display:none;">
+        <div class="gameover-content">
+            <h1 class="gameover-title">GAME OVER</h1>
+            <div class="gameover-stats">
+                <p>WAVE: <span id="final-wave">0</span></p>
+                <p>SCORE: <span id="final-score">0</span></p>
             </div>
+            <button class="btn btn-primary" onclick="location.reload()">RETRY</button>
         </div>
     </div>
-    
-    <!-- Mobile Controls -->
+    <div id="hud">
+        <div class="hud-top">
+            <div class="hud-left">
+                <div>WAVE: <span id="hud-wave">1</span></div>
+                <div>SCORE: <span id="hud-score">0</span></div>
+                <div class="hp-bar"><div class="hp-fill" id="hp-fill" style="width:100%"></div></div>
+            </div>
+            <div class="hud-right"><div id="players-hud"></div></div>
+        </div>
+    </div>
+    <div class="boss-container" id="boss-container">
+        <div class="boss-name" id="boss-name">BOSS</div>
+        <div class="boss-bar"><div class="boss-fill" id="boss-fill"></div></div>
+    </div>
+    <div class="weapon-display" id="weapon-display">
+        <span class="weapon-name" id="weapon-name">NORMAL</span>
+        <span class="power-level">PWR:<span id="power-level">1</span></span>
+        <span style="margin-left:10px;">BOMB:<span id="bomb-count">3</span></span>
+    </div>
     <div class="mobile-controls" id="mobile-controls">
-        <div class="joystick-area" id="joystick">
+        <div class="joystick-container" id="joystick">
+            <div class="joystick-base"></div>
             <div class="joystick-knob" id="joystick-knob"></div>
         </div>
         <div class="action-buttons">
-            <button class="action-btn" id="btn-bomb">BOMB</button>
+            <button class="action-btn btn-form" id="btn-form">FORM</button>
+            <button class="action-btn btn-switch" id="btn-switch">WEAP</button>
+            <button class="action-btn btn-bomb" id="btn-bomb">BOMB</button>
+            <button class="action-btn btn-dash" id="btn-dash">DASH</button>
         </div>
     </div>
+    <div class="message-container" id="message-container"></div>
 
     <script>
-        // Canvas setup
         const canvas = document.getElementById('game');
         const ctx = canvas.getContext('2d');
-        
-        function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        }
-        resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
-        
-        // Game state
-        let socket = null;
-        let myId = null;
-        let isHost = false;
-        let players = {};
-        let enemies = {};
-        let items = [];
-        let bullets = [];
-        let particles = [];
-        let wave = 1;
-        let gameStarted = false;
-        let currentBoss = null;
-        
-        // Player controls
-        let keys = {};
-        let mouseX = 0, mouseY = 0;
-        let joystickX = 0, joystickY = 0;
-        let lastShot = 0;
-        
-        // Connect to server
+        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+        resize(); window.addEventListener('resize', resize);
+
+        const WEAPONS = {
+            NORMAL: { color: '#ff0', speed: 15, damage: 1, rate: 100, spread: 0 },
+            SPREAD: { color: '#f80', speed: 12, damage: 1, rate: 150, spread: 15 },
+            LASER: { color: '#f00', speed: 25, damage: 0.5, rate: 50, spread: 0 },
+            MISSILE: { color: '#f0f', speed: 8, damage: 3, rate: 300, spread: 0 },
+            REFLECT: { color: '#0ff', speed: 10, damage: 1, rate: 120, spread: 0 },
+            FLAME: { color: '#f40', speed: 8, damage: 0.3, rate: 30, spread: 8, size: 8 },
+            FREEZE: { color: '#8ff', speed: 12, damage: 1, rate: 150, spread: 0 },
+            THUNDER: { color: '#ff0', speed: 20, damage: 2, rate: 200, spread: 0 },
+            PLASMA: { color: '#80f', speed: 6, damage: 5, rate: 400, spread: 0, size: 15, piercing: true },
+            BOOMERANG: { color: '#0f0', speed: 10, damage: 1.5, rate: 250, spread: 0 }
+        };
+        const FORMATIONS = ['FOLLOW', 'FRONT', 'ORBIT', 'SPREAD', 'HUNT'];
+
+        let socket = null, myId = null, isHost = false, gameStarted = false, isReady = false;
+        let players = {}, enemies = {}, items = [], bullets = [], particles = [], options = [];
+        let wave = 1, score = 0, power = 1, bombs = 3, hp = 100, maxHp = 100;
+        let currentWeapon = 'NORMAL', unlockedWeapons = ['NORMAL'], formation = 'FOLLOW';
+        let formationIndex = 0, weaponIndex = 0, optionCount = 0;
+        let worldW = 2000, worldH = 2000, cameraX = 0, cameraY = 0;
+        let keys = {}, mouseX = 0, mouseY = 0, joystickX = 0, joystickY = 0, joystickActive = false;
+        let dashing = false, dashCooldown = 0, lastShot = 0, orbitAngle = 0, damageCooldown = 0;
+
         function connectToServer() {
             const statusEl = document.getElementById('connection-status');
-            statusEl.textContent = 'Connecting...';
-            
+            statusEl.textContent = 'Connecting...'; statusEl.style.color = '#ff0';
             socket = io();
-            
-            socket.on('connect', () => {
-                statusEl.textContent = 'Connected!';
-                statusEl.style.color = '#0f0';
-            });
-            
-            socket.on('disconnect', () => {
-                statusEl.textContent = 'Disconnected!';
-                statusEl.style.color = '#f00';
-            });
-            
+            socket.on('connect', () => { statusEl.textContent = 'Connected! Enter your name'; statusEl.style.color = '#0f0'; });
+            socket.on('disconnect', () => { statusEl.textContent = 'Disconnected from server'; statusEl.style.color = '#f00'; });
             socket.on('init', (data) => {
-                myId = data.myId;
-                players = data.players;
-                enemies = data.enemies;
-                items = data.items;
-                wave = data.wave;
-                isHost = data.isHost;
-                
-                document.getElementById('wave-display').textContent = wave;
+                myId = data.myId; players = data.players; enemies = data.enemies; items = data.items;
+                wave = data.wave || 1; isHost = data.isHost; gameStarted = data.gameStarted;
+                worldW = data.worldSize?.w || 2000; worldH = data.worldSize?.h || 2000;
+                if (gameStarted) showGame();
                 updateLobbyUI();
             });
-            
-            socket.on('playerJoined', (player) => {
-                players[player.id] = player;
-                updateLobbyUI();
-            });
-            
-            socket.on('playerLeft', (id) => {
-                delete players[id];
-                updateLobbyUI();
-            });
-            
-            socket.on('playerMoved', (data) => {
-                if (players[data.id]) {
-                    players[data.id].x = data.x;
-                    players[data.id].y = data.y;
-                    players[data.id].angle = data.angle;
+            socket.on('playerJoined', (p) => { players[p.id] = p; updateLobbyUI(); });
+            socket.on('playerLeft', (id) => { delete players[id]; updateLobbyUI(); });
+            socket.on('playerMoved', (d) => { if (players[d.id]) { players[d.id].x = d.x; players[d.id].y = d.y; players[d.id].angle = d.angle; players[d.id].dashing = d.dashing; } });
+            socket.on('playerReady', (d) => { if (players[d.id]) { players[d.id].ready = d.ready; updateLobbyUI(); } });
+            socket.on('playerNameChanged', (d) => { if (players[d.id]) { players[d.id].name = d.name; updateLobbyUI(); } });
+            socket.on('hostChanged', (d) => { isHost = (d.newHostId === myId); Object.values(players).forEach(p => p.isHost = false); if (players[d.newHostId]) players[d.newHostId].isHost = true; updateLobbyUI(); });
+            socket.on('gameStarted', (d) => { gameStarted = true; wave = d.wave; resetPlayerState(); showGame(); showMessage('WAVE ' + wave + ' START!'); });
+            socket.on('gameSync', (d) => { enemies = d.enemies || {}; items = d.items || []; });
+            socket.on('enemySpawn', (e) => { enemies[e.id] = e; });
+            socket.on('enemyHit', (d) => { if (enemies[d.id]) enemies[d.id].hp = d.hp; });
+            socket.on('enemyDefeated', (d) => { createExplosion(d.x, d.y, d.isBoss ? '#f80' : '#f0f', d.isBoss ? 40 : 15); delete enemies[d.id]; if (d.isBoss) document.getElementById('boss-container').style.display = 'none'; });
+            socket.on('bossSpawn', (b) => { enemies[b.id] = b; showMessage('WARNING: ' + b.bossType); document.getElementById('boss-container').style.display = 'block'; document.getElementById('boss-name').textContent = 'WAVE ' + wave + ' - ' + b.bossType; });
+            socket.on('waveComplete', (d) => { wave = d.wave; document.getElementById('hud-wave').textContent = wave; showMessage('WAVE ' + (wave - 1) + ' CLEAR!'); });
+            socket.on('bulletFired', (b) => { bullets.push({ ...b, life: 200 }); });
+            socket.on('itemSpawn', (i) => { items.push(i); });
+            socket.on('itemCollected', (d) => {
+                items = items.filter(i => i.id !== d.itemId);
+                if (d.playerId === myId) {
+                    const s = d.playerState; power = s.power; bombs = s.bombs; optionCount = s.options; hp = s.hp; currentWeapon = s.weapon; unlockedWeapons = s.unlockedWeapons;
+                    updateOptions(); updateHUD(); showMessage('+' + d.type.toUpperCase());
                 }
             });
-            
-            socket.on('playerNameChanged', (data) => {
-                if (players[data.id]) {
-                    players[data.id].name = data.name;
-                    updateLobbyUI();
-                }
-            });
-            
-            socket.on('hostChanged', (newHostId) => {
-                isHost = (newHostId === myId);
-                if (players[newHostId]) players[newHostId].isHost = true;
-                updateLobbyUI();
-            });
-            
-            socket.on('gameStarted', (data) => {
-                gameStarted = true;
-                wave = data.wave;
-                document.getElementById('lobby-screen').style.display = 'none';
-                document.getElementById('hud-wave').textContent = wave;
-                showMessage('WAVE ' + wave + ' START!');
-            });
-            
-            socket.on('bulletFired', (bullet) => {
-                bullets.push(bullet);
-            });
-            
-            socket.on('newEnemy', (enemy) => {
-                enemies[enemy.id] = enemy;
-            });
-            
-            socket.on('enemySync', (serverEnemies) => {
-                enemies = serverEnemies;
-                // Update boss bar
-                const boss = Object.values(enemies).find(e => e.isBoss);
-                if (boss) {
-                    currentBoss = boss;
-                    document.getElementById('boss-bar').style.display = 'block';
-                    document.getElementById('boss-name').textContent = 'WAVE ' + wave + ' BOSS';
-                    document.getElementById('boss-hp').style.width = (boss.hp / boss.maxHp * 100) + '%';
-                } else {
-                    currentBoss = null;
-                    document.getElementById('boss-bar').style.display = 'none';
-                }
-            });
-            
-            socket.on('enemyHit', (data) => {
-                if (enemies[data.id]) {
-                    enemies[data.id].hp = data.hp;
-                    createParticles(enemies[data.id].x, enemies[data.id].y, '#ff0', 5);
-                }
-            });
-            
-            socket.on('enemyDefeated', (data) => {
-                createParticles(data.x, data.y, '#f00', 20);
-                delete enemies[data.id];
-                if (data.isBoss) {
-                    showMessage('BOSS DEFEATED!');
-                }
-            });
-            
-            socket.on('enemyRemoved', (id) => {
-                delete enemies[id];
-            });
-            
-            socket.on('itemSync', (serverItems) => {
-                items = serverItems;
-            });
-            
-            socket.on('itemCollected', (data) => {
-                items = items.filter(i => i.id !== data.itemId);
-                if (data.playerId === myId) {
-                    if (data.type === 'heal') {
-                        showMessage('+HP');
-                    } else {
-                        showMessage('+POWER');
-                    }
-                }
-            });
-            
-            socket.on('scoreUpdate', (data) => {
-                if (players[data.id]) {
-                    players[data.id].score = data.score;
-                }
-                if (data.id === myId) {
-                    document.getElementById('hud-score').textContent = data.score;
-                }
-            });
-            
-            socket.on('waveUpdate', (newWave) => {
-                wave = newWave;
-                document.getElementById('hud-wave').textContent = wave;
-                showMessage('WAVE ' + wave);
-            });
-            
-            socket.on('bossSpawned', (boss) => {
-                showMessage('WARNING: BOSS INCOMING!');
-            });
+            socket.on('weaponChanged', (d) => { if (d.id === myId) { currentWeapon = d.weapon; updateHUD(); } });
+            socket.on('formationChanged', (d) => { if (d.id === myId) formation = d.formation; });
+            socket.on('scoreUpdate', (d) => { if (players[d.id]) players[d.id].score = d.score; if (d.id === myId) { score = d.score; document.getElementById('hud-score').textContent = score; } });
+            socket.on('bombUsed', (d) => { createExplosion(d.x, d.y, '#ff0', 50); if (d.playerId === myId) { bombs = d.bombs; updateHUD(); } });
+            socket.on('playerHpChanged', (d) => { if (d.id === myId) { hp = d.hp; updateHUD(); } });
+            socket.on('playerDied', (d) => { if (d.id === myId) { hp = 0; updateHUD(); } });
+            socket.on('gameOver', (d) => { gameStarted = false; document.getElementById('final-wave').textContent = d.finalWave; document.getElementById('final-score').textContent = score; document.getElementById('hud').style.display = 'none'; document.getElementById('weapon-display').style.display = 'none'; document.getElementById('boss-container').style.display = 'none'; document.getElementById('gameover-screen').style.display = 'flex'; });
         }
-        
-        // Join game
-        function joinGame() {
-            const name = document.getElementById('player-name').value || 'Player';
-            socket.emit('setName', name);
-            
-            document.getElementById('start-screen').style.display = 'none';
-            document.getElementById('lobby-screen').style.display = 'flex';
-        }
-        
-        // Start game (host only)
-        function startGame() {
-            if (isHost) {
-                socket.emit('startGame');
-            }
-        }
-        
-        // Update lobby UI
+
+        function joinGame() { const name = document.getElementById('player-name').value.trim() || 'Player'; socket.emit('setName', name); document.getElementById('start-screen').style.display = 'none'; document.getElementById('lobby-screen').style.display = 'flex'; updateLobbyUI(); }
         function updateLobbyUI() {
-            const listEl = document.getElementById('player-list');
-            listEl.innerHTML = '';
-            
+            const listEl = document.getElementById('player-list'); listEl.innerHTML = '';
             Object.values(players).forEach(p => {
-                const div = document.createElement('div');
-                div.className = 'player-item';
-                div.innerHTML = `
-                    <div class="player-dot" style="background:${p.color}"></div>
-                    <span>${p.name}${p.isHost ? ' (Host)' : ''}${p.id === myId ? ' (You)' : ''}</span>
-                `;
+                const div = document.createElement('div'); div.className = 'player-item';
+                div.innerHTML = `<div class="player-dot" style="background:${p.color}"></div><span class="player-name">${p.name}${p.isHost ? ' (Host)' : ''}${p.id === myId ? ' (You)' : ''}</span><span class="player-status ${p.ready || p.isHost ? '' : 'not-ready'}">${p.isHost ? '👑' : (p.ready ? '✓' : '...')}</span>`;
                 listEl.appendChild(div);
             });
-            
-            // Show start button for host
-            const startBtn = document.getElementById('start-btn');
-            startBtn.style.display = isHost ? 'block' : 'none';
-            
-            const status = document.getElementById('lobby-status');
-            const count = Object.keys(players).length;
-            status.textContent = count + ' player(s) in lobby';
+            document.getElementById('start-btn').style.display = isHost ? 'block' : 'none';
+            document.getElementById('ready-btn').style.display = isHost ? 'none' : 'block';
+            document.getElementById('ready-btn').textContent = isReady ? '✓ READY' : 'READY';
+            document.getElementById('lobby-status').textContent = Object.keys(players).length + ' player(s) connected';
         }
-        
-        // Input handlers
-        window.addEventListener('keydown', e => keys[e.code] = true);
+        function toggleReady() { isReady = !isReady; socket.emit('ready', isReady); updateLobbyUI(); }
+        function startGame() { if (isHost) socket.emit('startGame'); }
+        function showGame() { document.getElementById('lobby-screen').style.display = 'none'; document.getElementById('hud').style.display = 'block'; document.getElementById('weapon-display').style.display = 'block'; updateHUD(); }
+        function resetPlayerState() { hp = 100; score = 0; power = 1; bombs = 3; optionCount = 0; currentWeapon = 'NORMAL'; unlockedWeapons = ['NORMAL']; formation = 'FOLLOW'; options = []; bullets = []; particles = []; }
+        function updateHUD() {
+            document.getElementById('hud-wave').textContent = wave;
+            document.getElementById('hud-score').textContent = score;
+            document.getElementById('hp-fill').style.width = (hp / maxHp * 100) + '%';
+            document.getElementById('weapon-name').textContent = currentWeapon;
+            document.getElementById('power-level').textContent = power;
+            document.getElementById('bomb-count').textContent = bombs;
+            const boss = Object.values(enemies).find(e => e.isBoss);
+            if (boss) document.getElementById('boss-fill').style.width = (boss.hp / boss.maxHp * 100) + '%';
+            document.getElementById('players-hud').innerHTML = Object.values(players).map(p => `<div style="color:${p.color}">${p.name}: ${p.score || 0}</div>`).join('');
+        }
+        function updateOptions() { while (options.length < optionCount) options.push({ x: players[myId]?.x || worldW/2, y: players[myId]?.y || worldH/2 }); while (options.length > optionCount) options.pop(); }
+        function showMessage(text) { const container = document.getElementById('message-container'); const msg = document.createElement('div'); msg.className = 'game-message'; msg.textContent = text; container.appendChild(msg); setTimeout(() => msg.remove(), 2000); }
+
+        window.addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Space') e.preventDefault(); });
         window.addEventListener('keyup', e => keys[e.code] = false);
-        window.addEventListener('mousemove', e => {
-            mouseX = e.clientX;
-            mouseY = e.clientY;
-        });
-        
-        // Mobile joystick
-        const joystickEl = document.getElementById('joystick');
-        const knobEl = document.getElementById('joystick-knob');
-        let joystickActive = false;
+        canvas.addEventListener('mousemove', e => { mouseX = e.clientX; mouseY = e.clientY; });
+        window.addEventListener('keydown', e => { if (!gameStarted) return; if (e.code === 'KeyX' || e.code === 'KeyB') useBomb(); if (e.code === 'KeyZ' || e.code === 'KeyN') switchWeapon(); if (e.code === 'KeyC' || e.code === 'KeyM') switchFormation(); });
+
+        const joystickEl = document.getElementById('joystick'), knobEl = document.getElementById('joystick-knob');
         let joystickCenter = { x: 0, y: 0 };
-        
-        joystickEl?.addEventListener('touchstart', (e) => {
-            joystickActive = true;
-            const rect = joystickEl.getBoundingClientRect();
-            joystickCenter = { x: rect.left + rect.width/2, y: rect.top + rect.height/2 };
-        });
-        
-        window.addEventListener('touchmove', (e) => {
-            if (joystickActive) {
-                const touch = e.touches[0];
-                const dx = touch.clientX - joystickCenter.x;
-                const dy = touch.clientY - joystickCenter.y;
-                const dist = Math.min(40, Math.sqrt(dx*dx + dy*dy));
-                const angle = Math.atan2(dy, dx);
-                
-                joystickX = Math.cos(angle) * (dist / 40);
-                joystickY = Math.sin(angle) * (dist / 40);
-                
-                knobEl.style.transform = `translate(calc(-50% + ${joystickX * 40}px), calc(-50% + ${joystickY * 40}px))`;
+        joystickEl?.addEventListener('touchstart', e => { e.preventDefault(); joystickActive = true; const rect = joystickEl.getBoundingClientRect(); joystickCenter = { x: rect.left + rect.width/2, y: rect.top + rect.height/2 }; });
+        window.addEventListener('touchmove', e => {
+            if (joystickActive && e.touches[0]) {
+                const touch = e.touches[0], dx = touch.clientX - joystickCenter.x, dy = touch.clientY - joystickCenter.y;
+                const dist = Math.min(50, Math.sqrt(dx*dx + dy*dy)), angle = Math.atan2(dy, dx);
+                joystickX = Math.cos(angle) * (dist / 50); joystickY = Math.sin(angle) * (dist / 50);
+                knobEl.style.left = (50 + joystickX * 35) + '%'; knobEl.style.top = (50 + joystickY * 35) + '%';
             }
         });
-        
-        window.addEventListener('touchend', () => {
-            joystickActive = false;
-            joystickX = 0;
-            joystickY = 0;
-            knobEl.style.transform = 'translate(-50%, -50%)';
-        });
-        
-        // Game loop
+        window.addEventListener('touchend', e => { if (e.touches.length === 0) { joystickActive = false; joystickX = 0; joystickY = 0; knobEl.style.left = '50%'; knobEl.style.top = '50%'; } });
+        document.getElementById('btn-dash')?.addEventListener('touchstart', e => { e.preventDefault(); startDash(); });
+        document.getElementById('btn-bomb')?.addEventListener('touchstart', e => { e.preventDefault(); useBomb(); });
+        document.getElementById('btn-switch')?.addEventListener('touchstart', e => { e.preventDefault(); switchWeapon(); });
+        document.getElementById('btn-form')?.addEventListener('touchstart', e => { e.preventDefault(); switchFormation(); });
+
+        function startDash() { if (dashCooldown <= 0 && !dashing) { dashing = true; setTimeout(() => { dashing = false; dashCooldown = 90; }, 300); } }
+        function useBomb() { if (bombs > 0) socket.emit('useBomb'); }
+        function switchWeapon() { if (unlockedWeapons.length > 1) { weaponIndex = (weaponIndex + 1) % unlockedWeapons.length; currentWeapon = unlockedWeapons[weaponIndex]; socket.emit('switchWeapon', currentWeapon); updateHUD(); showMessage('WEAPON: ' + currentWeapon); } }
+        function switchFormation() { formationIndex = (formationIndex + 1) % FORMATIONS.length; formation = FORMATIONS[formationIndex]; socket.emit('changeFormation', formation); showMessage('FORM: ' + formation); }
+
+        function shoot() {
+            if (!myId || !players[myId] || hp <= 0) return;
+            const me = players[myId], weapon = WEAPONS[currentWeapon], now = Date.now();
+            if (now - lastShot < weapon.rate) return;
+            lastShot = now;
+            const baseAngle = -Math.PI / 2, bulletCount = Math.min(1 + Math.floor(power / 3), 5), spreadAngle = weapon.spread * (Math.PI / 180);
+            for (let i = 0; i < bulletCount; i++) {
+                let angle = baseAngle; if (bulletCount > 1) angle += spreadAngle * (i - (bulletCount - 1) / 2);
+                socket.emit('shoot', { x: me.x, y: me.y - 20, vx: Math.cos(angle) * weapon.speed, vy: Math.sin(angle) * weapon.speed, weapon: currentWeapon, damage: weapon.damage * (1 + power * 0.1), size: weapon.size || 5, piercing: weapon.piercing });
+            }
+            options.forEach(opt => { socket.emit('shoot', { x: opt.x, y: opt.y, vx: 0, vy: -weapon.speed, weapon: currentWeapon, damage: weapon.damage * 0.5, size: 4 }); });
+        }
+
         function update() {
-            if (!gameStarted || !myId || !players[myId]) return;
-            
-            const me = players[myId];
-            const speed = 5;
-            let moved = false;
-            
-            // Keyboard movement
-            if (keys['ArrowUp'] || keys['KeyW']) { me.y -= speed; moved = true; }
-            if (keys['ArrowDown'] || keys['KeyS']) { me.y += speed; moved = true; }
-            if (keys['ArrowLeft'] || keys['KeyA']) { me.x -= speed; moved = true; }
-            if (keys['ArrowRight'] || keys['KeyD']) { me.x += speed; moved = true; }
-            
-            // Joystick movement
-            if (Math.abs(joystickX) > 0.1 || Math.abs(joystickY) > 0.1) {
-                me.x += joystickX * speed;
-                me.y += joystickY * speed;
-                moved = true;
-            }
-            
-            // Mouse follow (PC)
-            if (!joystickActive && !Object.values(keys).some(k => k)) {
-                const dx = mouseX - me.x;
-                const dy = mouseY - me.y;
-                const dist = Math.sqrt(dx*dx + dy*dy);
-                if (dist > 10) {
-                    me.x += (dx / dist) * speed * 0.8;
-                    me.y += (dy / dist) * speed * 0.8;
-                    moved = true;
+            if (!gameStarted || !myId || !players[myId] || hp <= 0) return;
+            const me = players[myId], speed = dashing ? 12 : 6;
+            let dx = 0, dy = 0;
+            if (keys['ArrowUp'] || keys['KeyW']) dy -= 1;
+            if (keys['ArrowDown'] || keys['KeyS']) dy += 1;
+            if (keys['ArrowLeft'] || keys['KeyA']) dx -= 1;
+            if (keys['ArrowRight'] || keys['KeyD']) dx += 1;
+            if (Math.abs(joystickX) > 0.1) dx = joystickX;
+            if (Math.abs(joystickY) > 0.1) dy = joystickY;
+            if (dx !== 0 || dy !== 0) { const len = Math.sqrt(dx*dx + dy*dy); me.x += (dx / len) * speed; me.y += (dy / len) * speed; }
+            me.x = Math.max(30, Math.min(worldW - 30, me.x));
+            me.y = Math.max(30, Math.min(worldH - 30, me.y));
+            if (keys['ShiftLeft'] || keys['ShiftRight']) startDash();
+            if (dashCooldown > 0) dashCooldown--;
+            if (damageCooldown > 0) damageCooldown--;
+            socket.emit('move', { x: me.x, y: me.y, angle: me.angle, dashing: dashing });
+            cameraX = me.x - canvas.width / 2; cameraY = me.y - canvas.height / 2;
+            cameraX = Math.max(0, Math.min(worldW - canvas.width, cameraX));
+            cameraY = Math.max(0, Math.min(worldH - canvas.height, cameraY));
+            shoot();
+            orbitAngle += 0.05;
+            options.forEach((opt, i) => {
+                const tx = me.x, ty = me.y;
+                switch (formation) {
+                    case 'FOLLOW': opt.x += (tx - opt.x) * 0.1; opt.y += (ty + 40 + i * 25 - opt.y) * 0.1; break;
+                    case 'FRONT': opt.x += (tx + (i - optionCount/2 + 0.5) * 40 - opt.x) * 0.15; opt.y += (ty - 60 - opt.y) * 0.15; break;
+                    case 'ORBIT': const a = orbitAngle + (i / optionCount) * Math.PI * 2; opt.x += (tx + Math.cos(a) * 60 - opt.x) * 0.2; opt.y += (ty + Math.sin(a) * 60 - opt.y) * 0.2; break;
+                    case 'SPREAD': const sa = -Math.PI/2 + (i - optionCount/2 + 0.5) * 0.5; opt.x += (tx + Math.cos(sa) * 80 - opt.x) * 0.15; opt.y += (ty + Math.sin(sa) * 80 - opt.y) * 0.15; break;
+                    case 'HUNT': let nearest = null, minD = Infinity; Object.values(enemies).forEach(e => { const d = Math.sqrt((e.x - opt.x)**2 + (e.y - opt.y)**2); if (d < minD) { minD = d; nearest = e; } }); if (nearest && minD < 300) { opt.x += (nearest.x - opt.x) * 0.03; opt.y += (nearest.y - opt.y) * 0.03; } else { opt.x += (tx - opt.x) * 0.05; opt.y += (ty + 40 - opt.y) * 0.05; } break;
                 }
-            }
-            
-            // Boundary
-            me.x = Math.max(20, Math.min(canvas.width - 20, me.x));
-            me.y = Math.max(20, Math.min(canvas.height - 20, me.y));
-            
-            // Calculate angle
-            me.angle = Math.atan2(mouseY - me.y, mouseX - me.x);
-            
-            // Send position
-            if (moved || Date.now() - (me.lastSend || 0) > 50) {
-                socket.emit('move', { x: me.x, y: me.y, angle: me.angle });
-                me.lastSend = Date.now();
-            }
-            
-            // Auto shoot
-            const now = Date.now();
-            if (now - lastShot > 150) {
-                shoot();
-                lastShot = now;
-            }
-            
-            // Update bullets
-            bullets = bullets.filter(b => {
-                b.x += b.vx;
-                b.y += b.vy;
-                return b.x > -50 && b.x < canvas.width + 50 && b.y > -50 && b.y < canvas.height + 50;
             });
-            
-            // Collision: my bullets vs enemies
+            bullets = bullets.filter(b => { b.x += b.vx; b.y += b.vy; b.life--; return b.life > 0 && b.x > -100 && b.x < worldW + 100 && b.y > -100 && b.y < worldH + 100; });
             bullets.forEach((b, bi) => {
                 if (b.ownerId !== myId) return;
-                
                 Object.values(enemies).forEach(enemy => {
-                    const dx = b.x - enemy.x;
-                    const dy = b.y - enemy.y;
-                    const hitDist = enemy.isBoss ? 50 : 25;
-                    
-                    if (Math.sqrt(dx*dx + dy*dy) < hitDist) {
-                        bullets.splice(bi, 1);
-                        socket.emit('hitEnemy', { enemyId: enemy.id, damage: 1 });
-                    }
+                    const dist = Math.sqrt((b.x - enemy.x)**2 + (b.y - enemy.y)**2), hitDist = (enemy.size || 20) + (b.size || 5);
+                    if (dist < hitDist) { socket.emit('hitEnemy', { enemyId: enemy.id, damage: b.damage || 1 }); if (!b.piercing) bullets.splice(bi, 1); createParticle(b.x, b.y, b.color || '#ff0'); }
                 });
             });
-            
-            // Collision: me vs items
-            items.forEach(item => {
-                const dx = me.x - item.x;
-                const dy = me.y - item.y;
-                if (Math.sqrt(dx*dx + dy*dy) < 30) {
-                    socket.emit('collectItem', item.id);
-                }
-            });
-            
-            // Update particles
-            particles = particles.filter(p => {
-                p.x += p.vx;
-                p.y += p.vy;
-                p.life--;
-                return p.life > 0;
-            });
+            if (!dashing && damageCooldown <= 0) {
+                Object.values(enemies).forEach(enemy => {
+                    const dist = Math.sqrt((me.x - enemy.x)**2 + (me.y - enemy.y)**2);
+                    if (dist < (enemy.size || 20) + 20) { socket.emit('playerDamaged', 10); damageCooldown = 30; }
+                });
+            }
+            items.forEach(item => { const dist = Math.sqrt((me.x - item.x)**2 + (me.y - item.y)**2); if (dist < 40) socket.emit('collectItem', item.id); });
+            particles = particles.filter(p => { p.x += p.vx; p.y += p.vy; p.life--; return p.life > 0; });
+            updateHUD();
         }
-        
-        function shoot() {
-            if (!myId || !players[myId]) return;
-            const me = players[myId];
-            
-            socket.emit('shoot', {
-                x: me.x,
-                y: me.y - 20,
-                vx: 0,
-                vy: -12
-            });
-        }
-        
+
         function draw() {
-            ctx.fillStyle = '#000';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            // Draw grid
-            ctx.strokeStyle = '#0a2030';
-            ctx.lineWidth = 1;
-            for (let x = 0; x < canvas.width; x += 50) {
-                ctx.beginPath();
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x, canvas.height);
-                ctx.stroke();
-            }
-            for (let y = 0; y < canvas.height; y += 50) {
-                ctx.beginPath();
-                ctx.moveTo(0, y);
-                ctx.lineTo(canvas.width, y);
-                ctx.stroke();
-            }
-            
-            // Draw items
+            ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.save(); ctx.translate(-cameraX, -cameraY);
+            ctx.strokeStyle = '#112'; ctx.lineWidth = 1;
+            for (let x = 0; x <= worldW; x += 100) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, worldH); ctx.stroke(); }
+            for (let y = 0; y <= worldH; y += 100) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(worldW, y); ctx.stroke(); }
             items.forEach(item => {
-                ctx.fillStyle = item.type === 'heal' ? '#0f0' : '#ff0';
-                ctx.beginPath();
-                ctx.arc(item.x, item.y, 10, 0, Math.PI * 2);
-                ctx.fill();
+                const colors = { power: '#ff0', weapon: '#f0f', option: '#0ff', bomb: '#f80', heal: '#0f0' };
+                ctx.fillStyle = colors[item.type] || '#fff'; ctx.beginPath(); ctx.arc(item.x, item.y, 12, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#000'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(item.type[0].toUpperCase(), item.x, item.y + 4);
             });
-            
-            // Draw enemies
             Object.values(enemies).forEach(enemy => {
                 if (enemy.isBoss) {
-                    // Boss
-                    ctx.fillStyle = '#f00';
-                    ctx.beginPath();
-                    ctx.arc(enemy.x, enemy.y, 40, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.strokeStyle = '#f80';
-                    ctx.lineWidth = 3;
-                    ctx.stroke();
-                } else if (enemy.type === 'hard') {
-                    ctx.fillStyle = '#a00';
-                    ctx.fillRect(enemy.x - 15, enemy.y - 15, 30, 30);
+                    ctx.fillStyle = '#f00'; ctx.beginPath(); ctx.arc(enemy.x, enemy.y, enemy.size, 0, Math.PI * 2); ctx.fill();
+                    ctx.strokeStyle = '#f80'; ctx.lineWidth = 4; ctx.stroke();
+                    ctx.fillStyle = '#ff0'; ctx.beginPath(); ctx.arc(enemy.x, enemy.y, 20, 0, Math.PI * 2); ctx.fill();
                 } else {
-                    ctx.fillStyle = '#808';
-                    ctx.beginPath();
-                    ctx.moveTo(enemy.x, enemy.y + 15);
-                    ctx.lineTo(enemy.x - 15, enemy.y - 15);
-                    ctx.lineTo(enemy.x + 15, enemy.y - 15);
-                    ctx.closePath();
-                    ctx.fill();
-                }
-                
-                // HP bar (non-boss)
-                if (!enemy.isBoss) {
-                    const hpPct = enemy.hp / enemy.maxHp;
-                    ctx.fillStyle = '#333';
-                    ctx.fillRect(enemy.x - 15, enemy.y - 25, 30, 4);
-                    ctx.fillStyle = '#0f0';
-                    ctx.fillRect(enemy.x - 15, enemy.y - 25, 30 * hpPct, 4);
+                    ctx.fillStyle = enemy.color || '#f0f'; ctx.beginPath(); ctx.arc(enemy.x, enemy.y, enemy.size || 20, 0, Math.PI * 2); ctx.fill();
+                    const hpPct = enemy.hp / enemy.maxHp, barW = (enemy.size || 20) * 2;
+                    ctx.fillStyle = '#300'; ctx.fillRect(enemy.x - barW/2, enemy.y - (enemy.size || 20) - 10, barW, 4);
+                    ctx.fillStyle = '#0f0'; ctx.fillRect(enemy.x - barW/2, enemy.y - (enemy.size || 20) - 10, barW * hpPct, 4);
                 }
             });
-            
-            // Draw bullets
-            bullets.forEach(b => {
-                ctx.fillStyle = b.color || '#ff0';
-                ctx.beginPath();
-                ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
-                ctx.fill();
-            });
-            
-            // Draw players
+            bullets.forEach(b => { ctx.fillStyle = b.color || '#ff0'; ctx.beginPath(); ctx.arc(b.x, b.y, b.size || 5, 0, Math.PI * 2); ctx.fill(); });
             Object.values(players).forEach(p => {
-                // Ship body
-                ctx.fillStyle = p.color;
-                ctx.beginPath();
-                ctx.moveTo(p.x, p.y - 20);
-                ctx.lineTo(p.x - 15, p.y + 15);
-                ctx.lineTo(p.x, p.y + 5);
-                ctx.lineTo(p.x + 15, p.y + 15);
-                ctx.closePath();
-                ctx.fill();
-                
-                // Name
-                ctx.fillStyle = '#fff';
-                ctx.font = '12px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.fillText(p.name, p.x, p.y + 35);
+                if (p.hp <= 0) return;
+                ctx.save(); ctx.translate(p.x, p.y);
+                if (p.dashing) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI * 2); ctx.stroke(); }
+                ctx.fillStyle = p.color; ctx.beginPath(); ctx.moveTo(0, -25); ctx.lineTo(-18, 20); ctx.lineTo(0, 10); ctx.lineTo(18, 20); ctx.closePath(); ctx.fill();
+                ctx.fillStyle = '#f80'; ctx.beginPath(); ctx.moveTo(-8, 15); ctx.lineTo(0, 30 + Math.random() * 5); ctx.lineTo(8, 15); ctx.fill();
+                ctx.restore();
+                ctx.fillStyle = '#fff'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(p.name, p.x, p.y + 45);
             });
-            
-            // Draw particles
-            particles.forEach(p => {
-                ctx.globalAlpha = p.life / p.maxLife;
-                ctx.fillStyle = p.color;
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-                ctx.fill();
-            });
-            ctx.globalAlpha = 1;
-            
-            // Update HUD
-            updatePlayersHud();
-        }
-        
-        function createParticles(x, y, color, count) {
-            for (let i = 0; i < count; i++) {
-                particles.push({
-                    x: x,
-                    y: y,
-                    vx: (Math.random() - 0.5) * 8,
-                    vy: (Math.random() - 0.5) * 8,
-                    life: 30,
-                    maxLife: 30,
-                    color: color,
-                    size: Math.random() * 4 + 2
+            if (myId && players[myId]) {
+                options.forEach(opt => {
+                    ctx.fillStyle = players[myId].color; ctx.beginPath(); ctx.arc(opt.x, opt.y, 10, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(opt.x, opt.y, 4, 0, Math.PI * 2); ctx.fill();
                 });
             }
+            particles.forEach(p => { ctx.globalAlpha = p.life / p.maxLife; ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill(); });
+            ctx.globalAlpha = 1;
+            ctx.restore();
         }
-        
-        let messageTimeout;
-        function showMessage(text) {
-            // Simple message display - could be enhanced
-            console.log(text);
-        }
-        
-        function updatePlayersHud() {
-            const el = document.getElementById('players-hud');
-            el.innerHTML = Object.values(players).map(p => 
-                `<div style="color:${p.color}">${p.name}: ${p.score || 0}</div>`
-            ).join('');
-        }
-        
-        // Main loop
-        function gameLoop() {
-            update();
-            draw();
-            requestAnimationFrame(gameLoop);
-        }
-        
-        // Start
-        connectToServer();
-        gameLoop();
+
+        function createParticle(x, y, color) { particles.push({ x, y, vx: (Math.random() - 0.5) * 4, vy: (Math.random() - 0.5) * 4, life: 20, maxLife: 20, color, size: Math.random() * 3 + 1 }); }
+        function createExplosion(x, y, color, count) { for (let i = 0; i < count; i++) particles.push({ x, y, vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10, life: 30 + Math.random() * 20, maxLife: 50, color, size: Math.random() * 6 + 2 }); }
+        function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+        connectToServer(); gameLoop();
     </script>
 </body>
 </html>
