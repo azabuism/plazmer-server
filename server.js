@@ -1,277 +1,450 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    }
+    cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
-// 静的ファイル配信
 app.use(express.static('public'));
 
-// ゲーム状態
+// ========== GAME CONSTANTS ==========
+const WORLD_W = 2000;
+const WORLD_H = 2000;
+const PLAYER_COLORS = ['#00f2ff', '#ff6600', '#00ff66', '#ff00ff'];
+const WEAPONS = ['NORMAL', 'SPREAD', 'LASER', 'MISSILE', 'REFLECT', 'FLAME', 'FREEZE', 'THUNDER', 'PLASMA', 'BOOMERANG'];
+
+// ========== GAME STATE ==========
 let players = {};
 let enemies = {};
 let items = [];
-let bullets = [];
-let wave = 1;
+let wave = 0;
 let enemyIdCounter = 0;
+let itemIdCounter = 0;
 let gameStarted = false;
 let hostId = null;
+let bossActive = false;
+let mobSpawnTimer = 0;
 
-// 敵生成
+// ========== HELPER FUNCTIONS ==========
+function generateSpawnPosition() {
+    const side = Math.floor(Math.random() * 4);
+    let x, y;
+    switch(side) {
+        case 0: x = Math.random() * WORLD_W; y = -50; break;
+        case 1: x = WORLD_W + 50; y = Math.random() * WORLD_H; break;
+        case 2: x = Math.random() * WORLD_W; y = WORLD_H + 50; break;
+        case 3: x = -50; y = Math.random() * WORLD_H; break;
+    }
+    return { x, y };
+}
+
 function spawnEnemy() {
-    const id = 'enemy_' + (enemyIdCounter++);
-    const type = Math.random() < 0.3 ? 'hard' : 'fast';
-    const enemy = {
-        id: id,
-        x: Math.random() * 700 + 50,
-        y: -30,
-        speed: type === 'fast' ? 3 : 1.5,
-        hp: type === 'hard' ? 5 : 2,
-        maxHp: type === 'hard' ? 5 : 2,
-        type: type
-    };
-    enemies[id] = enemy;
-    io.emit('newEnemy', enemy);
-}
-
-// ボス生成
-function spawnBoss() {
-    const id = 'boss_' + (enemyIdCounter++);
-    const playerCount = Object.keys(players).length;
-    const boss = {
-        id: id,
-        x: 400,
-        y: -50,
-        speed: 0.5,
-        hp: 50 + (wave * 10) + (playerCount * 20),
-        maxHp: 50 + (wave * 10) + (playerCount * 20),
-        type: 'boss',
-        isBoss: true
-    };
-    enemies[id] = boss;
-    io.emit('newEnemy', boss);
-    io.emit('bossSpawned', boss);
-}
-
-// ゲームループ
-let lastEnemySpawn = Date.now();
-let bossSpawned = false;
-
-function gameLoop() {
-    if (!gameStarted || Object.keys(players).length === 0) return;
-
-    const now = Date.now();
+    const pos = generateSpawnPosition();
+    const types = ['normal', 'fast', 'tank', 'shooter'];
+    const type = types[Math.floor(Math.random() * types.length)];
     
-    // 敵の移動
-    Object.values(enemies).forEach(enemy => {
-        enemy.y += enemy.speed;
-        
-        // 画面外に出たら削除
-        if (enemy.y > 650) {
-            delete enemies[enemy.id];
-            io.emit('enemyRemoved', enemy.id);
+    const stats = {
+        normal: { hp: 3, speed: 1.5, size: 20, color: '#f0f' },
+        fast: { hp: 2, speed: 3, size: 15, color: '#ff0' },
+        tank: { hp: 8, speed: 0.8, size: 30, color: '#f80' },
+        shooter: { hp: 4, speed: 1, size: 22, color: '#f00' }
+    };
+    
+    const id = 'enemy_' + (enemyIdCounter++);
+    const enemy = {
+        id,
+        x: pos.x,
+        y: pos.y,
+        type,
+        hp: stats[type].hp,
+        maxHp: stats[type].hp,
+        speed: stats[type].speed,
+        size: stats[type].size,
+        color: stats[type].color,
+        angle: 0
+    };
+    
+    enemies[id] = enemy;
+    return enemy;
+}
+
+function spawnBoss() {
+    const playerCount = Object.keys(players).length || 1;
+    const bossTypes = ['GUARDIAN', 'DESTROYER', 'SWARM', 'TITAN', 'PHANTOM'];
+    const bossType = bossTypes[(wave - 1) % bossTypes.length];
+    
+    const baseHp = 100 + wave * 30;
+    const scaledHp = Math.floor(baseHp * (1 + (playerCount - 1) * 0.5));
+    
+    const id = 'boss_' + (enemyIdCounter++);
+    const boss = {
+        id,
+        x: WORLD_W / 2,
+        y: WORLD_H / 2 - 300,
+        type: 'boss',
+        bossType,
+        hp: scaledHp,
+        maxHp: scaledHp,
+        speed: 1.5,
+        size: 60,
+        color: '#f00',
+        isBoss: true,
+        angle: 0
+    };
+    
+    enemies[id] = boss;
+    bossActive = true;
+    io.emit('bossSpawn', boss);
+    return boss;
+}
+
+function spawnItem(x, y) {
+    const types = ['power', 'weapon', 'option', 'bomb', 'heal'];
+    const weights = [40, 25, 15, 10, 10];
+    
+    const total = weights.reduce((a, b) => a + b, 0);
+    let rand = Math.random() * total;
+    let type = types[0];
+    for (let i = 0; i < types.length; i++) {
+        rand -= weights[i];
+        if (rand <= 0) { type = types[i]; break; }
+    }
+    
+    const id = 'item_' + (itemIdCounter++);
+    const item = { id, x, y, type };
+    items.push(item);
+    return item;
+}
+
+function findNearestPlayer(x, y) {
+    let nearest = null;
+    let minDist = Infinity;
+    
+    Object.values(players).forEach(p => {
+        if (p.hp <= 0) return;
+        const dx = p.x - x;
+        const dy = p.y - y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < minDist) {
+            minDist = dist;
+            nearest = p;
         }
     });
-
-    // 敵のスポーン（2秒ごと）
-    if (now - lastEnemySpawn > 2000 && Object.keys(enemies).length < 15) {
-        // ボスがいなければ通常敵をスポーン
-        const hasBoss = Object.values(enemies).some(e => e.isBoss);
-        if (!hasBoss) {
-            spawnEnemy();
-        }
-        lastEnemySpawn = now;
-    }
-
-    // 敵の位置を全員に同期（100msごと）
-    io.emit('enemySync', enemies);
-    io.emit('itemSync', items);
+    
+    return nearest;
 }
 
-setInterval(gameLoop, 100);
+// ========== GAME LOOP ==========
+function gameLoop() {
+    if (!gameStarted || Object.keys(players).length === 0) return;
+    
+    // Move enemies toward nearest player
+    Object.values(enemies).forEach(enemy => {
+        const target = findNearestPlayer(enemy.x, enemy.y);
+        if (target) {
+            const dx = target.x - enemy.x;
+            const dy = target.y - enemy.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist > 0) {
+                enemy.x += (dx / dist) * enemy.speed;
+                enemy.y += (dy / dist) * enemy.speed;
+                enemy.angle = Math.atan2(dy, dx);
+            }
+        }
+    });
+    
+    // Spawn mobs during boss fight
+    if (bossActive) {
+        mobSpawnTimer++;
+        if (mobSpawnTimer > 60) {
+            mobSpawnTimer = 0;
+            const mobCount = Math.min(2 + Math.floor(wave / 3), 6);
+            for (let i = 0; i < mobCount; i++) {
+                const enemy = spawnEnemy();
+                io.emit('enemySpawn', enemy);
+            }
+        }
+    }
+    
+    // Sync enemies position
+    io.emit('gameSync', {
+        enemies: enemies,
+        items: items
+    });
+}
 
-// Socket.IO 接続処理
+setInterval(gameLoop, 50);
+
+// ========== SOCKET HANDLERS ==========
 io.on('connection', (socket) => {
     console.log('Player connected:', socket.id);
-
-    // 新規プレイヤー作成
-    const colors = ['#00f2ff', '#ff6600', '#00ff66', '#ff00ff'];
-    const colorIndex = Object.keys(players).length % colors.length;
     
+    const colorIndex = Object.keys(players).length % PLAYER_COLORS.length;
     players[socket.id] = {
         id: socket.id,
-        x: 400,
-        y: 500,
-        color: colors[colorIndex],
         name: 'Player' + (Object.keys(players).length + 1),
+        x: WORLD_W / 2 + (Math.random() - 0.5) * 200,
+        y: WORLD_H / 2 + (Math.random() - 0.5) * 200,
+        angle: -Math.PI / 2,
+        color: PLAYER_COLORS[colorIndex],
         hp: 100,
-        score: 0
+        maxHp: 100,
+        score: 0,
+        power: 1,
+        bombs: 3,
+        options: 0,
+        weapon: 'NORMAL',
+        unlockedWeapons: ['NORMAL'],
+        formation: 'FOLLOW',
+        dashing: false,
+        isHost: false,
+        ready: false
     };
-
-    // 最初のプレイヤーをホストに
+    
     if (!hostId) {
         hostId = socket.id;
         players[socket.id].isHost = true;
     }
-
-    // 現在の状態を送信
+    
     socket.emit('init', {
         myId: socket.id,
         players: players,
         enemies: enemies,
         items: items,
         wave: wave,
-        isHost: socket.id === hostId
+        isHost: socket.id === hostId,
+        gameStarted: gameStarted,
+        worldSize: { w: WORLD_W, h: WORLD_H }
     });
-
-    // 他プレイヤーに通知
+    
     socket.broadcast.emit('playerJoined', players[socket.id]);
-
-    // プレイヤー移動
+    
     socket.on('move', (data) => {
         if (players[socket.id]) {
             players[socket.id].x = data.x;
             players[socket.id].y = data.y;
             players[socket.id].angle = data.angle;
+            players[socket.id].dashing = data.dashing || false;
             socket.broadcast.emit('playerMoved', {
                 id: socket.id,
                 x: data.x,
                 y: data.y,
-                angle: data.angle
+                angle: data.angle,
+                dashing: data.dashing
             });
         }
     });
-
-    // 弾丸発射
-    socket.on('shoot', (bulletData) => {
-        const bullet = {
-            id: 'bullet_' + Date.now() + '_' + socket.id,
-            x: bulletData.x,
-            y: bulletData.y,
-            vx: bulletData.vx,
-            vy: bulletData.vy,
-            color: players[socket.id]?.color || '#fff',
-            ownerId: socket.id
-        };
-        // 全員に送信（発射者含む）
-        io.emit('bulletFired', bullet);
-    });
-
-    // 敵にダメージ
-    socket.on('hitEnemy', (data) => {
-        const enemy = enemies[data.enemyId];
-        if (enemy) {
-            enemy.hp -= data.damage || 1;
-            
-            if (enemy.hp <= 0) {
-                // 撃破
-                const dropItem = Math.random() < 0.3;
-                
-                io.emit('enemyDefeated', {
-                    id: enemy.id,
-                    x: enemy.x,
-                    y: enemy.y,
-                    dropItem: dropItem,
-                    isBoss: enemy.isBoss
-                });
-
-                // アイテムドロップ
-                if (dropItem) {
-                    const item = {
-                        id: 'item_' + Date.now(),
-                        x: enemy.x,
-                        y: enemy.y,
-                        type: Math.random() < 0.5 ? 'power' : 'heal'
-                    };
-                    items.push(item);
-                }
-
-                // スコア加算
-                if (players[socket.id]) {
-                    players[socket.id].score += enemy.isBoss ? 1000 : 100;
-                    io.emit('scoreUpdate', { id: socket.id, score: players[socket.id].score });
-                }
-
-                // ボス撃破時は次のWave
-                if (enemy.isBoss) {
-                    wave++;
-                    io.emit('waveUpdate', wave);
-                    setTimeout(() => spawnBoss(), 3000);
-                }
-
-                delete enemies[enemy.id];
-            } else {
-                // HP更新を送信
-                io.emit('enemyHit', { id: enemy.id, hp: enemy.hp });
-            }
+    
+    socket.on('ready', (isReady) => {
+        if (players[socket.id]) {
+            players[socket.id].ready = isReady;
+            io.emit('playerReady', { id: socket.id, ready: isReady });
         }
     });
-
-    // アイテム取得
-    socket.on('collectItem', (itemId) => {
-        const index = items.findIndex(i => i.id === itemId);
-        if (index !== -1) {
-            const item = items[index];
-            items.splice(index, 1);
-            io.emit('itemCollected', { itemId: itemId, playerId: socket.id, type: item.type });
+    
+    socket.on('setName', (name) => {
+        if (players[socket.id]) {
+            players[socket.id].name = name.substring(0, 12) || 'Player';
+            io.emit('playerNameChanged', { id: socket.id, name: players[socket.id].name });
         }
     });
-
-    // ゲーム開始
+    
     socket.on('startGame', () => {
         if (socket.id === hostId && !gameStarted) {
             gameStarted = true;
             wave = 1;
             enemies = {};
             items = [];
+            bossActive = false;
+            mobSpawnTimer = 0;
+            
+            Object.values(players).forEach(p => {
+                p.hp = 100;
+                p.score = 0;
+                p.power = 1;
+                p.bombs = 3;
+                p.options = 0;
+                p.weapon = 'NORMAL';
+                p.unlockedWeapons = ['NORMAL'];
+            });
+            
             io.emit('gameStarted', { wave: wave });
             
-            // 最初のボスをスポーン
-            setTimeout(() => spawnBoss(), 2000);
+            setTimeout(() => {
+                if (gameStarted) spawnBoss();
+            }, 3000);
         }
     });
-
-    // 名前設定
-    socket.on('setName', (name) => {
+    
+    socket.on('shoot', (bulletData) => {
+        io.emit('bulletFired', {
+            ...bulletData,
+            ownerId: socket.id,
+            color: players[socket.id]?.color || '#fff'
+        });
+    });
+    
+    socket.on('hitEnemy', (data) => {
+        const enemy = enemies[data.enemyId];
+        if (!enemy) return;
+        
+        enemy.hp -= (data.damage || 1);
+        
+        if (enemy.hp <= 0) {
+            const isBoss = enemy.isBoss;
+            
+            if (isBoss) {
+                for (let i = 0; i < 5; i++) {
+                    const angle = (i / 5) * Math.PI * 2;
+                    const item = spawnItem(
+                        enemy.x + Math.cos(angle) * 50,
+                        enemy.y + Math.sin(angle) * 50
+                    );
+                    io.emit('itemSpawn', item);
+                }
+            } else if (Math.random() < 0.15) {
+                const item = spawnItem(enemy.x, enemy.y);
+                io.emit('itemSpawn', item);
+            }
+            
+            if (players[socket.id]) {
+                players[socket.id].score += isBoss ? 1000 * wave : 100;
+                io.emit('scoreUpdate', { id: socket.id, score: players[socket.id].score });
+            }
+            
+            io.emit('enemyDefeated', { id: enemy.id, x: enemy.x, y: enemy.y, isBoss });
+            delete enemies[enemy.id];
+            
+            if (isBoss) {
+                bossActive = false;
+                wave++;
+                io.emit('waveComplete', { wave });
+                setTimeout(() => {
+                    if (gameStarted && Object.keys(players).length > 0) spawnBoss();
+                }, 5000);
+            }
+        } else {
+            io.emit('enemyHit', { id: enemy.id, hp: enemy.hp });
+        }
+    });
+    
+    socket.on('useBomb', () => {
+        const p = players[socket.id];
+        if (p && p.bombs > 0) {
+            p.bombs--;
+            
+            Object.values(enemies).forEach(enemy => {
+                const dx = enemy.x - p.x;
+                const dy = enemy.y - p.y;
+                if (Math.sqrt(dx*dx + dy*dy) < 500) {
+                    enemy.hp -= enemy.isBoss ? 30 : 100;
+                    if (enemy.hp <= 0) {
+                        io.emit('enemyDefeated', { id: enemy.id, x: enemy.x, y: enemy.y, isBoss: enemy.isBoss });
+                        delete enemies[enemy.id];
+                    }
+                }
+            });
+            
+            io.emit('bombUsed', { playerId: socket.id, x: p.x, y: p.y, bombs: p.bombs });
+        }
+    });
+    
+    socket.on('collectItem', (itemId) => {
+        const index = items.findIndex(i => i.id === itemId);
+        if (index === -1) return;
+        
+        const item = items[index];
+        const p = players[socket.id];
+        if (!p) return;
+        
+        items.splice(index, 1);
+        
+        switch (item.type) {
+            case 'power': p.power = Math.min(p.power + 1, 10); break;
+            case 'weapon':
+                const locked = WEAPONS.filter(w => !p.unlockedWeapons.includes(w));
+                if (locked.length > 0) {
+                    const newW = locked[Math.floor(Math.random() * locked.length)];
+                    p.unlockedWeapons.push(newW);
+                    p.weapon = newW;
+                } else {
+                    p.power = Math.min(p.power + 1, 10);
+                }
+                break;
+            case 'option': p.options = Math.min(p.options + 1, 4); break;
+            case 'bomb': p.bombs = Math.min(p.bombs + 1, 5); break;
+            case 'heal': p.hp = Math.min(p.hp + 30, p.maxHp); break;
+        }
+        
+        io.emit('itemCollected', {
+            itemId, playerId: socket.id, type: item.type,
+            playerState: { power: p.power, bombs: p.bombs, options: p.options, hp: p.hp, weapon: p.weapon, unlockedWeapons: p.unlockedWeapons }
+        });
+    });
+    
+    socket.on('switchWeapon', (weapon) => {
+        if (players[socket.id]?.unlockedWeapons.includes(weapon)) {
+            players[socket.id].weapon = weapon;
+            io.emit('weaponChanged', { id: socket.id, weapon });
+        }
+    });
+    
+    socket.on('changeFormation', (formation) => {
         if (players[socket.id]) {
-            players[socket.id].name = name.substring(0, 12);
-            io.emit('playerNameChanged', { id: socket.id, name: players[socket.id].name });
+            players[socket.id].formation = formation;
+            io.emit('formationChanged', { id: socket.id, formation });
         }
     });
-
-    // 切断
+    
+    socket.on('playerDamaged', (damage) => {
+        const p = players[socket.id];
+        if (p && !p.dashing) {
+            p.hp -= damage;
+            if (p.hp <= 0) {
+                p.hp = 0;
+                io.emit('playerDied', { id: socket.id });
+                const alive = Object.values(players).filter(pl => pl.hp > 0);
+                if (alive.length === 0) {
+                    gameStarted = false;
+                    io.emit('gameOver', { finalWave: wave });
+                }
+            } else {
+                io.emit('playerHpChanged', { id: socket.id, hp: p.hp });
+            }
+        }
+    });
+    
     socket.on('disconnect', () => {
         console.log('Player disconnected:', socket.id);
+        const wasHost = socket.id === hostId;
+        delete players[socket.id];
         
-        // ホストが抜けたら次の人をホストに
-        if (socket.id === hostId) {
-            delete players[socket.id];
-            const remainingPlayers = Object.keys(players);
-            if (remainingPlayers.length > 0) {
-                hostId = remainingPlayers[0];
+        if (wasHost) {
+            const remaining = Object.keys(players);
+            if (remaining.length > 0) {
+                hostId = remaining[0];
                 players[hostId].isHost = true;
-                io.emit('hostChanged', hostId);
+                io.emit('hostChanged', { newHostId: hostId });
             } else {
                 hostId = null;
                 gameStarted = false;
             }
-        } else {
-            delete players[socket.id];
         }
         
         io.emit('playerLeft', socket.id);
+        
+        if (Object.keys(players).length === 0) {
+            gameStarted = false;
+            enemies = {};
+            items = [];
+            wave = 0;
+        }
     });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`PLAZMER Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`PLAZMER Server on port ${PORT}`));
