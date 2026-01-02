@@ -1,7 +1,7 @@
 {
   "name": "plazmer-server",
-  "version": "1.0.0",
-  "description": "PLAZMER Online Co-op Shooter Server",
+  "version": "2.0.0",
+  "description": "PLAZMER Online Co-op Shooter - Full Version",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
