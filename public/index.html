@@ -726,9 +726,15 @@ function leaveLobby() {
 }
 
 // ========== GAME START ==========
+let isSoloMode = false;
+let soloWaveTimer = 0;
+let soloMobTimer = 0;
+let enemyIdCounter = 0;
+
 function startSoloGame() {
     playerName = document.getElementById('host-name').value || 'Player';
     myId = 'solo';
+    isSoloMode = true;
     networkPlayers = { solo: { id: 'solo', name: playerName, color: PLAYER_COLORS[0], hp: 100, isHost: true } };
     walls = generateWalls(0);
     startGame({ w: WORLD_W, h: WORLD_H });
@@ -761,6 +767,9 @@ function startGame(worldSize) {
     score = 0;
     wave = 0;
     currentBoss = null;
+    soloWaveTimer = 0;
+    soloMobTimer = 0;
+    enemyIdCounter = 0;
     
     ui.score.innerText = 0;
     ui.stage.innerText = 0;
@@ -772,8 +781,8 @@ function startGame(worldSize) {
     screenShake = { x: 0, y: 0, intensity: 0 };
     
     const pc = Object.keys(networkPlayers).length;
-    ui.onlineStatus.textContent = pc > 1 ? `● ${pc} PLAYERS` : '● SOLO';
-    ui.onlineStatus.style.color = pc > 1 ? '#0f0' : '#888';
+    ui.onlineStatus.textContent = isSoloMode ? '● SOLO' : `● ${pc} PLAYERS`;
+    ui.onlineStatus.style.color = isSoloMode ? '#888' : '#0f0';
     
     updateUI();
     initAudio();
@@ -782,17 +791,6 @@ function startGame(worldSize) {
     
     gameState = 'playing';
     frame = 0;
-    
-    // Solo mode: start wave manually
-    if (myId === 'solo') {
-        setTimeout(() => {
-            wave = 1;
-            ui.stage.innerText = wave;
-            showMessage('◆ WAVE 1 ◆');
-            // In solo, enemies would need local spawning...
-            // For now, this is multiplayer-focused
-        }, 2000);
-    }
     
     update();
 }
@@ -889,7 +887,11 @@ class Player {
                 const pos = orb.getPosition();
                 enemies.forEach(e => {
                     if (e.hp > 0 && Math.hypot(e.x - pos.x, e.y - pos.y) < e.size + 15) {
-                        socket.emit('hitEnemy', { enemyId: e.id, damage: 2, weaponType: 'CHAIN' });
+                        if (isSoloMode) {
+                            soloDamageEnemy(e, 2, 'CHAIN');
+                        } else if (socket) {
+                            socket.emit('hitEnemy', { enemyId: e.id, damage: 2, weaponType: 'CHAIN' });
+                        }
                         orb.takeDamage();
                     }
                 });
@@ -908,7 +910,11 @@ class Player {
             
             enemies.forEach(e => {
                 if (e.hp > 0 && Math.hypot(e.x - saberX, e.y - saberY) < e.size + 20) {
-                    socket.emit('hitEnemy', { enemyId: e.id, damage: 5 + powerLevels.SABER * 2, weaponType: 'SABER' });
+                    if (isSoloMode) {
+                        soloDamageEnemy(e, 5 + powerLevels.SABER * 2, 'SABER');
+                    } else if (socket) {
+                        socket.emit('hitEnemy', { enemyId: e.id, damage: 5 + powerLevels.SABER * 2, weaponType: 'SABER' });
+                    }
                 }
             });
         } else {
@@ -1176,7 +1182,11 @@ class NormalBullet {
     checkHit() {
         for (const e of enemies) {
             if (e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < e.size + this.size) {
-                if (socket) socket.emit('hitEnemy', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                if (isSoloMode) {
+                    soloDamageEnemy(e, this.damage, this.type);
+                } else if (socket) {
+                    socket.emit('hitEnemy', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                }
                 this.dead = true;
                 createParticle(this.x, this.y, this.color);
                 break;
@@ -1216,7 +1226,11 @@ class LaserBullet {
             this.hit = true;
             enemies.forEach(e => {
                 if (e.hp > 0 && distToSegment(e.x, e.y, this.sx, this.sy, this.ex, this.ey) < e.size + this.width) {
-                    if (socket) socket.emit('hitEnemy', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                    if (isSoloMode) {
+                        soloDamageEnemy(e, this.damage, this.type);
+                    } else if (socket) {
+                        socket.emit('hitEnemy', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                    }
                 }
             });
         }
@@ -1284,7 +1298,11 @@ class MissileBullet {
         
         for (const e of enemies) {
             if (e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < e.size + this.size) {
-                if (socket) socket.emit('hitEnemy', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                if (isSoloMode) {
+                    soloDamageEnemy(e, this.damage, this.type);
+                } else if (socket) {
+                    socket.emit('hitEnemy', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                }
                 this.dead = true;
                 createParticles(this.x, this.y, this.color, 8);
                 break;
@@ -1346,7 +1364,11 @@ class FlameBullet extends NormalBullet {
         
         enemies.forEach(e => {
             if (e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < e.size + this.size) {
-                if (socket) socket.emit('hitEnemy', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                if (isSoloMode) {
+                    soloDamageEnemy(e, this.damage, this.type);
+                } else if (socket) {
+                    socket.emit('hitEnemy', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                }
             }
         });
     }
@@ -1434,7 +1456,11 @@ class ThunderBullet {
                 if (e.hp > 0) {
                     for (let i = 0; i < this.points.length - 1; i++) {
                         if (distToSegment(e.x, e.y, this.points[i].x, this.points[i].y, this.points[i + 1].x, this.points[i + 1].y) < e.size + 25) {
-                            if (socket) socket.emit('hitEnemy', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                            if (isSoloMode) {
+                                soloDamageEnemy(e, this.damage, this.type);
+                            } else if (socket) {
+                                socket.emit('hitEnemy', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                            }
                             hitEnemies.push(e);
                             createParticles(e.x, e.y, '#ff0', 8);
                             break;
@@ -1448,7 +1474,11 @@ class ThunderBullet {
                 let chains = 0;
                 enemies.forEach(e2 => {
                     if (e2.hp > 0 && e2 !== he && chains < this.chainCount && Math.hypot(e2.x - he.x, e2.y - he.y) < 250) {
-                        if (socket) socket.emit('hitEnemy', { enemyId: e2.id, damage: this.damage * 0.6, weaponType: this.type });
+                        if (isSoloMode) {
+                            soloDamageEnemy(e2, this.damage * 0.6, this.type);
+                        } else if (socket) {
+                            socket.emit('hitEnemy', { enemyId: e2.id, damage: this.damage * 0.6, weaponType: this.type });
+                        }
                         createParticles(e2.x, e2.y, '#ff0', 5);
                         this.branches.push(this.createBranch(he.x, he.y, e2.x, e2.y));
                         chains++;
@@ -1520,7 +1550,11 @@ class PlasmaBullet extends NormalBullet {
         if (this.pulseTimer % 5 === 0) {
             enemies.forEach(e => {
                 if (e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < this.size + e.size + 30) {
-                    if (socket) socket.emit('hitEnemy', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                    if (isSoloMode) {
+                        soloDamageEnemy(e, this.damage, this.type);
+                    } else if (socket) {
+                        socket.emit('hitEnemy', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                    }
                 }
             });
         }
@@ -1582,7 +1616,11 @@ class BoomerangBullet {
         
         enemies.forEach(e => {
             if (e.hp > 0 && !this.hitEnemies.has(e.id) && Math.hypot(e.x - this.x, e.y - this.y) < e.size + this.size) {
-                if (socket) socket.emit('hitEnemy', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                if (isSoloMode) {
+                    soloDamageEnemy(e, this.damage, this.type);
+                } else if (socket) {
+                    socket.emit('hitEnemy', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                }
                 this.hitEnemies.add(e.id);
                 if (this.returning) {
                     setTimeout(() => this.hitEnemies.delete(e.id), 200);
@@ -1633,7 +1671,11 @@ class RailgunBullet {
             // Piercing - hits all enemies in line
             enemies.forEach(e => {
                 if (e.hp > 0 && distToSegment(e.x, e.y, this.sx, this.sy, this.ex, this.ey) < e.size + 10) {
-                    if (socket) socket.emit('hitEnemy', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                    if (isSoloMode) {
+                        soloDamageEnemy(e, this.damage, this.type);
+                    } else if (socket) {
+                        socket.emit('hitEnemy', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                    }
                     createParticles(e.x, e.y, this.color, 10);
                 }
             });
@@ -1842,22 +1884,393 @@ class ChainOrb {
     }
 }
 
-// ========== ENEMY HELPERS ==========
-function createEnemyFromData(data) {
-    return {
-        id: data.id,
-        x: data.x,
-        y: data.y,
-        hp: data.hp,
-        maxHp: data.maxHp,
-        size: data.size,
-        color: data.color,
-        name: data.name,
-        isBoss: data.isBoss,
-        bossType: data.bossType,
-        frozen: data.frozen || 0,
-        burning: data.burning || 0
+// ========== SOLO MODE ENEMY MANAGEMENT ==========
+const ENEMY_TEMPLATES = {
+    slime: { hp: 3, speed: 1.5, size: 12, color: '#00ff00', score: 50, name: 'CELL' },
+    bat: { hp: 2, speed: 3, size: 10, color: '#00ffff', score: 60, name: 'DRONE' },
+    skull: { hp: 10, speed: 1.8, size: 18, color: '#ffffff', score: 150, name: 'SENTRY', shoots: true },
+    ghost: { hp: 15, speed: 2, size: 20, color: '#ff88ff', score: 180, name: 'PHASE' },
+    knight: { hp: 30, speed: 1.5, size: 25, color: '#ffaa00', score: 300, name: 'GUARD', shielded: true },
+    dragon: { hp: 60, speed: 2, size: 35, color: '#ff4400', score: 500, name: 'BLASTER', shoots: true },
+    golem: { hp: 100, speed: 0.8, size: 45, color: '#cc9966', score: 600, name: 'TANK' }
+};
+
+const BOSS_TEMPLATES = [
+    { name: 'CORE-α', color: '#ff0000', baseHp: 300, size: 60 },
+    { name: 'MATRIX-β', color: '#0088ff', baseHp: 500, size: 70 },
+    { name: 'REACTOR-γ', color: '#00ff44', baseHp: 700, size: 80 },
+    { name: 'NEXUS-δ', color: '#ff00ff', baseHp: 900, size: 90 },
+    { name: 'OMEGA-Ω', color: '#ffff00', baseHp: 1200, size: 100 }
+];
+
+function soloSpawnEnemy(type, x, y) {
+    const template = ENEMY_TEMPLATES[type];
+    const waveScale = 1 + wave * 0.1;
+    
+    const enemy = {
+        id: 'enemy_' + (enemyIdCounter++),
+        type,
+        x, y,
+        hp: Math.floor(template.hp * waveScale),
+        maxHp: Math.floor(template.hp * waveScale),
+        speed: template.speed,
+        size: template.size,
+        color: template.color,
+        score: template.score,
+        name: template.name,
+        shoots: template.shoots || false,
+        shielded: template.shielded || false,
+        isBoss: false,
+        timer: 0,
+        frozen: 0,
+        burning: 0
     };
+    
+    enemies.push(enemy);
+    return enemy;
+}
+
+function soloSpawnBoss() {
+    const bossIndex = (wave - 1) % BOSS_TEMPLATES.length;
+    const template = BOSS_TEMPLATES[bossIndex];
+    const waveScale = 1 + Math.floor((wave - 1) / 5) * 0.5;
+    
+    const pos = findSafeSpawnPosition(600);
+    
+    const boss = {
+        id: 'boss_' + (enemyIdCounter++),
+        type: 'boss',
+        bossType: bossIndex,
+        x: pos.x,
+        y: pos.y,
+        hp: Math.floor((template.baseHp + wave * 30) * waveScale),
+        maxHp: Math.floor((template.baseHp + wave * 30) * waveScale),
+        speed: 1.2 - bossIndex * 0.1,
+        size: template.size + wave * 2,
+        color: template.color,
+        score: 3000 + wave * 500,
+        name: template.name,
+        isBoss: true,
+        timer: 0,
+        attackTimer: 0,
+        frozen: 0,
+        burning: 0
+    };
+    
+    enemies.push(boss);
+    currentBoss = boss;
+    
+    ui.bossContainer.style.display = 'block';
+    ui.bossName.textContent = `◆ WAVE ${wave} - ${boss.name} ◆`;
+    showMessage(`◆ ${boss.name} ◆`);
+    triggerScreenShake(20);
+    
+    return boss;
+}
+
+function findSafeSpawnPosition(minDistFromPlayer) {
+    for (let attempt = 0; attempt < 50; attempt++) {
+        const x = 200 + Math.random() * (WORLD_W - 400);
+        const y = 200 + Math.random() * (WORLD_H - 400);
+        
+        if (checkWall(x, y)) continue;
+        if (player && Math.hypot(player.x - x, player.y - y) < minDistFromPlayer) continue;
+        
+        return { x, y };
+    }
+    
+    // Fallback to corners
+    const corners = [
+        { x: 300, y: 300 },
+        { x: WORLD_W - 300, y: 300 },
+        { x: 300, y: WORLD_H - 300 },
+        { x: WORLD_W - 300, y: WORLD_H - 300 }
+    ];
+    let farthest = corners[0];
+    let maxDist = 0;
+    corners.forEach(c => {
+        const d = player ? Math.hypot(player.x - c.x, player.y - c.y) : 0;
+        if (d > maxDist) { maxDist = d; farthest = c; }
+    });
+    return farthest;
+}
+
+function soloStartWave() {
+    wave++;
+    walls = generateWalls(wave);
+    ui.stage.innerText = wave;
+    showMessage(`◆ WAVE ${wave} ◆`);
+    
+    setTimeout(() => {
+        if (gameState === 'playing') {
+            soloSpawnBoss();
+        }
+    }, 1500);
+}
+
+function soloSpawnMobs() {
+    if (!currentBoss || currentBoss.hp <= 0) return;
+    
+    const mobCount = enemies.filter(e => !e.isBoss && e.hp > 0).length;
+    if (mobCount >= 30) return;
+    
+    const spawnCount = Math.min(3, 1 + Math.floor(wave / 3));
+    for (let i = 0; i < spawnCount; i++) {
+        const pos = findSafeSpawnPosition(300);
+        
+        const types = ['slime', 'bat'];
+        if (wave >= 3) types.push('skull', 'ghost');
+        if (wave >= 5) types.push('knight');
+        if (wave >= 7) types.push('dragon');
+        
+        const type = types[Math.floor(Math.random() * types.length)];
+        soloSpawnEnemy(type, pos.x, pos.y);
+    }
+}
+
+function soloUpdateEnemies() {
+    enemies.forEach(enemy => {
+        if (enemy.hp <= 0) return;
+        
+        enemy.timer++;
+        
+        // Status effects
+        if (enemy.burning > 0) {
+            enemy.burning--;
+            if (enemy.timer % 20 === 0) {
+                enemy.hp -= 1;
+                if (enemy.hp <= 0) soloDefeatEnemy(enemy);
+            }
+        }
+        if (enemy.frozen > 0) enemy.frozen--;
+        
+        // Movement
+        const speed = enemy.frozen > 0 ? enemy.speed * 0.3 : enemy.speed;
+        const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+        const vx = Math.cos(angle) * speed;
+        const vy = Math.sin(angle) * speed;
+        
+        if (!checkWall(enemy.x + vx, enemy.y + vy)) {
+            enemy.x += vx;
+            enemy.y += vy;
+        }
+        
+        // Collision with player
+        if (player && Math.hypot(player.x - enemy.x, player.y - enemy.y) < player.r + enemy.size) {
+            if (!player.dashing && player.invincible <= 0) {
+                player.damage(enemy.isBoss ? 20 : 10);
+            }
+        }
+        
+        // Shooting enemies
+        if (enemy.shoots && enemy.timer % 90 === 0) {
+            enemyBullets.push({
+                x: enemy.x, y: enemy.y,
+                vx: Math.cos(angle) * 5,
+                vy: Math.sin(angle) * 5,
+                life: 120, size: 6, color: 'orange'
+            });
+        }
+        
+        // Boss attacks
+        if (enemy.isBoss) {
+            enemy.attackTimer++;
+            soloBossAttack(enemy);
+        }
+    });
+}
+
+function soloBossAttack(boss) {
+    const angle = Math.atan2(player.y - boss.y, player.x - boss.x);
+    
+    switch (boss.bossType) {
+        case 0: // Radial
+            if (boss.attackTimer % 90 === 0) {
+                for (let i = 0; i < 16; i++) {
+                    const a = (Math.PI * 2 / 16) * i;
+                    enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 4, vy: Math.sin(a) * 4, life: 150, size: 6, color: 'orange' });
+                }
+            }
+            break;
+        case 1: // Spiral
+            if (boss.attackTimer % 60 === 0) {
+                for (let i = 0; i < 8; i++) {
+                    const a = (Math.PI * 2 / 8) * i + boss.timer * 0.02;
+                    enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5, life: 120, size: 6, color: '#08f' });
+                }
+            }
+            break;
+        case 2: // Ground pound
+            if (boss.attackTimer % 120 === 0) {
+                for (let i = 0; i < 24; i++) {
+                    const a = (Math.PI * 2 / 24) * i;
+                    enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 6, vy: Math.sin(a) * 6, life: 80, size: 10, color: 'orange' });
+                }
+                triggerScreenShake(20);
+            }
+            break;
+        case 3: // Double spiral
+            if (boss.attackTimer % 10 === 0) {
+                const a = boss.timer * 0.15;
+                enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5, life: 100, size: 6, color: '#f0f' });
+                enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a + Math.PI) * 5, vy: Math.sin(a + Math.PI) * 5, life: 100, size: 6, color: '#f0f' });
+            }
+            break;
+        case 4: // Everything
+            if (boss.attackTimer % 8 === 0) {
+                const a = boss.timer * 0.1;
+                for (let i = 0; i < 4; i++) {
+                    const aa = a + (Math.PI / 2) * i;
+                    enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(aa) * 4, vy: Math.sin(aa) * 4, life: 150, size: 6, color: '#ff0' });
+                }
+            }
+            if (boss.attackTimer % 120 === 0) {
+                for (let i = 0; i < 32; i++) {
+                    const a = (Math.PI * 2 / 32) * i;
+                    enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5, life: 120, size: 6, color: 'orange' });
+                }
+                triggerScreenShake(25);
+            }
+            break;
+    }
+}
+
+function soloDamageEnemy(enemy, damage, weaponType) {
+    if (enemy.hp <= 0) return;
+    
+    // Shield reduction
+    if (enemy.shielded && weaponType !== 'FLAME' && weaponType !== 'THUNDER') {
+        damage = Math.floor(damage / 2);
+    }
+    
+    // Freeze bonus
+    if (weaponType === 'FREEZE') {
+        enemy.frozen = 120;
+        if (enemy.type === 'golem') damage *= 2;
+    }
+    
+    // Burn
+    if (weaponType === 'FLAME') {
+        enemy.burning = 60;
+    }
+    
+    enemy.hp -= damage;
+    createFloatingText(enemy.x, enemy.y - enemy.size, `-${damage}`, '#fff', 14);
+    
+    if (enemy.hp <= 0) {
+        soloDefeatEnemy(enemy);
+    }
+}
+
+function soloDefeatEnemy(enemy) {
+    if (enemy.hp > 0) enemy.hp = 0;
+    
+    createParticles(enemy.x, enemy.y, enemy.color, enemy.isBoss ? 50 : 10);
+    playSound('boom');
+    addCombo();
+    
+    score += Math.floor(enemy.score * combo.multiplier);
+    ui.score.innerText = score;
+    
+    // Drop items
+    soloDropItems(enemy.x, enemy.y, enemy.isBoss);
+    
+    if (enemy.isBoss) {
+        currentBoss = null;
+        ui.bossContainer.style.display = 'none';
+        showMessage('◆ BOSS DESTROYED ◆');
+        triggerScreenShake(40);
+        
+        // Clear remaining mobs
+        enemies.forEach(e => {
+            if (!e.isBoss && e.hp > 0) {
+                e.hp = 0;
+                score += 50;
+            }
+        });
+        ui.score.innerText = score;
+        
+        // Next wave after delay
+        setTimeout(() => {
+            if (gameState === 'playing') {
+                soloStartWave();
+            }
+        }, 3000);
+    }
+}
+
+function soloDropItems(x, y, isBoss) {
+    if (isBoss) {
+        const dropCount = 3 + Math.floor(Math.random() * 3);
+        const types = ['S', 'P', 'M', 'R', 'F', 'Z', 'T', 'X', 'O', 'C', 'B', 'SABER', 'RAIL'];
+        
+        for (let i = 0; i < dropCount; i++) {
+            const angle = (Math.PI * 2 / dropCount) * i;
+            const type = types[Math.floor(Math.random() * types.length)];
+            items.push({
+                id: 'item_' + Date.now() + '_' + i,
+                x: x + Math.cos(angle) * 50,
+                y: y + Math.sin(angle) * 50,
+                type,
+                color: getItemColor(type)
+            });
+        }
+    } else {
+        if (Math.random() < 0.08) {
+            const types = ['N', 'S', 'P', 'M', 'R', 'F', 'Z', 'T', 'X', 'B'];
+            const type = types[Math.floor(Math.random() * types.length)];
+            items.push({
+                id: 'item_' + Date.now(),
+                x, y, type,
+                color: getItemColor(type)
+            });
+        }
+        if (Math.random() < 0.03) {
+            items.push({
+                id: 'item_h_' + Date.now(),
+                x: x + 20, y,
+                type: 'H',
+                color: '#ff0066'
+            });
+        }
+        if (Math.random() < 0.02) {
+            const bonus = ['O', 'C', 'SABER', 'RAIL'];
+            const type = bonus[Math.floor(Math.random() * bonus.length)];
+            items.push({
+                id: 'item_b_' + Date.now(),
+                x: x - 20, y, type,
+                color: getItemColor(type)
+            });
+        }
+    }
+}
+
+function getItemColor(type) {
+    const colors = {
+        N: '#ffff00', S: '#ff5555', P: '#00ffff', M: '#aa00ff',
+        R: '#0088ff', F: '#ff8800', Z: '#88ffff', T: '#ffff00',
+        X: '#ff00ff', B: '#ff8800', O: '#00ff00', C: '#00ffff',
+        H: '#ff0066', SABER: '#00ff88', RAIL: '#ff00aa'
+    };
+    return colors[type] || '#ffffff';
+}
+
+function soloCollectItems() {
+    items = items.filter(item => {
+        // Attract to player
+        if (player && Math.hypot(player.x - item.x, player.y - item.y) < 200) {
+            item.x += (player.x - item.x) * 0.1;
+            item.y += (player.y - item.y) * 0.1;
+        }
+        
+        // Collect
+        if (player && Math.hypot(player.x - item.x, player.y - item.y) < player.r + 15) {
+            pickItem(item.type);
+            createFloatingText(item.x, item.y, item.type + '!', item.color, 24);
+            return false;
+        }
+        return true;
+    });
 }
 
 // ========== PARTICLE & TEXT ==========
@@ -2053,7 +2466,15 @@ function triggerBomb() {
     player.bombs--;
     ui.bomb.innerText = player.bombs;
     
-    if (socket) {
+    if (isSoloMode) {
+        // Damage all enemies in range
+        enemies.forEach(e => {
+            if (e.hp > 0 && Math.hypot(e.x - player.x, e.y - player.y) < 600) {
+                soloDamageEnemy(e, 80, 'BOMB');
+            }
+        });
+        enemyBullets = [];
+    } else if (socket) {
         socket.emit('useBomb', { x: player.x, y: player.y });
     }
     
@@ -2608,6 +3029,37 @@ function update() {
         
         options.forEach(o => o.update());
         
+        // Solo mode: wave & enemy management
+        if (isSoloMode) {
+            soloWaveTimer++;
+            soloMobTimer++;
+            
+            // Start first wave
+            if (wave === 0 && soloWaveTimer > 60) {
+                soloStartWave();
+            }
+            
+            // Spawn mobs
+            if (currentBoss && currentBoss.hp > 0 && soloMobTimer >= 60) {
+                soloMobTimer = 0;
+                soloSpawnMobs();
+            }
+            
+            // Update enemies
+            soloUpdateEnemies();
+            
+            // Collect items
+            soloCollectItems();
+            
+            // Update boss HP bar
+            if (currentBoss && currentBoss.hp > 0) {
+                ui.bossHp.style.width = (currentBoss.hp / currentBoss.maxHp * 100) + '%';
+            }
+            
+            // Remove dead enemies
+            enemies = enemies.filter(e => e.hp > 0);
+        }
+        
         // Update bullets
         bullets.forEach(b => { if (!b.dead) b.update(); });
         bullets = bullets.filter(b => !b.dead);
@@ -2635,8 +3087,8 @@ function update() {
         updateScreenShake();
         updatePlayersHUD();
         
-        // Update boss HP bar
-        if (currentBoss) {
+        // Update boss HP bar (multiplayer)
+        if (!isSoloMode && currentBoss) {
             const bossEnemy = enemies.find(e => e.id === currentBoss.id);
             if (bossEnemy && bossEnemy.hp > 0) {
                 ui.bossHp.style.width = (bossEnemy.hp / bossEnemy.maxHp * 100) + '%';
