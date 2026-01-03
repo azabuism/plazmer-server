@@ -486,8 +486,8 @@ class GameRoom {
         player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
         player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
         
-        // サンダーエネルギー
-        if (player.weaponLevels.THUNDER > 0) {
+        // サンダーエネルギー（180でキャップ）
+        if (player.weaponLevels.THUNDER > 0 && player.thunderEnergy < 180) {
             player.thunderEnergy++;
         }
         
@@ -699,16 +699,16 @@ class GameRoom {
             this.players.forEach(player => {
                 if (!player.alive) return;
                 
-                // アイテム吸引（範囲拡大）
+                // アイテム吸引（さらに範囲拡大・強化）
                 const dist = Math.hypot(player.x - item.x, player.y - item.y);
-                if (dist < 200) {
-                    const pullStrength = 0.15;
+                if (dist < 250) {
+                    const pullStrength = 0.2;
                     item.x += (player.x - item.x) * pullStrength;
                     item.y += (player.y - item.y) * pullStrength;
                 }
                 
-                // アイテム取得（範囲拡大）
-                if (dist < 35) {
+                // アイテム取得（さらに範囲拡大）
+                if (dist < 50) {
                     this.collectItem(player, item);
                     item.collected = true;
                 }
@@ -1118,10 +1118,23 @@ io.on('connection', (socket) => {
         }
     });
     
+    socket.on('destroyBullet', (data) => {
+        if (currentRoom) {
+            const idx = currentRoom.enemyBullets.findIndex(b => b.id === data.bulletId);
+            if (idx !== -1) {
+                currentRoom.enemyBullets.splice(idx, 1);
+            }
+        }
+    });
+    
     socket.on('fire', (data) => {
         if (currentRoom) {
             const player = currentRoom.players.get(socket.id);
             if (player) {
+                // サンダー発射時はエネルギーをリセット
+                if (data.type === 'THUNDER') {
+                    player.thunderEnergy = 0;
+                }
                 // 他のプレイヤーに弾丸を通知
                 socket.to(currentRoom.id).emit('remoteFire', {
                     playerId: socket.id,
