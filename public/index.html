@@ -297,6 +297,11 @@ let localOptions = []; // オプション（ビット）の位置データ
 let dashTrail = []; // ダッシュの軌跡
 let dashParticles = []; // ダッシュ時の光粒子
 let optionBeams = []; // オプションビーム
+let optionFormation = 'FOLLOW'; // FOLLOW or HUNT
+let huntTarget = null; // HUNTモードのターゲット
+let huntLockOnTimer = 0; // ロックオン演出タイマー
+let huntAttacking = false; // 攻撃中フラグ
+const FORMATIONS = ['FOLLOW', 'HUNT'];
 
 // 入力
 let input = { x: 0, y: 0, angle: 0, moving: false, dash: false, hasMoved: false };
@@ -467,28 +472,157 @@ function updateOptions() {
     // localOptionsの数をサーバーと同期
     while (localOptions.length < optionCount) {
         const i = localOptions.length;
-        const angle = (Math.PI * 2 / optionCount) * i;
         localOptions.push({
-            x: myPlayer.x + Math.cos(angle) * 50,
-            y: myPlayer.y + Math.sin(angle) * 50,
-            angle: angle
+            x: myPlayer.x,
+            y: myPlayer.y,
+            targetX: myPlayer.x,
+            targetY: myPlayer.y,
+            baseAngle: (Math.PI / 2) * i // 上下左右
         });
     }
     while (localOptions.length > optionCount) {
         localOptions.pop();
     }
     
-    // オプションの位置を更新（プレイヤーの周りを回転）
-    const radius = 50; // プレイヤーからの距離
-    const rotSpeed = 0.03; // 回転速度
-    for (let i = 0; i < localOptions.length; i++) {
-        const opt = localOptions[i];
-        opt.angle += rotSpeed;
-        const targetX = myPlayer.x + Math.cos(opt.angle) * radius;
-        const targetY = myPlayer.y + Math.sin(opt.angle) * radius;
-        // 滑らかに移動
-        opt.x += (targetX - opt.x) * 0.15;
-        opt.y += (targetY - opt.y) * 0.15;
+    const radius = 60; // プレイヤーからの距離
+    
+    if (optionFormation === 'FOLLOW') {
+        // FOLLOWモード：プレイヤーの上下左右に配置
+        const positions = [
+            { angle: -Math.PI / 2 }, // 上
+            { angle: Math.PI / 2 },  // 下
+            { angle: Math.PI },      // 左
+            { angle: 0 },            // 右
+            { angle: -Math.PI * 3/4 }, // 左上
+            { angle: -Math.PI / 4 }   // 右上
+        ];
+        
+        for (let i = 0; i < localOptions.length; i++) {
+            const opt = localOptions[i];
+            const pos = positions[i % positions.length];
+            opt.targetX = myPlayer.x + Math.cos(pos.angle) * radius;
+            opt.targetY = myPlayer.y + Math.sin(pos.angle) * radius;
+            // 滑らかに移動
+            opt.x += (opt.targetX - opt.x) * 0.12;
+            opt.y += (opt.targetY - opt.y) * 0.12;
+        }
+        
+        huntTarget = null;
+        huntLockOnTimer = 0;
+        huntAttacking = false;
+        
+    } else if (optionFormation === 'HUNT') {
+        // HUNTモード：敵をロックオンして攻撃
+        
+        if (!huntAttacking && !huntTarget) {
+            // ターゲットを探す
+            let bestTarget = null;
+            let maxHp = 0;
+            if (gameState && gameState.enemies) {
+                gameState.enemies.forEach(e => {
+                    if (e.hp > 0 && e.hp > maxHp) {
+                        const re = remoteEnemies.get(e.id);
+                        const ex = re ? re.x : e.x;
+                        const ey = re ? re.y : e.y;
+                        const dist = Math.hypot(ex - myPlayer.x, ey - myPlayer.y);
+                        if (dist < 600) {
+                            maxHp = e.hp;
+                            bestTarget = { id: e.id, x: ex, y: ey, hp: e.hp, maxHp: e.maxHp, size: e.size };
+                        }
+                    }
+                });
+            }
+            
+            if (bestTarget) {
+                huntTarget = bestTarget;
+                huntLockOnTimer = 60; // 1秒ロックオン演出
+            }
+        }
+        
+        if (huntTarget && huntLockOnTimer > 0) {
+            // ロックオン演出中：その場で待機
+            huntLockOnTimer--;
+            
+            // ターゲット位置を更新
+            if (gameState && gameState.enemies) {
+                const enemy = gameState.enemies.find(e => e.id === huntTarget.id);
+                if (enemy && enemy.hp > 0) {
+                    const re = remoteEnemies.get(enemy.id);
+                    huntTarget.x = re ? re.x : enemy.x;
+                    huntTarget.y = re ? re.y : enemy.y;
+                    huntTarget.hp = enemy.hp;
+                } else {
+                    huntTarget = null; // ターゲットが死んだ
+                }
+            }
+            
+            if (huntLockOnTimer === 0 && huntTarget) {
+                huntAttacking = true; // 攻撃開始！
+            }
+            
+        } else if (huntAttacking && huntTarget) {
+            // 攻撃中：ターゲットに向かって高速移動
+            let allReached = true;
+            
+            // ターゲット位置を更新
+            if (gameState && gameState.enemies) {
+                const enemy = gameState.enemies.find(e => e.id === huntTarget.id);
+                if (enemy && enemy.hp > 0) {
+                    const re = remoteEnemies.get(enemy.id);
+                    huntTarget.x = re ? re.x : enemy.x;
+                    huntTarget.y = re ? re.y : enemy.y;
+                    huntTarget.hp = enemy.hp;
+                } else {
+                    // ターゲット撃破！
+                    huntTarget = null;
+                    huntAttacking = false;
+                    // FOLLOWに戻る
+                    setTimeout(() => {
+                        if (optionFormation === 'HUNT') {
+                            // 次のターゲットを探す（少し待ってから）
+                        }
+                    }, 500);
+                }
+            }
+            
+            if (huntTarget) {
+                for (let i = 0; i < localOptions.length; i++) {
+                    const opt = localOptions[i];
+                    // ターゲット周りに配置
+                    const attackAngle = (Math.PI * 2 / localOptions.length) * i;
+                    const attackRadius = huntTarget.size + 20;
+                    opt.targetX = huntTarget.x + Math.cos(attackAngle) * attackRadius;
+                    opt.targetY = huntTarget.y + Math.sin(attackAngle) * attackRadius;
+                    
+                    // 高速移動
+                    opt.x += (opt.targetX - opt.x) * 0.25;
+                    opt.y += (opt.targetY - opt.y) * 0.25;
+                    
+                    const dist = Math.hypot(opt.x - opt.targetX, opt.y - opt.targetY);
+                    if (dist > 10) allReached = false;
+                }
+            }
+            
+        } else {
+            // ターゲットがいない場合はFOLLOW位置に戻る
+            const positions = [
+                { angle: -Math.PI / 2 },
+                { angle: Math.PI / 2 },
+                { angle: Math.PI },
+                { angle: 0 },
+                { angle: -Math.PI * 3/4 },
+                { angle: -Math.PI / 4 }
+            ];
+            
+            for (let i = 0; i < localOptions.length; i++) {
+                const opt = localOptions[i];
+                const pos = positions[i % positions.length];
+                opt.targetX = myPlayer.x + Math.cos(pos.angle) * radius;
+                opt.targetY = myPlayer.y + Math.sin(pos.angle) * radius;
+                opt.x += (opt.targetX - opt.x) * 0.1;
+                opt.y += (opt.targetY - opt.y) * 0.1;
+            }
+        }
     }
 }
 
@@ -496,18 +630,103 @@ function updateOptions() {
 function drawOptions() {
     if (!myPlayer || !myPlayer.alive) return;
     
+    const glowColor = myPlayer.glowColor || '#0ff';
+    
+    // HUNTモードのロックオン演出
+    if (optionFormation === 'HUNT' && huntTarget && huntLockOnTimer > 0) {
+        const tx = huntTarget.x - camera.x + screenShake.x;
+        const ty = huntTarget.y - camera.y + screenShake.y;
+        const progress = 1 - (huntLockOnTimer / 60);
+        
+        ctx.save();
+        
+        // 赤いロックオンサークル（収束）
+        const lockRadius = 80 * (1 - progress) + 30;
+        ctx.strokeStyle = '#f00';
+        ctx.lineWidth = 3;
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = '#f00';
+        ctx.globalAlpha = 0.8;
+        
+        // 外側のリング
+        ctx.beginPath();
+        ctx.arc(tx, ty, lockRadius, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // 回転する照準
+        const rotAngle = frame * 0.1;
+        for (let i = 0; i < 4; i++) {
+            const a = rotAngle + (Math.PI / 2) * i;
+            ctx.beginPath();
+            ctx.moveTo(tx + Math.cos(a) * (lockRadius - 10), ty + Math.sin(a) * (lockRadius - 10));
+            ctx.lineTo(tx + Math.cos(a) * (lockRadius + 15), ty + Math.sin(a) * (lockRadius + 15));
+            ctx.stroke();
+        }
+        
+        // 中心のクロスヘア
+        if (progress > 0.5) {
+            ctx.globalAlpha = (progress - 0.5) * 2;
+            ctx.beginPath();
+            ctx.moveTo(tx - 20, ty);
+            ctx.lineTo(tx + 20, ty);
+            ctx.moveTo(tx, ty - 20);
+            ctx.lineTo(tx, ty + 20);
+            ctx.stroke();
+            
+            // LOCK ON テキスト
+            ctx.fillStyle = '#f00';
+            ctx.font = 'bold 14px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('LOCK ON', tx, ty - lockRadius - 10);
+        }
+        
+        // ターゲットの名前とHP
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 12px Courier New';
+        ctx.fillText(`HP: ${huntTarget.hp}/${huntTarget.maxHp}`, tx, ty + lockRadius + 20);
+        
+        ctx.restore();
+    }
+    
+    // 攻撃中の軌跡エフェクト
+    if (huntAttacking && huntTarget) {
+        ctx.save();
+        ctx.strokeStyle = glowColor;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.5;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = glowColor;
+        
+        localOptions.forEach(opt => {
+            const sx = opt.x - camera.x + screenShake.x;
+            const sy = opt.y - camera.y + screenShake.y;
+            const tx = huntTarget.x - camera.x + screenShake.x;
+            const ty = huntTarget.y - camera.y + screenShake.y;
+            
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(tx, ty);
+            ctx.stroke();
+        });
+        
+        ctx.restore();
+    }
+    
+    // オプション本体の描画
     localOptions.forEach((opt, i) => {
         const sx = opt.x - camera.x + screenShake.x;
         const sy = opt.y - camera.y + screenShake.y;
-        const glowColor = myPlayer.glowColor || '#0ff';
         
-        // オプション本体（小さな球体）
         ctx.save();
         ctx.shadowBlur = 15;
         ctx.shadowColor = glowColor;
         
+        // 攻撃中は赤く光る
+        const currentColor = huntAttacking ? '#f44' : glowColor;
+        
         // 外側のリング
-        ctx.strokeStyle = glowColor;
+        ctx.strokeStyle = currentColor;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(sx, sy, 10, 0, Math.PI * 2);
@@ -520,13 +739,36 @@ function drawOptions() {
         ctx.fill();
         
         // 中心の光
-        ctx.fillStyle = glowColor;
+        ctx.fillStyle = currentColor;
         ctx.beginPath();
         ctx.arc(sx, sy, 3, 0, Math.PI * 2);
         ctx.fill();
         
+        // 移動中のトレイル
+        if (huntAttacking) {
+            ctx.globalAlpha = 0.3;
+            for (let t = 1; t <= 5; t++) {
+                const trailX = sx - (opt.x - opt.targetX) * 0.1 * t;
+                const trailY = sy - (opt.y - opt.targetY) * 0.1 * t;
+                ctx.fillStyle = currentColor;
+                ctx.beginPath();
+                ctx.arc(trailX, trailY, 5 - t, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
         ctx.restore();
     });
+    
+    // フォーメーション表示
+    if (localOptions.length > 0) {
+        ctx.save();
+        ctx.fillStyle = optionFormation === 'HUNT' ? '#f44' : '#0ff';
+        ctx.font = 'bold 10px Courier New';
+        ctx.textAlign = 'left';
+        ctx.fillText(`FORMATION: ${optionFormation}`, 10, canvas.height - 60);
+        ctx.restore();
+    }
 }
 
 // ダッシュトレイルの更新
@@ -910,8 +1152,28 @@ function connectToServer() {
         if (myPlayer) {
             myPlayer.x = data.x; myPlayer.y = data.y; myPlayer.hp = data.hp; myPlayer.alive = true;
             ui.hp.style.width = '100%';
+            
+            // 武器レベルを更新
+            if (data.weaponLevels) {
+                myPlayer.weaponLevels = data.weaponLevels;
+                updateWeaponUI();
+            }
+            
+            // オプション数を更新
+            if (data.options !== undefined) {
+                myPlayer.options = new Array(data.options).fill({});
+                // localOptionsを調整
+                while (localOptions.length > data.options) {
+                    localOptions.pop();
+                }
+            }
+            
+            // HUNTモードをリセット
+            optionFormation = 'FOLLOW';
+            huntTarget = null;
+            huntAttacking = false;
         }
-        showMessage('RESPAWN!');
+        showMessage('RESPAWN! (Weapons halved)');
     });
     
     socket.on('playerRespawned', (data) => {
@@ -1241,11 +1503,15 @@ function triggerDash() {
     }
 }
 function cycleFormation() {
-    currentFormation = (currentFormation + 1) % FORMATIONS.length;
-    socket.emit('formation', { formation: currentFormation });
-    ui.formationDisplay.textContent = `FORMATION: ${FORMATIONS[currentFormation]}`;
-    showMessage(FORMATIONS[currentFormation]);
-    playSound('switch');
+    // オプションフォーメーション切り替え
+    if (localOptions.length > 0) {
+        optionFormation = optionFormation === 'FOLLOW' ? 'HUNT' : 'FOLLOW';
+        huntTarget = null;
+        huntLockOnTimer = 0;
+        huntAttacking = false;
+        showMessage(`FORMATION: ${optionFormation}`);
+        playSound('switch');
+    }
 }
 
 // ========== 武器処理 ==========
