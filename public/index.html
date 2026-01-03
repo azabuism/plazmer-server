@@ -490,31 +490,19 @@ function connectToServer() {
         playSound('gameOver');
     });
 
-    // 他プレイヤーの弾同期（視覚効果のみ）
     socket.on('remoteFire', (data) => {
-        // 自分以外の弾を表示
-        if(data.playerId !== myPlayerId) {
-            spawnRemoteBullets(data);
-        }
+        if(data.playerId !== myPlayerId) spawnRemoteBullets(data);
     });
 }
 
 function spawnRemoteBullets(data) {
-    // 簡易的な弾生成（他プレイヤー用）
-    // ダメージ計算は所有者(shooter)が行うため、こちらはHit判定を持たないダミー弾として生成してもよいが、
-    // 描画の統一のため同じクラスを使い、update内でcheckHitを行わないように制御するか、
-    // checkHit内で hits 配列を渡さなければサーバー通信は発生しない。
-    
-    // 位置情報の取得（gameStateから最新位置を参照）
     const shooter = gameState.players.find(p => p.id === data.playerId);
     if (!shooter) return;
 
     if (data.type === 'PLAZMER') {
-        // PLAZMER弾
         const lv = shooter.weaponLevels ? shooter.weaponLevels.PLAZMER : 1;
         const count = 1 + Math.floor(lv / 1.5);
         const maxSpread = Math.min(Math.PI * 2, lv * (Math.PI / 10));
-        
         for (let i = 0; i < count; i++) {
             let angleOffset = 0;
             if (count > 1) {
@@ -525,11 +513,10 @@ function spawnRemoteBullets(data) {
             localBullets.push(new PlazmerBullet({
                 x: shooter.x, y: shooter.y,
                 angle: data.angle + angleOffset,
-                color: '#0ff' // 味方の弾は水色
-            }, null)); // hits=nullなら通信しない
+                color: '#0ff'
+            }, null));
         }
     } else if (data.type === 'HOMING') {
-        // HOMING弾
         const lv = shooter.weaponLevels ? shooter.weaponLevels.HOMING : 1;
         const missileCount = 4 + lv * 2;
         for (let i = 0; i < missileCount; i++) {
@@ -537,21 +524,15 @@ function spawnRemoteBullets(data) {
             const speed = 5 + Math.random() * 8;
             localMissiles.push(new MacrossMissile({
                 x: shooter.x, y: shooter.y,
-                vx: Math.cos(spreadAngle) * speed,
-                vy: Math.sin(spreadAngle) * speed,
+                vx: Math.cos(spreadAngle) * speed, vy: Math.sin(spreadAngle) * speed,
                 color: '#0af'
             }));
         }
     } else if (data.type === 'THUNDER') {
-        // THUNDER
-        // ターゲットは適当に近くの敵を選ぶ（視覚効果として）
         let target = null;
-        if(gameState.enemies.length > 0) target = gameState.enemies[0]; // 簡易
+        if(gameState.enemies.length > 0) target = gameState.enemies[0];
         localBullets.push(new ThunderBolt({
-            x: shooter.x, y: shooter.y,
-            target: target,
-            angle: data.angle,
-            damage: 0
+            x: shooter.x, y: shooter.y, target: target, angle: data.angle, damage: 0
         }, null));
     }
 }
@@ -606,7 +587,6 @@ function updateInput() {
         if (Math.hypot(mx - myPlayer.x, my - myPlayer.y) > 20) moving = true;
     }
     
-    // クライアント予測移動
     if (moving && !myPlayer.dashing) {
         const speed = myPlayer.speed || 6;
         const vx = Math.cos(angle) * speed; const vy = Math.sin(angle) * speed;
@@ -637,29 +617,14 @@ function cycleFormation() {
 // ========== 武器処理 ==========
 function fireWeapons() {
     if (!myPlayer || !myPlayer.alive || !gameState) return;
-    const hits = []; // ヒット蓄積用配列
-    
-    // 弾の発射タイプをサーバーへ通知（視覚同期用）
-    socket.emit('fire', { 
-        type: 'PLAZMER', 
-        angle: myPlayer.angle, 
-        options: myPlayer.options.length 
-    });
-
+    const hits = []; 
+    socket.emit('fire', { type: 'PLAZMER', angle: myPlayer.angle, options: myPlayer.options.length });
     firePlazmer(hits);
-    if (myPlayer.weaponLevels.HOMING > 0) { 
-        fireHoming(); 
-        socket.emit('fire', { type: 'HOMING', angle: myPlayer.angle });
-    }
+    if (myPlayer.weaponLevels.HOMING > 0) { fireHoming(); socket.emit('fire', { type: 'HOMING', angle: myPlayer.angle }); }
     if (myPlayer.weaponLevels.LASER > 0 && !activeLaser) fireLaser();
     if (myPlayer.weaponLevels.THUNDER > 0 && myPlayer.thunderEnergy >= 180) {
-        fireThunder(hits);
-        myPlayer.thunderEnergy = 0;
-        socket.emit('fire', { type: 'THUNDER', angle: myPlayer.angle });
+        fireThunder(hits); myPlayer.thunderEnergy = 0; socket.emit('fire', { type: 'THUNDER', angle: myPlayer.angle });
     }
-    
-    // ※ヒット通知はここではなく、Bulletクラス内の checkHit で個別に行われる
-    // （前回のコードではここで空のhitsを送っていたのがバグの原因）
     playSound('shoot');
 }
 
@@ -675,11 +640,7 @@ function firePlazmer(hits) {
             if (maxSpread >= Math.PI * 2 - 0.1) angleOffset = (Math.PI * 2 / count) * i;
             else angleOffset = range;
         }
-        localBullets.push(new PlazmerBullet({
-            x: myPlayer.x, y: myPlayer.y,
-            angle: myPlayer.angle + angleOffset,
-            damage: damage, color: '#fff'
-        }, hits));
+        localBullets.push(new PlazmerBullet({ x: myPlayer.x, y: myPlayer.y, angle: myPlayer.angle + angleOffset, damage: damage, color: '#fff' }, hits));
     }
 }
 
@@ -690,11 +651,7 @@ function fireHoming() {
     for (let i = 0; i < missileCount; i++) {
         const spreadAngle = myPlayer.angle + (Math.random() - 0.5) * Math.PI;
         const speed = 5 + Math.random() * 8;
-        localMissiles.push(new MacrossMissile({
-            x: myPlayer.x, y: myPlayer.y,
-            vx: Math.cos(spreadAngle) * speed, vy: Math.sin(spreadAngle) * speed,
-            damage: damage, color: '#a0f'
-        }));
+        localMissiles.push(new MacrossMissile({ x: myPlayer.x, y: myPlayer.y, vx: Math.cos(spreadAngle) * speed, vy: Math.sin(spreadAngle) * speed, damage: damage, color: '#a0f' }));
     }
     playSound('missile');
 }
@@ -703,9 +660,7 @@ function fireLaser() {
     const lv = myPlayer.weaponLevels.LASER;
     const width = Math.min(60, 3 + lv * 3);
     const damage = 3 + Math.max(0, lv - 8) * 2;
-    activeLaser = new KamehamehaLaser({
-        owner: myPlayer, width: width, damage: damage, duration: 60, maxBounces: 5 + Math.floor(lv / 2)
-    });
+    activeLaser = new KamehamehaLaser({ owner: myPlayer, width: width, damage: damage, duration: 60, maxBounces: 5 + Math.floor(lv / 2) });
     playSound('laser');
 }
 
@@ -720,30 +675,19 @@ function fireThunder(hits) {
             }
         });
     }
-    localBullets.push(new ThunderBolt({
-        x: myPlayer.x, y: myPlayer.y, target: target, angle: myPlayer.angle, damage: 30 + lv * 10
-    }, hits));
+    localBullets.push(new ThunderBolt({ x: myPlayer.x, y: myPlayer.y, target: target, angle: myPlayer.angle, damage: 30 + lv * 10 }, hits));
     playSound('thunder'); triggerScreenShake(15);
 }
 
-// ========== 弾クラス ==========
 class PlazmerBullet {
     constructor(data, hits) {
-        this.x = data.x; this.y = data.y;
-        this.angle = data.angle;
-        this.speed = 14;
-        this.vx = Math.cos(this.angle) * this.speed;
-        this.vy = Math.sin(this.angle) * this.speed;
-        this.damage = data.damage || 3;
-        this.color = data.color || '#fff';
-        this.size = 4;
-        this.life = 60;
-        this.type = 'PLAZMER';
-        // hits配列は使わず、直接socket送信する
+        this.x = data.x; this.y = data.y; this.angle = data.angle;
+        this.speed = 14; this.vx = Math.cos(this.angle) * this.speed; this.vy = Math.sin(this.angle) * this.speed;
+        this.damage = data.damage || 3; this.color = data.color || '#fff';
+        this.size = 4; this.life = 60; this.type = 'PLAZMER';
     }
     update() {
-        this.x += this.vx; this.y += this.vy;
-        this.life--;
+        this.x += this.vx; this.y += this.vy; this.life--;
         if (this.life <= 0 || checkWall(this.x, this.y, walls)) this.dead = true;
         this.checkHit();
     }
@@ -751,43 +695,28 @@ class PlazmerBullet {
         if (!gameState) return;
         for (const e of gameState.enemies) {
             if (e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < e.size + this.size) {
-                // 即座にサーバーへ通知！
                 socket.emit('hit', { enemyId: e.id, damage: this.damage, weaponType: this.type });
-                this.dead = true;
-                createParticle(this.x, this.y, this.color);
-                break;
+                this.dead = true; createParticle(this.x, this.y, this.color); break;
             }
         }
     }
     draw() {
         const sx = this.x - camera.x; const sy = this.y - camera.y;
-        ctx.fillStyle = this.color;
-        ctx.shadowBlur = 10; ctx.shadowColor = this.color;
-        ctx.beginPath(); ctx.arc(sx, sy, this.size, 0, Math.PI * 2); ctx.fill();
-        ctx.shadowBlur = 0;
+        ctx.fillStyle = this.color; ctx.shadowBlur = 10; ctx.shadowColor = this.color;
+        ctx.beginPath(); ctx.arc(sx, sy, this.size, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
     }
 }
 
 class MacrossMissile {
     constructor(data) {
-        this.x = data.x; this.y = data.y;
-        this.vx = data.vx; this.vy = data.vy;
-        this.damage = data.damage || 4;
-        this.color = data.color || '#a0f';
-        this.life = 200;
-        this.type = 'HOMING';
-        this.dead = false;
-        this.phase = 0;
-        this.timer = 0;
-        this.waitTime = 10 + Math.random() * 15;
-        this.trail = [];
+        this.x = data.x; this.y = data.y; this.vx = data.vx; this.vy = data.vy;
+        this.damage = data.damage || 4; this.color = data.color || '#a0f';
+        this.life = 200; this.type = 'HOMING'; this.dead = false; this.phase = 0; this.timer = 0; this.waitTime = 10 + Math.random() * 15; this.trail = [];
     }
     update() {
-        this.life--; this.timer++;
-        if (this.life <= 0) this.dead = true;
+        this.life--; this.timer++; if (this.life <= 0) this.dead = true;
         if (this.phase === 0) {
-            this.x += this.vx; this.y += this.vy;
-            this.vx *= 0.92; this.vy *= 0.92;
+            this.x += this.vx; this.y += this.vy; this.vx *= 0.92; this.vy *= 0.92;
             if (this.timer > this.waitTime) this.phase = 1;
         } else {
             let target = null, minDist = 1000;
@@ -804,40 +733,31 @@ class MacrossMissile {
                 const desiredAngle = Math.atan2(target.y - this.y, target.x - this.x);
                 const currentAngle = Math.atan2(this.vy, this.vx);
                 let delta = desiredAngle - currentAngle;
-                while (delta < -Math.PI) delta += Math.PI * 2;
-                while (delta > Math.PI) delta -= Math.PI * 2;
+                while (delta < -Math.PI) delta += Math.PI * 2; while (delta > Math.PI) delta -= Math.PI * 2;
                 const newAngle = currentAngle + Math.max(-turnSpeed, Math.min(turnSpeed, delta));
                 const currentSpeed = Math.hypot(this.vx, this.vy);
                 const nextSpeed = Math.min(maxSpeed, currentSpeed + 1.5);
-                this.vx = Math.cos(newAngle) * nextSpeed;
-                this.vy = Math.sin(newAngle) * nextSpeed;
+                this.vx = Math.cos(newAngle) * nextSpeed; this.vy = Math.sin(newAngle) * nextSpeed;
             }
             this.x += this.vx; this.y += this.vy;
         }
-        if (checkWall(this.x, this.y, walls)) {
-            this.dead = true;
-            createParticles(this.x, this.y, '#f80', 5);
-        }
+        if (checkWall(this.x, this.y, walls)) { this.dead = true; createParticles(this.x, this.y, '#f80', 5); }
         if (gameState) {
             for (const e of gameState.enemies) {
                 if (e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < e.size + 10) {
                     socket.emit('hit', { enemyId: e.id, damage: this.damage, weaponType: this.type });
-                    this.dead = true;
-                    createParticles(this.x, this.y, '#a0f', 8);
-                    break;
+                    this.dead = true; createParticles(this.x, this.y, '#a0f', 8); break;
                 }
             }
         }
-        this.trail.unshift({ x: this.x, y: this.y });
-        if (this.trail.length > 10) this.trail.pop();
+        this.trail.unshift({ x: this.x, y: this.y }); if (this.trail.length > 10) this.trail.pop();
     }
     draw() {
         if (this.trail.length > 1) {
             ctx.beginPath(); ctx.strokeStyle = `rgba(100, 50, 255, 0.5)`; ctx.lineWidth = 2;
             for (let i = 0; i < this.trail.length; i++) {
                 const p = this.trail[i];
-                if (i === 0) ctx.moveTo(p.x - camera.x, p.y - camera.y);
-                else ctx.lineTo(p.x - camera.x, p.y - camera.y);
+                if (i === 0) ctx.moveTo(p.x - camera.x, p.y - camera.y); else ctx.lineTo(p.x - camera.x, p.y - camera.y);
             }
             ctx.stroke();
         }
@@ -846,9 +766,115 @@ class MacrossMissile {
     }
 }
 
-// KamehamehaLaser と ThunderBolt クラスも同様に修正が必要ですが、
-// 文字数制限のため、ロジックは上記の修正パターン（checkHit内でsocket.emit('hit')）を適用してください。
-// 基本的な仕組みは同じです。
+class KamehamehaLaser {
+    constructor(data) {
+        this.owner = data.owner; this.width = data.width || 20; this.damage = data.damage || 3;
+        this.duration = data.duration || 60; this.maxBounces = data.maxBounces || 5;
+        this.life = this.duration; this.damageTimer = 0; this.type = 'LASER';
+        this.segments = []; this.hitEnemies = new Set(); this.updatePath();
+    }
+    updatePath() {
+        this.segments = [];
+        let x = this.owner.x, y = this.owner.y, angle = this.owner.angle;
+        let bounces = this.maxBounces, totalLength = 0;
+        const maxLength = 2500, step = 20;
+        this.segments.push({ x, y });
+        while (totalLength < maxLength && bounces >= 0) {
+            const nextX = x + Math.cos(angle) * step; const nextY = y + Math.sin(angle) * step;
+            const normal = getWallNormal(nextX, nextY);
+            if (normal && bounces > 0) {
+                this.segments.push({ x, y, bounce: true });
+                const dot = Math.cos(angle) * normal.x + Math.sin(angle) * normal.y;
+                angle = Math.atan2(Math.sin(angle) - 2 * dot * normal.y, Math.cos(angle) - 2 * dot * normal.x);
+                bounces--; createParticle(x, y, '#0ff');
+            } else if (normal && bounces <= 0) { this.segments.push({ x, y }); break; }
+            x = nextX; y = nextY; totalLength += step;
+            if (totalLength % 100 < step) this.segments.push({ x, y });
+        }
+        this.segments.push({ x, y });
+    }
+    update() {
+        this.life--; if (this.life <= 0) this.dead = true;
+        this.updatePath(); this.damageTimer++;
+        if (this.damageTimer >= 10 && gameState) {
+            this.damageTimer = 0; const hits = [];
+            for (let i = 0; i < this.segments.length - 1; i++) {
+                const s1 = this.segments[i], s2 = this.segments[i + 1];
+                gameState.enemies.forEach(e => {
+                    if (e.hp > 0 && !this.hitEnemies.has(e.id)) {
+                        if (distToSegment(e.x, e.y, s1.x, s1.y, s2.x, s2.y) < e.size + this.width / 2) {
+                            hits.push({ enemyId: e.id, damage: this.damage, weaponType: this.type });
+                            this.hitEnemies.add(e.id);
+                        }
+                    }
+                });
+            }
+            if (hits.length > 0) socket.emit('shoot', { hits });
+            if (this.life % 20 === 0) this.hitEnemies.clear();
+        }
+    }
+    draw() {
+        if (this.segments.length < 2) return;
+        const alpha = this.life / this.duration; const pulse = Math.sin(frame * 0.3) * 0.2 + 1; const currentWidth = this.width * pulse * alpha;
+        ctx.strokeStyle = `rgba(0,255,255,${alpha * 0.3})`; ctx.lineWidth = currentWidth + 30; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath();
+        this.segments.forEach((s, i) => { if (i === 0) ctx.moveTo(s.x - camera.x, s.y - camera.y); else ctx.lineTo(s.x - camera.x, s.y - camera.y); });
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(0,255,255,${alpha * 0.8})`; ctx.lineWidth = currentWidth; ctx.shadowBlur = 30; ctx.shadowColor = '#0ff'; ctx.stroke();
+        ctx.strokeStyle = `rgba(255,255,255,${alpha})`; ctx.lineWidth = currentWidth * 0.4; ctx.stroke(); ctx.shadowBlur = 0;
+    }
+}
+
+class ThunderBolt {
+    constructor(data, hits) {
+        this.x = data.x; this.y = data.y; this.target = data.target; this.angle = data.angle;
+        this.damage = data.damage || 30; this.color = '#ff0'; this.life = 30; this.type = 'THUNDER';
+        this.points = [{ x: this.x, y: this.y }];
+        this.targetX = this.target ? this.target.x : this.x + Math.cos(this.angle) * 600;
+        this.targetY = this.target ? this.target.y : this.y + Math.sin(this.angle) * 600;
+        this.hitEnemies = new Set(); this.progress = 0; this.hits = hits;
+        this.generatePath();
+    }
+    generatePath() {
+        const segments = 15; const perpAngle = Math.atan2(this.targetY - this.y, this.targetX - this.x) + Math.PI / 2;
+        for (let i = 1; i <= segments; i++) {
+            const progress = i / segments; const baseX = this.x + (this.targetX - this.x) * progress; const baseY = this.y + (this.targetY - this.y) * progress;
+            const zigzag = (i % 2 === 0 ? 1 : -1) * (40 + Math.random() * 30);
+            this.points.push({ x: baseX + Math.cos(perpAngle) * zigzag, y: baseY + Math.sin(perpAngle) * zigzag });
+        }
+    }
+    update() {
+        this.life--; if (this.life <= 0) this.dead = true;
+        this.points.forEach((p, i) => { if (i > 0 && i < this.points.length - 1) { p.x += (Math.random() - 0.5) * 15; p.y += (Math.random() - 0.5) * 15; } });
+        this.progress = Math.min(1, this.progress + 0.2);
+        if (gameState) {
+            const currentSegment = Math.floor(this.progress * (this.points.length - 1));
+            for (let i = 0; i <= currentSegment && i < this.points.length - 1; i++) {
+                const p1 = this.points[i], p2 = this.points[i + 1];
+                gameState.enemies.forEach(e => {
+                    if (e.hp > 0 && !this.hitEnemies.has(e.id)) {
+                        if (distToSegment(e.x, e.y, p1.x, p1.y, p2.x, p2.y) < e.size + 25) {
+                            if (this.hits) { this.hits.push({ enemyId: e.id, damage: this.damage, weaponType: this.type }); }
+                            this.hitEnemies.add(e.id); createParticles(e.x, e.y, '#ff0', 15);
+                        }
+                    }
+                });
+            }
+        }
+    }
+    draw() {
+        const alpha = this.life / 30; const currentSegment = Math.floor(this.progress * (this.points.length - 1));
+        ctx.strokeStyle = `rgba(255,255,0,${alpha * 0.4})`; ctx.lineWidth = 25; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath();
+        for (let i = 0; i <= currentSegment && i < this.points.length; i++) {
+            const p = this.points[i];
+            if (i === 0) ctx.moveTo(p.x - camera.x, p.y - camera.y); else ctx.lineTo(p.x - camera.x, p.y - camera.y);
+        }
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(255,255,0,${alpha})`; ctx.lineWidth = 8; ctx.shadowBlur = 35; ctx.shadowColor = '#ff0'; ctx.stroke();
+        ctx.strokeStyle = `rgba(255,255,255,${alpha})`; ctx.lineWidth = 3; ctx.stroke(); ctx.shadowBlur = 0;
+    }
+}
 
 // ========== ゲームループ ==========
 let weaponTimer = 0;
@@ -857,10 +883,7 @@ function gameLoop() {
     if (myPlayer && myPlayer.alive) updateInput();
     updateCamera();
     weaponTimer++;
-    if (weaponTimer >= 15 && myPlayer && myPlayer.alive) {
-        fireWeapons();
-        weaponTimer = 0;
-    }
+    if (weaponTimer >= 15 && myPlayer && myPlayer.alive) { fireWeapons(); weaponTimer = 0; }
     localBullets.forEach(b => { if (!b.dead) b.update(); });
     localBullets = localBullets.filter(b => !b.dead);
     localMissiles.forEach(m => { if (!m.dead) m.update(); });
