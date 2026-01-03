@@ -52,6 +52,21 @@
             font-family: 'Courier New', monospace; margin-bottom: 10px; width: 200px;
         }
         .name-input::placeholder, .room-input::placeholder { color: #088; }
+        .room-input { margin-bottom: 20px; }
+        .solo-btn { border-color: #0f0; color: #0f0; text-shadow: 0 0 10px #0f0; }
+        .solo-btn:hover { background: #0f0; color: #000; box-shadow: 0 0 30px #0f0; }
+        .back-btn { border-color: #888; color: #888; text-shadow: 0 0 10px #888; padding: 10px 30px; font-size: 14px; }
+        .back-btn:hover { background: #888; color: #000; }
+        .room-code-display {
+            font-size: 32px; color: #ff0; margin: 20px 0;
+            text-shadow: 0 0 20px #ff0; letter-spacing: 8px;
+            padding: 15px 30px; border: 3px solid #ff0; border-radius: 10px;
+            background: rgba(255,255,0,0.1);
+        }
+        .room-code-display span { font-weight: bold; }
+        .waiting-text { color: #0ff; font-size: 14px; margin: 10px 0; animation: blink 1s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        #player-count { color: #0f0; font-size: 16px; margin: 10px 0; }
         #connection-status {
             font-size: 12px; color: #888; margin-top: 20px;
         }
@@ -154,8 +169,27 @@
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
-        <input type="text" id="room-id" class="room-input" placeholder="ROOM CODE" maxlength="10">
-        <button class="menu-btn" onclick="joinGame()">JOIN GAME</button>
+        
+        <div id="menu-buttons">
+            <button class="menu-btn" onclick="hostGame()">HOST GAME</button>
+            <button class="menu-btn" onclick="showJoinForm()">JOIN GAME</button>
+            <button class="menu-btn solo-btn" onclick="soloPlay()">SOLO PLAY</button>
+        </div>
+        
+        <div id="join-form" style="display:none;">
+            <input type="text" id="room-id" class="room-input" placeholder="4-DIGIT CODE" maxlength="4">
+            <button class="menu-btn" onclick="joinGame()">JOIN</button>
+            <button class="menu-btn back-btn" onclick="showMainMenu()">BACK</button>
+        </div>
+        
+        <div id="host-info" style="display:none;">
+            <div class="room-code-display">ROOM CODE: <span id="generated-code">----</span></div>
+            <div class="waiting-text">Waiting for players...</div>
+            <div id="player-count">Players: 1</div>
+            <button class="menu-btn" onclick="startHostedGame()">START GAME</button>
+            <button class="menu-btn back-btn" onclick="cancelHost()">CANCEL</button>
+        </div>
+        
         <div id="connection-status">Connecting to server...</div>
     </div>
     
@@ -316,12 +350,66 @@ function connectToServer() {
         ui.connectionStatus.className = 'error';
     });
     
+    socket.on('hosted', (data) => {
+        console.log('Hosted room:', data.roomId);
+        myPlayerId = data.playerId;
+        myPlayer = data.player;
+        walls = data.walls;
+        
+        // ホスト画面を表示
+        document.getElementById('menu-buttons').style.display = 'none';
+        document.getElementById('host-info').style.display = 'block';
+        document.getElementById('generated-code').textContent = data.roomId;
+        document.getElementById('player-count').textContent = `Players: ${data.players.length}`;
+        
+        ui.connectionStatus.textContent = 'Room created! Share the code with friends.';
+        ui.connectionStatus.className = 'connected';
+    });
+    
+    socket.on('joinError', (data) => {
+        alert(data.message);
+    });
+    
+    socket.on('playerJoined', (data) => {
+        showMessage(`${data.player.name} JOINED!`);
+        // ホスト画面の場合、プレイヤー数を更新
+        if (document.getElementById('host-info').style.display === 'block' && data.playerCount) {
+            document.getElementById('player-count').textContent = `Players: ${data.playerCount}`;
+        }
+    });
+    
+    socket.on('gameStarted', () => {
+        // ゲーム画面に切り替え
+        ui.startScreen.style.display = 'none';
+        ui.hud.style.display = 'block';
+        ui.playersList.style.display = 'block';
+        ui.weapons.style.display = 'flex';
+        ui.formationDisplay.style.display = 'block';
+        updateWeaponUI();
+        showMessage('◆ GAME START ◆');
+    });
+    
+    socket.on('gameStart', (data) => {
+        // WAVEシステム開始（ソロ or ゲーム開始後）
+        showMessage('◆ GET READY ◆');
+    });
+    
     socket.on('joined', (data) => {
         console.log('Joined room:', data.roomId);
         myPlayerId = data.playerId;
         myPlayer = data.player;
         walls = data.walls;
         
+        // ゲームがまだ待機中で、自分がホストでない場合は待機画面
+        if (data.state === 'waiting' && !data.isSolo) {
+            document.getElementById('menu-buttons').style.display = 'none';
+            document.getElementById('join-form').style.display = 'none';
+            ui.connectionStatus.textContent = `Joined room ${data.roomId}. Waiting for host to start...`;
+            ui.connectionStatus.className = 'connected';
+            return;
+        }
+        
+        // ゲーム画面に切り替え
         ui.startScreen.style.display = 'none';
         ui.hud.style.display = 'block';
         ui.playersList.style.display = 'block';
@@ -332,11 +420,9 @@ function connectToServer() {
         
         if (data.state === 'playing') {
             showMessage('JOIN THE BATTLE!');
+        } else if (data.isSolo) {
+            showMessage('◆ SOLO MODE ◆');
         }
-    });
-    
-    socket.on('playerJoined', (data) => {
-        showMessage(`${data.player.name} JOINED!`);
     });
     
     socket.on('playerLeft', (data) => {
@@ -434,9 +520,44 @@ function connectToServer() {
 
 function joinGame() {
     const name = document.getElementById('player-name').value || 'Player';
-    const roomId = document.getElementById('room-id').value || 'default';
+    const roomId = document.getElementById('room-id').value;
+    
+    if (!roomId || roomId.length !== 4) {
+        alert('Please enter a 4-digit room code!');
+        return;
+    }
     
     socket.emit('joinRoom', { name, roomId });
+}
+
+function hostGame() {
+    const name = document.getElementById('player-name').value || 'Host';
+    socket.emit('hostRoom', { name });
+}
+
+function soloPlay() {
+    const name = document.getElementById('player-name').value || 'Solo';
+    socket.emit('soloPlay', { name });
+}
+
+function showJoinForm() {
+    document.getElementById('menu-buttons').style.display = 'none';
+    document.getElementById('join-form').style.display = 'block';
+}
+
+function showMainMenu() {
+    document.getElementById('menu-buttons').style.display = 'block';
+    document.getElementById('join-form').style.display = 'none';
+    document.getElementById('host-info').style.display = 'none';
+}
+
+function cancelHost() {
+    socket.emit('cancelHost');
+    location.reload();
+}
+
+function startHostedGame() {
+    socket.emit('startGame');
 }
 
 // ========== 入力処理 ==========
