@@ -1,10 +1,10 @@
 <script>
-// ========== 定数 ==========
-const WORLD_W = 3000, WORLD_H = 3000;
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
+// ========== 修正版スクリプト（安全対策済み） ==========
 
-// ========== グローバル変数 ==========
+// グローバル変数の宣言（ここではまだ中身を入れない）
+let canvas, ctx;
+const WORLD_W = 3000, WORLD_H = 3000;
+
 let socket = null;
 let myPlayerId = null;
 let myPlayer = null;
@@ -29,33 +29,47 @@ let screenShake = { x: 0, y: 0, intensity: 0 };
 const FORMATIONS = ['FOLLOW', 'GO AROUND 1', 'GO AROUND 2', 'HUNT'];
 let currentFormation = 0;
 
-// UI要素
-const ui = {
-    startScreen: document.getElementById('start-screen'),
-    gameOver: document.getElementById('game-over'),
-    hud: document.getElementById('hud'),
-    playersList: document.getElementById('players-list'),
-    weapons: document.getElementById('weapons'),
-    formationDisplay: document.getElementById('formation-display'),
-    hp: document.getElementById('hp-fill'),
-    wave: document.getElementById('wave'),
-    score: document.getElementById('score'),
-    bossContainer: document.getElementById('boss-container'),
-    bossName: document.getElementById('boss-name'),
-    bossHp: document.getElementById('boss-hp'),
-    message: document.getElementById('message'),
-    connectionStatus: document.getElementById('connection-status'),
-    weaponSlots: {
-        plazmer: document.getElementById('w-plazmer'),
-        homing: document.getElementById('w-homing'),
-        laser: document.getElementById('w-laser'),
-        thunder: document.getElementById('w-thunder'),
-        allrange: document.getElementById('w-allrange')
-    }
-};
+// UI要素（初期化時に取得するよう変更）
+let ui = {};
 
-// ========== 初期化 ==========
+// ========== 初期化（画面読み込み完了後に実行） ==========
 function init() {
+    console.log("Initializing Game...");
+
+    // 1. キャンバスの取得（ここなら確実に存在する）
+    canvas = document.getElementById('canvas');
+    if (!canvas) {
+        console.error("Canvas element not found!");
+        return;
+    }
+    ctx = canvas.getContext('2d');
+
+    // 2. UI要素の取得
+    ui = {
+        startScreen: document.getElementById('start-screen'),
+        gameOver: document.getElementById('game-over'),
+        hud: document.getElementById('hud'),
+        playersList: document.getElementById('players-list'),
+        weapons: document.getElementById('weapons'),
+        formationDisplay: document.getElementById('formation-display'),
+        hp: document.getElementById('hp-fill'),
+        wave: document.getElementById('wave'),
+        score: document.getElementById('score'),
+        bossContainer: document.getElementById('boss-container'),
+        bossName: document.getElementById('boss-name'),
+        bossHp: document.getElementById('boss-hp'),
+        message: document.getElementById('message'),
+        connectionStatus: document.getElementById('connection-status'),
+        weaponSlots: {
+            plazmer: document.getElementById('w-plazmer'),
+            homing: document.getElementById('w-homing'),
+            laser: document.getElementById('w-laser'),
+            thunder: document.getElementById('w-thunder'),
+            allrange: document.getElementById('w-allrange')
+        }
+    };
+
+    // 3. イベントリスナーの設定
     resize();
     window.addEventListener('resize', resize);
     
@@ -67,7 +81,7 @@ function init() {
     
     canvas.addEventListener('mousedown', (e) => {
         if (e.button === 0 && myPlayer && myPlayer.alive) {
-            cycleFormation(); // 左クリックでフォーメーション変更（攻撃は自動）
+            cycleFormation();
         }
     });
     
@@ -76,14 +90,25 @@ function init() {
         if (e.code === 'KeyF') cycleFormation();
     });
     
+    // 4. その他の初期化
     initMobileControls();
-    connectToServer();
+    
+    // socket.ioが存在するか確認してから接続
+    if (typeof io !== 'undefined') {
+        connectToServer();
+    } else {
+        console.error("Socket.io is not loaded! Check script tags.");
+        alert("通信ライブラリの読み込みに失敗しました。ページをリロードしてください。");
+    }
+
     requestAnimationFrame(gameLoop);
 }
 
 function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    if(canvas) {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
 }
 
 // ========== サーバー接続 ==========
@@ -92,15 +117,17 @@ function connectToServer() {
     
     socket.on('connect', () => {
         console.log('Connected to server');
-        ui.connectionStatus.textContent = 'Connected!';
-        ui.connectionStatus.className = 'connected';
+        if(ui.connectionStatus) {
+            ui.connectionStatus.textContent = 'Connected!';
+            ui.connectionStatus.className = 'connected';
+        }
     });
     
     socket.on('hosted', (data) => {
         console.log("Game hosted:", data);
         myPlayerId = data.playerId;
         myPlayer = data.player;
-        walls = data.walls || []; // wallsがない場合の対策
+        walls = data.walls || [];
         document.getElementById('menu-buttons').style.display = 'none';
         document.getElementById('host-info').style.display = 'block';
         document.getElementById('generated-code').textContent = data.roomId;
@@ -120,7 +147,6 @@ function connectToServer() {
     });
     
     socket.on('gameStarted', (data) => {
-        console.log("Game Started Event Received");
         ui.startScreen.style.display = 'none';
         ui.hud.style.display = 'block';
         ui.playersList.style.display = 'block';
@@ -172,16 +198,15 @@ function connectToServer() {
     socket.on('hostCancelled', () => { alert('Host cancelled the game.'); location.reload(); });
     socket.on('playerLeft', () => { showMessage('A player left'); });
     
-    // ★重要: WAVE開始イベント
     socket.on('waveStart', (data) => { 
-        console.log(`Wave Started: ${data.wave}, Walls: ${data.walls ? data.walls.length : 0}`);
+        console.log(`Wave Started: ${data.wave}`);
         walls = data.walls || []; 
         showMessage(`◆ WAVE ${data.wave} ◆`); 
     });
 
     socket.on('bossSpawn', (data) => { 
         showMessage(`◆ ${data.boss.name} APPEARED ◆`); 
-        triggerScreenShake(10); // 揺れを控えめに
+        triggerScreenShake(10); 
         playSound('bossAppear'); 
     });
 
@@ -195,7 +220,7 @@ function connectToServer() {
     
     socket.on('playerDamaged', (data) => {
         if (myPlayer) { myPlayer.hp = data.hp; ui.hp.style.width = Math.max(0, (myPlayer.hp / myPlayer.maxHp) * 100) + '%'; }
-        triggerScreenShake(5); // 揺れを控えめに
+        triggerScreenShake(5); 
         playSound('hit');
     });
     
@@ -217,7 +242,6 @@ function connectToServer() {
     socket.on('gameState', (state) => {
         gameState = state;
         const me = state.players.find(p => p.id === myPlayerId);
-        // サーバーからの位置情報がNaNになっていないかチェック
         if (me && !isNaN(me.x) && !isNaN(me.y)) {
             myPlayer = me;
         }
@@ -248,6 +272,7 @@ function connectToServer() {
 }
 
 function spawnRemoteBullets(data) {
+    if (!gameState) return;
     const shooter = gameState.players.find(p => p.id === data.playerId);
     if (!shooter) return;
 
@@ -332,25 +357,20 @@ function updateInput() {
     let moving = false;
     let angle = myPlayer.angle;
     
-    // Joystick
     if (joystick.active && (Math.abs(joystick.dx) > 0.1 || Math.abs(joystick.dy) > 0.1)) {
         angle = Math.atan2(joystick.dy, joystick.dx); 
         moving = true;
-    } 
-    // Mouse
-    else if (input.hasMoved) {
+    } else if (input.hasMoved) {
         const mx = input.x + camera.x; 
         const my = input.y + camera.y;
         angle = Math.atan2(my - myPlayer.y, mx - myPlayer.x);
         if (Math.hypot(mx - myPlayer.x, my - myPlayer.y) > 20) moving = true;
     }
     
-    // クライアント予測移動
     if (moving && !myPlayer.dashing) {
         const speed = myPlayer.speed || 6;
         const vx = Math.cos(angle) * speed; 
         const vy = Math.sin(angle) * speed;
-        // NaNチェック（重要）
         if (!isNaN(vx) && !isNaN(vy)) {
             if (!checkWall(myPlayer.x + vx, myPlayer.y, walls)) myPlayer.x += vx;
             if (!checkWall(myPlayer.x, myPlayer.y + vy, walls)) myPlayer.y += vy;
@@ -378,10 +398,10 @@ function cycleFormation() {
 }
 
 // ========== 武器処理 ==========
+let weaponTimer = 0;
 function fireWeapons() {
     if (!myPlayer || !myPlayer.alive || !gameState) return;
     const hits = []; 
-    // ここで自動発射
     socket.emit('fire', { type: 'PLAZMER', angle: myPlayer.angle, options: myPlayer.options ? myPlayer.options.length : 0 });
     
     if (myPlayer.weaponLevels) {
@@ -392,11 +412,9 @@ function fireWeapons() {
             fireThunder(hits); myPlayer.thunderEnergy = 0; socket.emit('fire', { type: 'THUNDER', angle: myPlayer.angle });
         }
     } else {
-        // レベル情報がない場合の安全策
         myPlayer.weaponLevels = { PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0, ALLRANGE: 0 };
         firePlazmer(hits);
     }
-    
     playSound('shoot');
 }
 
@@ -473,6 +491,7 @@ class PlazmerBullet {
         }
     }
     draw() {
+        if(!ctx) return;
         const sx = this.x - camera.x; const sy = this.y - camera.y;
         ctx.fillStyle = this.color; ctx.shadowBlur = 10; ctx.shadowColor = this.color;
         ctx.beginPath(); ctx.arc(sx, sy, this.size, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
@@ -525,6 +544,7 @@ class MacrossMissile {
         this.trail.unshift({ x: this.x, y: this.y }); if (this.trail.length > 10) this.trail.pop();
     }
     draw() {
+        if(!ctx) return;
         if (this.trail.length > 1) {
             ctx.beginPath(); ctx.strokeStyle = `rgba(100, 50, 255, 0.5)`; ctx.lineWidth = 2;
             for (let i = 0; i < this.trail.length; i++) {
@@ -586,7 +606,7 @@ class KamehamehaLaser {
         }
     }
     draw() {
-        if (this.segments.length < 2) return;
+        if(!ctx || this.segments.length < 2) return;
         const alpha = this.life / this.duration; const pulse = Math.sin(frame * 0.3) * 0.2 + 1; const currentWidth = this.width * pulse * alpha;
         ctx.strokeStyle = `rgba(0,255,255,${alpha * 0.3})`; ctx.lineWidth = currentWidth + 30; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         ctx.beginPath();
@@ -635,6 +655,7 @@ class ThunderBolt {
         }
     }
     draw() {
+        if(!ctx) return;
         const alpha = this.life / 30; const currentSegment = Math.floor(this.progress * (this.points.length - 1));
         ctx.strokeStyle = `rgba(255,255,0,${alpha * 0.4})`; ctx.lineWidth = 25; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         ctx.beginPath();
@@ -649,7 +670,6 @@ class ThunderBolt {
 }
 
 // ========== ゲームループ ==========
-let weaponTimer = 0;
 function gameLoop() {
     frame++;
     if (myPlayer && myPlayer.alive) updateInput();
@@ -676,13 +696,12 @@ function gameLoop() {
     requestAnimationFrame(gameLoop);
 }
 
-// ========== 以下、不足していた関数を追加 ==========
+// ========== 補助関数 ==========
 
 function initMobileControls() {
-    // モバイル操作の初期化（空実装でエラー回避）
     const joyZone = document.getElementById('joystick-zone');
     const stick = document.getElementById('joystick-stick');
-    // 必要であればここにタッチイベントを追加
+    if(!joyZone) return;
     document.getElementById('btn-dash').addEventListener('touchstart', (e) => {
         e.preventDefault(); triggerDash();
     });
@@ -693,44 +712,34 @@ function initMobileControls() {
 
 function updateCamera() {
     if (myPlayer) {
-        // プレイヤーを中心にカメラを追従させる
-        // 補間（lerp）を入れて滑らかにする
         camera.x += (myPlayer.x - canvas.width / 2 - camera.x) * 0.1;
         camera.y += (myPlayer.y - canvas.height / 2 - camera.y) * 0.1;
     }
 }
 
 function updateScreenShake() {
-    // シェイクの強さを制限（最大20）
     if (screenShake.intensity > 20) screenShake.intensity = 20;
-
     if (screenShake.intensity > 0) {
         screenShake.x = (Math.random() - 0.5) * screenShake.intensity;
         screenShake.y = (Math.random() - 0.5) * screenShake.intensity;
-        screenShake.intensity *= 0.9; // 徐々に減衰
+        screenShake.intensity *= 0.9;
         if (screenShake.intensity < 0.5) screenShake.intensity = 0;
     } else {
-        screenShake.x = 0;
-        screenShake.y = 0;
+        screenShake.x = 0; screenShake.y = 0;
     }
 }
 
-function triggerScreenShake(amount) {
-    screenShake.intensity = amount;
-}
+function triggerScreenShake(amount) { screenShake.intensity = amount; }
 
 function draw() {
-    // 画面クリア
+    if(!ctx) return;
     ctx.fillStyle = '#000810';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     ctx.save();
-    // カメラとシェイクの適用
     ctx.translate(-camera.x + screenShake.x, -camera.y + screenShake.y);
 
-    // 壁の描画（背景）
-    ctx.strokeStyle = '#004455';
-    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#004455'; ctx.lineWidth = 4;
     ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
     if (walls) {
         ctx.fillStyle = '#001122';
@@ -740,7 +749,6 @@ function draw() {
         });
     }
 
-    // プレイヤーの描画
     if (gameState && gameState.players) {
         gameState.players.forEach(p => {
             if (!p.alive) return;
@@ -748,45 +756,28 @@ function draw() {
             ctx.translate(p.x, p.y);
             ctx.rotate(p.angle);
             ctx.fillStyle = p.color || '#0ff';
-            // 三角形を描画
-            ctx.beginPath();
-            ctx.moveTo(15, 0);
-            ctx.lineTo(-10, -10);
-            ctx.lineTo(-10, 10);
-            ctx.fill();
+            ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(-10, -10); ctx.lineTo(-10, 10); ctx.fill();
             ctx.restore();
-            
-            // 名前表示
-            ctx.fillStyle = '#fff';
-            ctx.font = '12px Courier New';
-            ctx.textAlign = 'center';
-            ctx.fillText(p.name, p.x, p.y - 25);
+            ctx.fillStyle = '#fff'; ctx.font = '12px Courier New'; ctx.textAlign = 'center'; ctx.fillText(p.name, p.x, p.y - 25);
         });
     }
 
-    // 敵の描画
     if (gameState && gameState.enemies) {
         gameState.enemies.forEach(e => {
             if (e.hp <= 0) return;
             ctx.fillStyle = e.isBoss ? '#f00' : '#f0f';
-            ctx.beginPath();
-            ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.beginPath(); ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2); ctx.fill();
         });
     }
 
-    // 弾丸の描画
     localBullets.forEach(b => b.draw());
     localMissiles.forEach(m => m.draw());
     if (activeLaser) activeLaser.draw();
-
     ctx.restore();
 }
 
 function checkWall(x, y, walls) {
-    // 簡易的な壁判定（ワールド外に出ないように）
     if (x < 0 || x > WORLD_W || y < 0 || y > WORLD_H) return true;
-    // 障害物判定（もしあれば）
     if (walls) {
         for (let w of walls) {
             if (x > w.x && x < w.x + w.w && y > w.y && y < w.y + w.h) return true;
@@ -795,54 +786,25 @@ function checkWall(x, y, walls) {
     return false;
 }
 
-function createParticle(x, y, color) {
-    // 簡易パーティクル（今回は空実装でも動く）
-}
-
-function createParticles(x, y, color, count) {
-    // 簡易パーティクル（今回は空実装でも動く）
-}
-
-function getWallNormal(x, y) {
-    // レーザー反射用（簡易的にnullを返す）
-    return null; 
-}
-
+function createParticle(x, y, color) {}
+function createParticles(x, y, color, count) {}
+function getWallNormal(x, y) { return null; }
 function distToSegment(x, y, x1, y1, x2, y2) {
-    const A = x - x1;
-    const B = y - y1;
-    const C = x2 - x1;
-    const D = y2 - y1;
-    const dot = A * C + B * D;
-    const len_sq = C * C + D * D;
-    let param = -1;
-    if (len_sq !== 0) param = dot / len_sq;
+    const A = x - x1; const B = y - y1; const C = x2 - x1; const D = y2 - y1;
+    const dot = A * C + B * D; const len_sq = C * C + D * D;
+    let param = -1; if (len_sq !== 0) param = dot / len_sq;
     let xx, yy;
-    if (param < 0) { xx = x1; yy = y1; }
-    else if (param > 1) { xx = x2; yy = y2; }
-    else { xx = x1 + param * C; yy = y1 + param * D; }
-    const dx = x - xx;
-    const dy = y - yy;
-    return Math.sqrt(dx * dx + dy * dy);
+    if (param < 0) { xx = x1; yy = y1; } else if (param > 1) { xx = x2; yy = y2; } else { xx = x1 + param * C; yy = y1 + param * D; }
+    const dx = x - xx; const dy = y - yy; return Math.sqrt(dx * dx + dy * dy);
 }
-
-function playSound(name) {
-    // 音声再生（エラー回避用）
-    // console.log("Play sound: " + name);
-}
-
+function playSound(name) {}
 function showMessage(msg) {
     const el = document.getElementById('message');
-    el.textContent = msg;
-    el.style.opacity = 1;
-    setTimeout(() => { el.style.opacity = 0; }, 2000);
+    if(el) { el.textContent = msg; el.style.opacity = 1; setTimeout(() => { el.style.opacity = 0; }, 2000); }
 }
-
 function updateWeaponUI() {
-    // 武器スロットの表示更新（簡易版）
     if (!myPlayer) return;
     for (let key in ui.weaponSlots) {
-        // キーを大文字にしてレベル確認
         let level = myPlayer.weaponLevels ? myPlayer.weaponLevels[key.toUpperCase()] : 0;
         let el = ui.weaponSlots[key];
         if (el) {
@@ -854,20 +816,8 @@ function updateWeaponUI() {
     }
 }
 
-function updatePlayersList(players) {
-    const list = document.getElementById('player-entries');
-    list.innerHTML = '';
-    players.forEach(p => {
-        const div = document.createElement('div');
-        div.className = 'player-entry';
-        if (p.id === myPlayerId) div.classList.add('me');
-        if (!p.alive) div.classList.add('dead');
-        div.style.color = p.color;
-        div.textContent = p.name + (p.alive ? '' : ' (DEAD)');
-        list.appendChild(div);
-    });
-}
+// ========== 安全な開始（ここが重要） ==========
+// ページ全体（画像やスクリプト含む）が読み終わってから init を実行
+window.addEventListener('load', init);
 
-// ========== 開始 ==========
-init();
 </script>
