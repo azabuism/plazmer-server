@@ -52,7 +52,6 @@
         }
         .name-input::placeholder { color: #088; }
         
-        /* ロビー画面 */
         #join-form, #host-info, #guest-waiting { display: none; flex-direction: column; align-items: center; }
         .room-code-display {
             font-size: 32px; color: #ff0; margin: 20px 0;
@@ -241,11 +240,12 @@ let enemyBullets = [];
 let particles = [];
 let texts = [];
 let items = [];
+let options = [];
 let walls = [];
 let activeLaser = null;
 let missiles = [];
 
-// ★不足していた補間用・演出用変数を追加（これでエラーが消えます）
+// 補間・演出用
 let remotePlayers = new Map();
 let remoteEnemies = new Map();
 let damageTexts = [];
@@ -258,6 +258,7 @@ let huntTarget = null;
 let huntLockOnTimer = 0;
 let huntAttacking = false;
 let damageFlash = 0;
+let alertTimer = 0;
 
 let wave = 0;
 let score = 0;
@@ -277,7 +278,7 @@ const BGM_URLS = [
 ];
 let currentBgm = new Audio();
 currentBgm.loop = true;
-currentBgm.volume = 0.3;
+currentBgm.volume = 0.4;
 
 // 設定
 let weaponLevels = { PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0, ALLRANGE: 0 };
@@ -365,12 +366,17 @@ function setStatus(msg) {
 function playWaveBgm(waveNum) {
     const index = (Math.max(1, waveNum) - 1) % BGM_URLS.length;
     const nextSrc = BGM_URLS[index];
+    
+    // 曲が変わる場合のみ再生し直し
     if (currentBgm.src !== nextSrc) {
         currentBgm.pause();
         currentBgm.src = nextSrc;
-        currentBgm.play().catch(e => console.log("BGM error:", e));
-    } else if (currentBgm.paused) {
-        currentBgm.play().catch(e => console.log("BGM error:", e));
+        const playPromise = currentBgm.play();
+        if (playPromise !== undefined) {
+            playPromise.catch(error => {
+                console.log("Audio playback failed (usually requires user interaction):", error);
+            });
+        }
     }
 }
 
@@ -485,7 +491,6 @@ function setupGameCommon() {
     ui.weaponsDiv.style.display = 'flex';
     ui.formationDisplay.style.display = 'block';
     
-    // 変数リセット
     enemies = []; bullets = []; enemyBullets = []; particles = []; texts = [];
     items = []; options = []; missiles = [];
     // 補間用リセット
@@ -497,6 +502,7 @@ function setupGameCommon() {
     wave = 0; score = 0; frame = 0;
     soloWaveTimer = 0; soloMobTimer = 0; enemyIdCounter = 0;
     combo = { count: 0, timer: 0, multiplier: 1 };
+    damageFlash = 0;
     
     updateWeaponUI();
 }
@@ -506,6 +512,7 @@ function startSoloGame() {
     setupGameCommon();
     player = new Player();
     walls = generateMazeWalls(0);
+    // カメラの初期化（重要）
     camera.x = player.x - canvas.width/2;
     camera.y = player.y - canvas.height/2;
     playWaveBgm(1);
@@ -579,8 +586,8 @@ function updateGameLogic() {
     bullets = bullets.filter(b => !b.dead);
     updateEnemyBullets();
     updateItems();
-    updateOptions(); // オプションの動き更新
-    updateDashTrail(); // ダッシュエフェクト更新
+    updateOptions(); 
+    updateDashTrail(); 
     particles.forEach(p => p.update());
     particles = particles.filter(p => p.life > 0);
     texts.forEach(t => t.update());
@@ -636,9 +643,8 @@ function draw() {
         ctx.shadowBlur = 0;
     });
 
-    drawDashEffects(); // ダッシュエフェクト
+    drawDashEffects(); 
 
-    // プレイヤー描画
     if (player) player.draw();
 
     enemies.forEach(e => { if (e.isBoss) drawBoss(e); else drawEnemy(e); });
@@ -649,7 +655,7 @@ function draw() {
         ctx.beginPath(); ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
     });
     
-    drawOptions(); // オプション
+    drawOptions(); 
     if(activeLaser) activeLaser.draw();
 
     particles.forEach(p => p.draw());
@@ -667,19 +673,23 @@ function draw() {
     drawEnemyIndicators();
     drawMinimap();
 
-    // ダメージフラッシュ
+    // ダメージフラッシュ（画面全体）
     if (damageFlash > 0) {
+        ctx.save();
         ctx.fillStyle = `rgba(255, 0, 0, ${damageFlash / 30})`;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.restore();
         damageFlash--;
     }
 
     // HP低下アラート
     if (player && player.alive && player.hp < player.maxHp * 0.3) {
         const pulse = (Math.sin(frame * 0.2) + 1) / 2; 
+        ctx.save();
         ctx.strokeStyle = `rgba(255, 0, 0, ${pulse * 0.8})`;
         ctx.lineWidth = 10;
         ctx.strokeRect(0, 0, canvas.width, canvas.height);
+        
         if (frame % 30 < 15) {
             ctx.fillStyle = '#f00';
             ctx.font = 'bold 24px Courier New';
@@ -687,6 +697,7 @@ function draw() {
             ctx.textBaseline = 'middle';
             ctx.fillText("WARNING: LOW SHIELD", canvas.width/2, canvas.height/2 - 100);
         }
+        ctx.restore();
     }
 }
 
@@ -747,7 +758,6 @@ class Player {
     
     fireWeapons() {
         bullets.push(new PlazmerBullet({x:this.x, y:this.y, angle:this.angle}));
-        // オプション射撃（FOLLOW以外）
         localOptions.forEach(opt => {
             if(currentFormation !== 'FOLLOW') bullets.push(new PlazmerBullet({x:opt.x, y:opt.y, angle:opt.angle, color:'#0f0'}));
         });
@@ -772,6 +782,7 @@ class Player {
     }
     
     draw() {
+        // ★描画修正：ctx.translate済みの座標系で描画する
         if (this.invincible % 4 < 2) {
             ctx.save();
             ctx.translate(this.x, this.y); 
@@ -788,7 +799,7 @@ class Player {
 
 // ========== ユーティリティ ==========
 function updateOptions() {
-    const optionCount = weaponLevels.ALLRANGE || 0; // ここは簡易的にALLRANGEレベルを個数とする
+    const optionCount = weaponLevels.ALLRANGE || 0;
     while(localOptions.length < optionCount) localOptions.push({x:player.x,y:player.y});
     
     if(currentFormation === 'FOLLOW') {
@@ -797,7 +808,6 @@ function updateOptions() {
            if(hist) { opt.x+=(hist.x-opt.x)*0.2; opt.y+=(hist.y-opt.y)*0.2; opt.angle=hist.angle; }
         });
     } else {
-        // 回転など
         const r = 60;
         localOptions.forEach((opt,i) => {
             const a = frame*0.05 + (Math.PI*2/localOptions.length)*i;
@@ -850,6 +860,19 @@ class FloatingText {
     draw() { ctx.fillStyle=this.color; ctx.globalAlpha=this.life/40; ctx.font='bold 14px Courier New'; ctx.textAlign='center'; ctx.fillText(this.text, this.x, this.y); ctx.globalAlpha=1; }
 }
 function createFloatingText(x, y, text, color) { texts.push(new FloatingText(x, y, text, color)); }
+
+class Option {
+    constructor() { this.x=player.x; this.y=player.y; this.angle=0; }
+    update(i, t) { 
+        this.x += (player.x - this.x)*0.2;
+        this.y += (player.y - this.y)*0.2;
+    }
+    draw() { 
+        ctx.save(); ctx.translate(this.x, this.y); 
+        ctx.fillStyle='#0f0'; ctx.shadowBlur=5; ctx.shadowColor='#0f0'; ctx.beginPath(); ctx.arc(0,0,6,0,Math.PI*2); ctx.fill(); 
+        ctx.restore(); 
+    }
+}
 
 function updateCamera() {
     if(!player) return;
@@ -916,7 +939,7 @@ function initMobileControls() {
     setupButton('btn-dash', triggerDash); setupButton('btn-form', cycleFormation);
 }
 
-function playSound(name) { /* 簡易効果音 */ } 
+function playSound(name) {} 
 function cycleFormation() { currentFormation = (currentFormation + 1) % FORMATIONS.length; showMessage(FORMATIONS[currentFormation]); }
 function triggerDash() { if(player) player.dash(); }
 function showMessage(msg) { ui.message.textContent = msg; ui.message.style.opacity = 1; setTimeout(()=>ui.message.style.opacity=0, 2000); }
@@ -929,56 +952,11 @@ function generateMazeWalls(n) { return [{x:0,y:0,w:WORLD_W,h:50},{x:0,y:WORLD_H-
 function spawnMobs() { if(enemies.length < 50) spawnEnemy('virus', Math.random()*WORLD_W, Math.random()*WORLD_H); }
 function spawnEnemy(type, x, y) { enemies.push({x,y,hp:10,maxHp:10,color:'#f00',size:15,speed:2}); }
 function updateEnemyBullets() {} 
-function updateItems() {
-    items = items.filter(item => {
-        // 吸い寄せ範囲拡大 (250px -> 300px)
-        if (player && Math.hypot(player.x - item.x, player.y - item.y) < 300) {
-            item.x += (player.x - item.x) * 0.15; // 速度アップ
-            item.y += (player.y - item.y) * 0.15;
-        }
-        // 取得判定拡大 (半径+12px -> 半径+60px)
-        if (player && Math.hypot(player.x - item.x, player.y - item.y) < 60) {
-            collectItem(item.type);
-            createFloatingText(item.x, item.y, item.type + '!', item.color);
-            return false;
-        }
-        return true;
-    });
-}
-function collectItem(type) {
-    if (type === 'H') player.heal(30);
-    else if (type === 'ALLRANGE') {
-        weaponLevels.ALLRANGE++;
-    } else {
-        weaponLevels[type] = (weaponLevels[type] || 0) + 1;
-    }
-    updateWeaponUI();
-}
-function triggerScreenShake(intensity) { screenShake.intensity = Math.max(screenShake.intensity, intensity); }
-function updateScreenShake() {
-    if (screenShake.intensity > 0) {
-        screenShake.x = (Math.random() - 0.5) * screenShake.intensity;
-        screenShake.y = (Math.random() - 0.5) * screenShake.intensity;
-        screenShake.intensity *= 0.9;
-        if (screenShake.intensity < 0.5) screenShake.intensity = 0;
-    } else { screenShake.x = 0; screenShake.y = 0; }
-}
-function addCombo() {
-    combo.count++; combo.timer = 120;
-    combo.multiplier = 1 + Math.floor(combo.count / 5) * 0.5;
-    if (combo.multiplier > 5) combo.multiplier = 5;
-}
-function updateCombo() {
-    if (combo.timer > 0) {
-        combo.timer--;
-        if (combo.timer === 0) { combo.count = 0; combo.multiplier = 1; }
-    }
-}
 function startWave() {
     wave++;
     ui.wave.textContent = wave;
     showMessage(`◆ WAVE ${wave} ◆`);
-    playWaveBgm(wave); // BGM切り替え
+    playWaveBgm(wave); 
 }
 
 window.addEventListener('load', init);
