@@ -14,6 +14,7 @@
             -webkit-touch-callout: none;
             -webkit-user-select: none;
             user-select: none;
+            cursor: crosshair; /* マウスカーソルを照準に変更 */
         }
         #canvas { display: block; background: #000810; }
         
@@ -52,8 +53,6 @@
         .hud-value { font-size: 20px; color: #0ff; margin-bottom: 10px; }
         #hp-bar { width: 150px; height: 8px; background: #001; border: 1px solid #0ff; margin-bottom: 10px; }
         #hp-fill { width: 100%; height: 100%; background: linear-gradient(90deg, #f00, #ff0, #0f0); transition: width 0.2s; }
-        
-        /* ボムUI削除 */
         
         #boss-container {
             position: fixed; top: 50px; left: 50%; transform: translateX(-50%);
@@ -223,7 +222,9 @@ let screenShake = { x: 0, y: 0, intensity: 0 };
 let combo = { count: 0, timer: 0, multiplier: 1 };
 
 // 入力
-let input = { x: 0, y: 0, active: false };
+// active: false はクリック判定用ではなくなったが、スマホ操作用に残す
+// hasMoved: マウスが動いたかどうかの判定用
+let input = { x: 0, y: 0, active: false, hasMoved: false };
 let joystick = { active: false, dx: 0, dy: 0 };
 
 // ソロモード用
@@ -238,7 +239,6 @@ const ui = {
     hp: document.getElementById('hp-fill'),
     wave: document.getElementById('wave'),
     score: document.getElementById('score'),
-    // bomb: document.getElementById('bomb'), // 削除
     bossContainer: document.getElementById('boss-container'),
     bossName: document.getElementById('boss-name'),
     bossHp: document.getElementById('boss-hp'),
@@ -258,15 +258,23 @@ function init() {
     resize();
     window.addEventListener('resize', resize);
     
+    // マウス移動: 座標を更新し、入力があったことを記録
     canvas.addEventListener('mousemove', e => {
         input.x = e.clientX;
         input.y = e.clientY;
+        input.hasMoved = true;
     });
-    canvas.addEventListener('mousedown', () => input.active = true);
-    canvas.addEventListener('mouseup', () => input.active = false);
+    
+    // マウスクリック: 左クリックでフォーメーション変更
+    canvas.addEventListener('mousedown', (e) => {
+        // e.button === 0 は左クリック
+        if (e.button === 0 && gameState === 'playing') {
+            cycleFormation();
+        }
+    });
+    
     document.addEventListener('keydown', e => {
         if (e.code === 'Space') triggerDash();
-        // ボムキー削除
         if (e.code === 'KeyF') cycleFormation();
     });
     
@@ -428,7 +436,6 @@ class Player {
         this.maxHp = 100;
         this.hp = 100;
         this.speed = 6;
-        // ボム所持数削除
         this.angle = 0;
         this.weaponTimer = 0;
         this.dashing = false;
@@ -461,6 +468,7 @@ class Player {
             if (frame % 2 === 0) particles.push(new Particle(this.x, this.y, '#fff', 5, 5));
             if (this.dashTimer <= 0) this.dashing = false;
         } else {
+            // モバイル操作（ジョイスティック）
             if (joystick.active && (Math.abs(joystick.dx) > 0.1 || Math.abs(joystick.dy) > 0.1)) {
                 this.angle = Math.atan2(joystick.dy, joystick.dx);
                 const mag = Math.min(1, Math.hypot(joystick.dx, joystick.dy));
@@ -468,7 +476,9 @@ class Player {
                 const vy = joystick.dy * this.speed * mag;
                 if (!checkWall(this.x + vx, this.y)) this.x += vx;
                 if (!checkWall(this.x, this.y + vy)) this.y += vy;
-            } else if (input.active) {
+            } 
+            // PC操作（マウス追従）: クリック不要で常に追従
+            else if (input.hasMoved) {
                 const mx = input.x + camera.x;
                 const my = input.y + camera.y;
                 this.angle = Math.atan2(my - this.y, mx - this.x);
@@ -1803,6 +1813,7 @@ function playSound(type) {
         case 'dash': osc.frequency.setValueAtTime(600, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1); gain.gain.setValueAtTime(0.08, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1); osc.start(); osc.stop(audioCtx.currentTime + 0.1); break;
         case 'hit': osc.type = 'square'; osc.frequency.setValueAtTime(200, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.15); gain.gain.setValueAtTime(0.12, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15); osc.start(); osc.stop(audioCtx.currentTime + 0.15); break;
         case 'heal': osc.frequency.setValueAtTime(600, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(900, audioCtx.currentTime + 0.15); gain.gain.setValueAtTime(0.1, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15); osc.start(); osc.stop(audioCtx.currentTime + 0.15); break;
+        case 'bomb': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(20, audioCtx.currentTime + 0.5); gain.gain.setValueAtTime(0.2, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5); osc.start(); osc.stop(audioCtx.currentTime + 0.5); break;
         case 'switch': osc.frequency.setValueAtTime(500, audioCtx.currentTime); osc.frequency.setValueAtTime(700, audioCtx.currentTime + 0.05); gain.gain.setValueAtTime(0.08, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1); osc.start(); osc.stop(audioCtx.currentTime + 0.1); break;
         case 'enemyShoot': osc.type = 'square'; osc.frequency.setValueAtTime(400, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.1); gain.gain.setValueAtTime(0.05, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1); osc.start(); osc.stop(audioCtx.currentTime + 0.1); break;
         case 'enemyDefeat': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(300, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.15); gain.gain.setValueAtTime(0.1, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15); osc.start(); osc.stop(audioCtx.currentTime + 0.15); break;
