@@ -291,7 +291,7 @@ let frame = 0;
 
 // 入力
 let input = { x: 0, y: 0, angle: 0, moving: false, dash: false, hasMoved: false };
-let joystick = { active: false, dx: 0, dy: 0 };
+let joystick = { active: false, dx: 0, dy: 0, centerX: 0, centerY: 0 };
 
 // カメラ
 let camera = { x: 0, y: 0 };
@@ -326,6 +326,145 @@ const ui = {
     }
 };
 
+// ========== ユーティリティ関数 ==========
+function checkWall(x, y, wallList) {
+    if (!wallList) wallList = walls;
+    for (const w of wallList) {
+        if (w.type === 'cell') {
+            if (Math.hypot(x - w.cx, y - w.cy) < w.radius + 8) return true;
+        } else {
+            if (x > w.x - 8 && x < w.x + w.w + 8 && y > w.y - 8 && y < w.y + w.h + 8) return true;
+        }
+    }
+    return false;
+}
+
+function getWallNormal(x, y) {
+    for (const w of walls) {
+        if (w.type === 'cell') {
+            const dx = x - w.cx, dy = y - w.cy;
+            if (Math.hypot(dx, dy) < w.radius + 10) {
+                const len = Math.hypot(dx, dy);
+                return { x: dx / len, y: dy / len };
+            }
+        } else {
+            if (x > w.x - 10 && x < w.x + w.w + 10 && y > w.y - 10 && y < w.y + w.h + 10) {
+                const cx = w.x + w.w / 2, cy = w.y + w.h / 2;
+                const dx = x - cx, dy = y - cy;
+                if (Math.abs(dx) / w.w > Math.abs(dy) / w.h) return { x: dx > 0 ? 1 : -1, y: 0 };
+                else return { x: 0, y: dy > 0 ? 1 : -1 };
+            }
+        }
+    }
+    return null;
+}
+
+function distToSegment(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const len2 = dx * dx + dy * dy;
+    if (len2 === 0) return Math.hypot(px - x1, py - y1);
+    let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+function createParticle(x, y, color) {
+    particles.push({
+        x, y, vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8,
+        color: color || '#fff', life: 30, size: 3 + Math.random() * 3,
+        update() { this.x += this.vx; this.y += this.vy; this.vx *= 0.95; this.vy *= 0.95; this.life--; this.size *= 0.95; }
+    });
+}
+
+function createParticles(x, y, color, count) {
+    for (let i = 0; i < count; i++) createParticle(x, y, color);
+}
+
+function updateCamera() {
+    if (!myPlayer) return;
+    const targetX = myPlayer.x - canvas.width / 2;
+    const targetY = myPlayer.y - canvas.height / 2;
+    camera.x += (targetX - camera.x) * 0.1;
+    camera.y += (targetY - camera.y) * 0.1;
+    camera.x = Math.max(0, Math.min(WORLD_W - canvas.width, camera.x));
+    camera.y = Math.max(0, Math.min(WORLD_H - canvas.height, camera.y));
+}
+
+function triggerScreenShake(intensity) { screenShake.intensity = intensity; }
+
+function updateScreenShake() {
+    if (screenShake.intensity > 0) {
+        screenShake.x = (Math.random() - 0.5) * screenShake.intensity;
+        screenShake.y = (Math.random() - 0.5) * screenShake.intensity;
+        screenShake.intensity *= 0.9;
+    } else { screenShake.x = 0; screenShake.y = 0; }
+}
+
+function updateWeaponUI() {
+    if (!myPlayer || !myPlayer.weaponLevels) return;
+    const wl = myPlayer.weaponLevels;
+    ui.weaponSlots.plazmer.textContent = `PLAZMER Lv${wl.PLAZMER}`;
+    ui.weaponSlots.plazmer.classList.add('active');
+    if (wl.HOMING > 0) { ui.weaponSlots.homing.textContent = `HOMING Lv${wl.HOMING}`; ui.weaponSlots.homing.classList.remove('locked'); ui.weaponSlots.homing.classList.add('active'); }
+    if (wl.LASER > 0) { ui.weaponSlots.laser.textContent = `LASER Lv${wl.LASER}`; ui.weaponSlots.laser.classList.remove('locked'); ui.weaponSlots.laser.classList.add('active'); }
+    if (wl.THUNDER > 0) { ui.weaponSlots.thunder.textContent = `THUNDER Lv${wl.THUNDER}`; ui.weaponSlots.thunder.classList.remove('locked'); ui.weaponSlots.thunder.classList.add('active'); }
+    if (wl.ALLRANGE > 0) { ui.weaponSlots.allrange.textContent = `ALL-RANGE Lv${wl.ALLRANGE}`; ui.weaponSlots.allrange.classList.remove('locked'); ui.weaponSlots.allrange.classList.add('active'); }
+}
+
+function updatePlayersList(players) {
+    const container = document.getElementById('player-entries');
+    container.innerHTML = '';
+    players.forEach(p => {
+        const div = document.createElement('div');
+        div.className = 'player-entry';
+        div.style.color = p.color || '#fff';
+        if (p.id === myPlayerId) div.classList.add('me');
+        if (!p.alive) div.classList.add('dead');
+        const colorDot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:5px;box-shadow:0 0 5px ${p.color}"></span>`;
+        div.innerHTML = `${colorDot}${p.name}: ${p.score}`;
+        container.appendChild(div);
+    });
+}
+
+function showMessage(text) {
+    ui.message.textContent = text;
+    ui.message.style.opacity = 1;
+    setTimeout(() => { ui.message.style.opacity = 0; }, 2000);
+}
+
+function playSound(type) { /* サウンド未実装 */ }
+
+function initMobileControls() {
+    const zone = document.getElementById('joystick-zone');
+    const stick = document.getElementById('joystick-stick');
+    const base = document.getElementById('joystick-base');
+    
+    zone.addEventListener('touchstart', e => {
+        e.preventDefault(); joystick.active = true;
+        const rect = base.getBoundingClientRect();
+        joystick.centerX = rect.left + rect.width / 2;
+        joystick.centerY = rect.top + rect.height / 2;
+    });
+    
+    zone.addEventListener('touchmove', e => {
+        e.preventDefault(); if (!joystick.active) return;
+        const touch = e.touches[0]; const maxDist = 50;
+        let dx = touch.clientX - joystick.centerX, dy = touch.clientY - joystick.centerY;
+        const dist = Math.hypot(dx, dy);
+        if (dist > maxDist) { dx = dx / dist * maxDist; dy = dy / dist * maxDist; }
+        joystick.dx = dx / maxDist; joystick.dy = dy / maxDist;
+        stick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    });
+    
+    zone.addEventListener('touchend', e => {
+        e.preventDefault(); joystick.active = false; joystick.dx = 0; joystick.dy = 0;
+        stick.style.transform = 'translate(-50%, -50%)';
+    });
+    
+    document.getElementById('btn-dash').addEventListener('touchstart', e => { e.preventDefault(); triggerDash(); });
+    document.getElementById('btn-form').addEventListener('touchstart', e => { e.preventDefault(); cycleFormation(); });
+}
+
 // ========== 初期化 ==========
 function init() {
     resize();
@@ -348,7 +487,7 @@ function init() {
         if (e.code === 'KeyF') cycleFormation();
     });
     
-    initMobileControls(); // ★ ここでエラーになっていた部分
+    initMobileControls();
     connectToServer();
     requestAnimationFrame(gameLoop);
 }
@@ -447,7 +586,7 @@ function connectToServer() {
     socket.on('enemyDefeated', (data) => { playSound(data.isBoss ? 'bossDefeat' : 'enemyDefeat'); });
     
     socket.on('playerDamaged', (data) => {
-        if (myPlayer) { myPlayer.hp = data.hp; ui.hp.style.width = Math.max(0, (myPlayer.hp / myPlayer.maxHp) * 100) + '%'; }
+        if (myPlayer) { myPlayer.hp = data.hp; ui.hp.style.width = Math.max(0, (myPlayer.hp / (myPlayer.maxHp || 100)) * 100) + '%'; }
         triggerScreenShake(10); playSound('hit');
     });
     
@@ -460,7 +599,7 @@ function connectToServer() {
             myPlayer.weaponLevels = data.weaponLevels;
             myPlayer.hp = data.hp;
             myPlayer.options = new Array(data.options).fill({});
-            ui.hp.style.width = (myPlayer.hp / myPlayer.maxHp) * 100 + '%';
+            ui.hp.style.width = (myPlayer.hp / (myPlayer.maxHp || 100)) * 100 + '%';
             updateWeaponUI();
         }
         playSound('powerup');
@@ -496,6 +635,7 @@ function connectToServer() {
 }
 
 function spawnRemoteBullets(data) {
+    if (!gameState) return;
     const shooter = gameState.players.find(p => p.id === data.playerId);
     if (!shooter) return;
 
@@ -513,7 +653,8 @@ function spawnRemoteBullets(data) {
             localBullets.push(new PlazmerBullet({
                 x: shooter.x, y: shooter.y,
                 angle: data.angle + angleOffset,
-                color: '#0ff'
+                color: shooter.color || '#0ff',
+                damage: 0
             }, null));
         }
     } else if (data.type === 'HOMING') {
@@ -525,7 +666,8 @@ function spawnRemoteBullets(data) {
             localMissiles.push(new MacrossMissile({
                 x: shooter.x, y: shooter.y,
                 vx: Math.cos(spreadAngle) * speed, vy: Math.sin(spreadAngle) * speed,
-                color: '#0af'
+                color: shooter.color || '#0af',
+                damage: 0
             }));
         }
     } else if (data.type === 'THUNDER') {
@@ -618,12 +760,13 @@ function cycleFormation() {
 // ========== 武器処理 ==========
 function fireWeapons() {
     if (!myPlayer || !myPlayer.alive || !gameState) return;
+    if (!myPlayer.weaponLevels) return;
     const hits = []; 
-    socket.emit('fire', { type: 'PLAZMER', angle: myPlayer.angle, options: myPlayer.options.length });
+    socket.emit('fire', { type: 'PLAZMER', angle: myPlayer.angle, options: myPlayer.options ? myPlayer.options.length : 0 });
     firePlazmer(hits);
     if (myPlayer.weaponLevels.HOMING > 0) { fireHoming(); socket.emit('fire', { type: 'HOMING', angle: myPlayer.angle }); }
     if (myPlayer.weaponLevels.LASER > 0 && !activeLaser) fireLaser();
-    if (myPlayer.weaponLevels.THUNDER > 0 && myPlayer.thunderEnergy >= 180) {
+    if (myPlayer.weaponLevels.THUNDER > 0 && (myPlayer.thunderEnergy || 0) >= 180) {
         fireThunder(hits); myPlayer.thunderEnergy = 0; socket.emit('fire', { type: 'THUNDER', angle: myPlayer.angle });
     }
     playSound('shoot');
@@ -641,7 +784,7 @@ function firePlazmer(hits) {
             if (maxSpread >= Math.PI * 2 - 0.1) angleOffset = (Math.PI * 2 / count) * i;
             else angleOffset = range;
         }
-        localBullets.push(new PlazmerBullet({ x: myPlayer.x, y: myPlayer.y, angle: myPlayer.angle + angleOffset, damage: damage, color: '#fff' }, hits));
+        localBullets.push(new PlazmerBullet({ x: myPlayer.x, y: myPlayer.y, angle: myPlayer.angle + angleOffset, damage: damage, color: myPlayer.color || '#fff' }, hits));
     }
 }
 
@@ -652,7 +795,7 @@ function fireHoming() {
     for (let i = 0; i < missileCount; i++) {
         const spreadAngle = myPlayer.angle + (Math.random() - 0.5) * Math.PI;
         const speed = 5 + Math.random() * 8;
-        localMissiles.push(new MacrossMissile({ x: myPlayer.x, y: myPlayer.y, vx: Math.cos(spreadAngle) * speed, vy: Math.sin(spreadAngle) * speed, damage: damage, color: '#a0f' }));
+        localMissiles.push(new MacrossMissile({ x: myPlayer.x, y: myPlayer.y, vx: Math.cos(spreadAngle) * speed, vy: Math.sin(spreadAngle) * speed, damage: damage, color: myPlayer.color || '#a0f' }));
     }
     playSound('missile');
 }
@@ -693,7 +836,7 @@ class PlazmerBullet {
         this.checkHit();
     }
     checkHit() {
-        if (!gameState) return;
+        if (!gameState || this.damage <= 0) return;
         for (const e of gameState.enemies) {
             if (e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < e.size + this.size) {
                 socket.emit('hit', { enemyId: e.id, damage: this.damage, weaponType: this.type });
@@ -743,7 +886,7 @@ class MacrossMissile {
             this.x += this.vx; this.y += this.vy;
         }
         if (checkWall(this.x, this.y, walls)) { this.dead = true; createParticles(this.x, this.y, '#f80', 5); }
-        if (gameState) {
+        if (gameState && this.damage > 0) {
             for (const e of gameState.enemies) {
                 if (e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < e.size + 10) {
                     socket.emit('hit', { enemyId: e.id, damage: this.damage, weaponType: this.type });
@@ -848,7 +991,7 @@ class ThunderBolt {
         this.life--; if (this.life <= 0) this.dead = true;
         this.points.forEach((p, i) => { if (i > 0 && i < this.points.length - 1) { p.x += (Math.random() - 0.5) * 15; p.y += (Math.random() - 0.5) * 15; } });
         this.progress = Math.min(1, this.progress + 0.2);
-        if (gameState) {
+        if (gameState && this.damage > 0) {
             const currentSegment = Math.floor(this.progress * (this.points.length - 1));
             for (let i = 0; i <= currentSegment && i < this.points.length - 1; i++) {
                 const p1 = this.points[i], p2 = this.points[i + 1];
@@ -856,6 +999,7 @@ class ThunderBolt {
                     if (e.hp > 0 && !this.hitEnemies.has(e.id)) {
                         if (distToSegment(e.x, e.y, p1.x, p1.y, p2.x, p2.y) < e.size + 25) {
                             if (this.hits) { this.hits.push({ enemyId: e.id, damage: this.damage, weaponType: this.type }); }
+                            socket.emit('hit', { enemyId: e.id, damage: this.damage, weaponType: this.type });
                             this.hitEnemies.add(e.id); createParticles(e.x, e.y, '#ff0', 15);
                         }
                     }
@@ -874,6 +1018,137 @@ class ThunderBolt {
         ctx.stroke();
         ctx.strokeStyle = `rgba(255,255,0,${alpha})`; ctx.lineWidth = 8; ctx.shadowBlur = 35; ctx.shadowColor = '#ff0'; ctx.stroke();
         ctx.strokeStyle = `rgba(255,255,255,${alpha})`; ctx.lineWidth = 3; ctx.stroke(); ctx.shadowBlur = 0;
+    }
+}
+
+// ========== 描画 ==========
+function draw() {
+    ctx.fillStyle = '#000810'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // グリッド
+    ctx.strokeStyle = 'rgba(0,50,80,0.3)'; ctx.lineWidth = 1;
+    const gridSize = 100, startX = -camera.x % gridSize, startY = -camera.y % gridSize;
+    for (let x = startX; x < canvas.width; x += gridSize) { ctx.beginPath(); ctx.moveTo(x + screenShake.x, 0); ctx.lineTo(x + screenShake.x, canvas.height); ctx.stroke(); }
+    for (let y = startY; y < canvas.height; y += gridSize) { ctx.beginPath(); ctx.moveTo(0, y + screenShake.y); ctx.lineTo(canvas.width, y + screenShake.y); ctx.stroke(); }
+    
+    // 壁
+    walls.forEach(w => {
+        if (w.type === 'cell') {
+            const sx = w.cx - camera.x + screenShake.x, sy = w.cy - camera.y + screenShake.y;
+            ctx.fillStyle = 'rgba(180,30,30,0.6)'; ctx.strokeStyle = 'rgba(255,50,50,0.8)'; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.ellipse(sx, sy, w.radius, w.radius * 0.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            ctx.fillStyle = 'rgba(100,10,10,0.5)'; ctx.beginPath(); ctx.ellipse(sx, sy, w.radius * 0.4, w.radius * 0.25, 0, 0, Math.PI * 2); ctx.fill();
+        }
+    });
+    
+    // アイテム
+    if (gameState && gameState.items) {
+        gameState.items.forEach(item => {
+            const sx = item.x - camera.x + screenShake.x, sy = item.y - camera.y + screenShake.y;
+            const pulse = Math.sin(frame * 0.1) * 0.3 + 1;
+            ctx.fillStyle = item.color; ctx.shadowBlur = 15; ctx.shadowColor = item.color;
+            ctx.beginPath(); ctx.arc(sx, sy, 8 * pulse, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(sx, sy, 4 * pulse, 0, Math.PI * 2); ctx.fill();
+            ctx.shadowBlur = 0;
+        });
+    }
+    
+    // 敵
+    if (gameState) {
+        gameState.enemies.forEach(e => {
+            if (e.hp <= 0) return;
+            const sx = e.x - camera.x + screenShake.x, sy = e.y - camera.y + screenShake.y;
+            ctx.fillStyle = e.color; ctx.shadowBlur = e.isBoss ? 30 : 15; ctx.shadowColor = e.color;
+            ctx.beginPath(); ctx.arc(sx, sy, e.size, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(sx, sy, e.size * 0.4, 0, Math.PI * 2); ctx.fill();
+            ctx.shadowBlur = 0;
+            if (e.isBoss) { ctx.fillStyle = '#300'; ctx.fillRect(sx - 30, sy - e.size - 15, 60, 6); ctx.fillStyle = '#f00'; ctx.fillRect(sx - 30, sy - e.size - 15, 60 * (e.hp / e.maxHp), 6); }
+        });
+    }
+    
+    // 敵弾
+    if (gameState && gameState.enemyBullets) {
+        gameState.enemyBullets.forEach(b => {
+            const sx = b.x - camera.x + screenShake.x, sy = b.y - camera.y + screenShake.y;
+            ctx.fillStyle = b.color || '#f80'; ctx.shadowBlur = 10; ctx.shadowColor = b.color || '#f80';
+            ctx.beginPath(); ctx.arc(sx, sy, b.size || 5, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+        });
+    }
+    
+    // プレイヤー
+    if (gameState) {
+        gameState.players.forEach(p => {
+            const sx = p.x - camera.x + screenShake.x, sy = p.y - camera.y + screenShake.y;
+            if (!p.alive) {
+                const respawnTime = Math.ceil((180 - (p.respawnTimer || 0)) / 60);
+                ctx.fillStyle = p.color || '#888'; ctx.globalAlpha = 0.5;
+                ctx.font = 'bold 16px Courier New'; ctx.textAlign = 'center';
+                ctx.fillText(p.name, sx, sy - 10); ctx.fillText(`RESPAWN: ${respawnTime}`, sx, sy + 10);
+                ctx.globalAlpha = 1; return;
+            }
+            
+            const isMe = p.id === myPlayerId, playerColor = p.color || '#fff', glowColor = p.glowColor || '#0ff';
+            
+            if (isMe && p.weaponLevels && p.weaponLevels.THUNDER > 0) {
+                const gaugeWidth = 40, gaugeHeight = 6, gaugeX = sx - gaugeWidth / 2, gaugeY = sy + 23;
+                const fillRatio = (p.thunderEnergy || 0) / 180;
+                ctx.fillStyle = '#220'; ctx.fillRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+                const gradient = ctx.createLinearGradient(gaugeX, gaugeY, gaugeX + gaugeWidth * fillRatio, gaugeY);
+                gradient.addColorStop(0, '#880'); gradient.addColorStop(1, '#ff0');
+                ctx.fillStyle = gradient; ctx.fillRect(gaugeX, gaugeY, gaugeWidth * fillRatio, gaugeHeight);
+                ctx.strokeStyle = fillRatio >= 1 ? '#ff0' : '#880'; ctx.lineWidth = 1; ctx.strokeRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+            }
+            
+            if ((p.invincible || 0) % 4 < 2) {
+                ctx.save(); ctx.translate(sx, sy);
+                ctx.shadowBlur = p.dashing ? 30 : 15; ctx.shadowColor = glowColor;
+                ctx.fillStyle = p.dashing ? '#fff' : playerColor;
+                ctx.beginPath();
+                for (let i = 0; i < 8; i++) { const a = (Math.PI * 2 / 8) * i + frame * 0.03, r = 8 + Math.sin(a * 3 + frame * 0.1) * 2; if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+                ctx.closePath(); ctx.fill();
+                ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(0, 0, 3.2, 0, Math.PI * 2); ctx.fill();
+                ctx.rotate(p.angle); ctx.fillStyle = glowColor;
+                ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(8, -3); ctx.lineTo(8, 3); ctx.fill();
+                ctx.restore();
+            }
+            
+            ctx.fillStyle = playerColor; ctx.font = 'bold 10px Courier New'; ctx.textAlign = 'center';
+            ctx.shadowBlur = 5; ctx.shadowColor = glowColor; ctx.fillText(p.name, sx, sy - 20); ctx.shadowBlur = 0;
+            
+            if (!isMe) {
+                const hpRatio = p.hp / (p.maxHp || 100);
+                ctx.fillStyle = '#300'; ctx.fillRect(sx - 15, sy - 30, 30, 3);
+                ctx.fillStyle = hpRatio > 0.5 ? '#0f0' : hpRatio > 0.25 ? '#ff0' : '#f00';
+                ctx.fillRect(sx - 15, sy - 30, 30 * hpRatio, 3);
+            }
+        });
+    }
+    
+    localBullets.forEach(b => { if (!b.dead) b.draw(); });
+    localMissiles.forEach(m => { if (!m.dead) m.draw(); });
+    if (activeLaser) activeLaser.draw();
+    
+    particles.forEach(p => {
+        const sx = p.x - camera.x + screenShake.x, sy = p.y - camera.y + screenShake.y;
+        ctx.fillStyle = p.color; ctx.globalAlpha = p.life / 30;
+        ctx.beginPath(); ctx.arc(sx, sy, p.size, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+    });
+    
+    drawMinimap();
+}
+
+function drawMinimap() {
+    const mapW = 120, mapH = 120, mapX = canvas.width - mapW - 10, mapY = canvas.height - mapH - 10, scale = mapW / WORLD_W;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(mapX, mapY, mapW, mapH);
+    ctx.strokeStyle = '#0ff'; ctx.lineWidth = 1; ctx.strokeRect(mapX, mapY, mapW, mapH);
+    
+    ctx.fillStyle = 'rgba(255,100,100,0.5)';
+    walls.forEach(w => { if (w.type === 'cell') { ctx.beginPath(); ctx.arc(mapX + w.cx * scale, mapY + w.cy * scale, w.radius * scale, 0, Math.PI * 2); ctx.fill(); } });
+    
+    if (gameState) {
+        gameState.enemies.forEach(e => { if (e.hp <= 0) return; ctx.fillStyle = e.isBoss ? '#ff0' : e.color; ctx.beginPath(); ctx.arc(mapX + e.x * scale, mapY + e.y * scale, e.isBoss ? 4 : 2, 0, Math.PI * 2); ctx.fill(); });
+        gameState.players.forEach(p => { if (!p.alive) return; ctx.fillStyle = p.color || '#fff'; ctx.beginPath(); ctx.arc(mapX + p.x * scale, mapY + p.y * scale, 3, 0, Math.PI * 2); ctx.fill(); });
     }
 }
 
@@ -897,194 +1172,6 @@ function gameLoop() {
     updateScreenShake();
     draw();
     requestAnimationFrame(gameLoop);
-}
-
-// ========== 以下、不足していた関数を追加 ==========
-
-function initMobileControls() {
-    // モバイル操作の初期化（空実装でエラー回避）
-    const joyZone = document.getElementById('joystick-zone');
-    const stick = document.getElementById('joystick-stick');
-    // 必要であればここにタッチイベントを追加
-    document.getElementById('btn-dash').addEventListener('touchstart', (e) => {
-        e.preventDefault(); triggerDash();
-    });
-    document.getElementById('btn-form').addEventListener('touchstart', (e) => {
-        e.preventDefault(); cycleFormation();
-    });
-}
-
-function updateCamera() {
-    if (myPlayer) {
-        // プレイヤーを中心にカメラを追従させる
-        camera.x = myPlayer.x - canvas.width / 2;
-        camera.y = myPlayer.y - canvas.height / 2;
-    }
-}
-
-function updateScreenShake() {
-    if (screenShake.intensity > 0) {
-        screenShake.x = (Math.random() - 0.5) * screenShake.intensity;
-        screenShake.y = (Math.random() - 0.5) * screenShake.intensity;
-        screenShake.intensity *= 0.9; // 徐々に減衰
-        if (screenShake.intensity < 0.5) screenShake.intensity = 0;
-    } else {
-        screenShake.x = 0;
-        screenShake.y = 0;
-    }
-}
-
-function triggerScreenShake(amount) {
-    screenShake.intensity = amount;
-}
-
-function draw() {
-    // 画面クリア
-    ctx.fillStyle = '#000810';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    ctx.save();
-    // カメラとシェイクの適用
-    ctx.translate(-camera.x + screenShake.x, -camera.y + screenShake.y);
-
-    // 壁の描画（背景）
-    ctx.strokeStyle = '#004455';
-    ctx.lineWidth = 4;
-    ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
-    if (walls) {
-        ctx.fillStyle = '#001122';
-        walls.forEach(w => {
-            ctx.fillRect(w.x, w.y, w.w, w.h);
-            ctx.strokeRect(w.x, w.y, w.w, w.h);
-        });
-    }
-
-    // プレイヤーの描画
-    if (gameState && gameState.players) {
-        gameState.players.forEach(p => {
-            if (!p.alive) return;
-            ctx.save();
-            ctx.translate(p.x, p.y);
-            ctx.rotate(p.angle);
-            ctx.fillStyle = p.color || '#0ff';
-            // 三角形を描画
-            ctx.beginPath();
-            ctx.moveTo(15, 0);
-            ctx.lineTo(-10, -10);
-            ctx.lineTo(-10, 10);
-            ctx.fill();
-            ctx.restore();
-            
-            // 名前表示
-            ctx.fillStyle = '#fff';
-            ctx.font = '12px Courier New';
-            ctx.textAlign = 'center';
-            ctx.fillText(p.name, p.x, p.y - 25);
-        });
-    }
-
-    // 敵の描画
-    if (gameState && gameState.enemies) {
-        gameState.enemies.forEach(e => {
-            if (e.hp <= 0) return;
-            ctx.fillStyle = e.isBoss ? '#f00' : '#f0f';
-            ctx.beginPath();
-            ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
-            ctx.fill();
-        });
-    }
-
-    // 弾丸の描画
-    localBullets.forEach(b => b.draw());
-    localMissiles.forEach(m => m.draw());
-    if (activeLaser) activeLaser.draw();
-
-    ctx.restore();
-}
-
-function checkWall(x, y, walls) {
-    // 簡易的な壁判定（ワールド外に出ないように）
-    if (x < 0 || x > WORLD_W || y < 0 || y > WORLD_H) return true;
-    // 障害物判定（もしあれば）
-    if (walls) {
-        for (let w of walls) {
-            if (x > w.x && x < w.x + w.w && y > w.y && y < w.y + w.h) return true;
-        }
-    }
-    return false;
-}
-
-function createParticle(x, y, color) {
-    // 簡易パーティクル（今回は空実装でも動く）
-}
-
-function createParticles(x, y, color, count) {
-    // 簡易パーティクル（今回は空実装でも動く）
-}
-
-function getWallNormal(x, y) {
-    // レーザー反射用（簡易的にnullを返す）
-    return null; 
-}
-
-function distToSegment(x, y, x1, y1, x2, y2) {
-    const A = x - x1;
-    const B = y - y1;
-    const C = x2 - x1;
-    const D = y2 - y1;
-    const dot = A * C + B * D;
-    const len_sq = C * C + D * D;
-    let param = -1;
-    if (len_sq !== 0) param = dot / len_sq;
-    let xx, yy;
-    if (param < 0) { xx = x1; yy = y1; }
-    else if (param > 1) { xx = x2; yy = y2; }
-    else { xx = x1 + param * C; yy = y1 + param * D; }
-    const dx = x - xx;
-    const dy = y - yy;
-    return Math.sqrt(dx * dx + dy * dy);
-}
-
-function playSound(name) {
-    // 音声再生（エラー回避用）
-    // console.log("Play sound: " + name);
-}
-
-function showMessage(msg) {
-    const el = document.getElementById('message');
-    el.textContent = msg;
-    el.style.opacity = 1;
-    setTimeout(() => { el.style.opacity = 0; }, 2000);
-}
-
-function updateWeaponUI() {
-    // 武器スロットの表示更新（簡易版）
-    if (!myPlayer) return;
-    for (let key in ui.weaponSlots) {
-        // キーを大文字にしてレベル確認
-        let level = myPlayer.weaponLevels ? myPlayer.weaponLevels[key.toUpperCase()] : 0;
-        let el = ui.weaponSlots[key];
-        if (el) {
-            if (level > 0) {
-                el.classList.remove('locked');
-                el.textContent = key.toUpperCase() + " Lv." + level;
-            }
-        }
-    }
-}
-
-function updatePlayersList(players) {
-    const list = document.getElementById('player-entries');
-    list.innerHTML = '';
-    players.forEach(p => {
-        const div = document.createElement('div');
-        div.className = 'player-entry';
-        if (p.id === myPlayerId) div.classList.add('me');
-        if (!p.alive) div.classList.add('dead');
-        div.style.color = p.color;
-        div.textContent = p.name + (p.alive ? '' : ' (DEAD)');
-        list.appendChild(div);
-    });
 }
 
 // ========== 開始 ==========
