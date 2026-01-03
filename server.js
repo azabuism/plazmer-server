@@ -1,502 +1,1090 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: { origin: "*" },
-    pingTimeout: 60000 // 接続切れ防止
+    cors: { origin: "*" }
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static('public'));
 
 // ========== 定数 ==========
 const WORLD_W = 3000, WORLD_H = 3000;
-const FPS = 30;
+const TICK_RATE = 60;
+const TICK_INTERVAL = 1000 / TICK_RATE;
 
-// ========== ゲーム設定 (インフレ版) ==========
+// ========== 敵テンプレート ==========
 const ENEMY_TYPES = {
-    virus: { hp: 15, speed: 2, size: 10, color: '#0f0', score: 50 },
-    bacteria: { hp: 20, speed: 1.5, size: 14, color: '#0a0', score: 60 },
-    infected: { hp: 40, speed: 1.8, size: 18, color: '#ff0', score: 100 },
-    mutant: { hp: 60, speed: 2.2, size: 16, color: '#f80', score: 150 },
-    toxin: { hp: 30, speed: 2.5, size: 12, color: '#f0f', score: 120 },
-    parasite: { hp: 100, speed: 1.2, size: 22, color: '#88f', score: 200 },
-    cancer: { hp: 150, speed: 1, size: 30, color: '#800', score: 300 },
-    tumor: { hp: 250, speed: 0.5, size: 40, color: '#400', score: 400 },
-    plague: { hp: 200, speed: 2, size: 25, color: '#0ff', score: 350 },
-    necrosis: { hp: 400, speed: 0.8, size: 35, color: '#444', score: 500 }
+    virus: { hp: 5, speed: 2, size: 10, color: '#0f0', score: 50 },
+    bacteria: { hp: 8, speed: 1.5, size: 14, color: '#0a0', score: 60 },
+    infected: { hp: 15, speed: 1.8, size: 18, color: '#ff0', score: 100, shoots: true },
+    mutant: { hp: 25, speed: 2.2, size: 16, color: '#f80', score: 150 },
+    toxin: { hp: 12, speed: 2.5, size: 12, color: '#f0f', score: 120 },
+    parasite: { hp: 35, speed: 1.2, size: 22, color: '#88f', score: 200, armor: true },
+    cancer: { hp: 50, speed: 1, size: 30, color: '#800', score: 300, divides: true },
+    tumor: { hp: 80, speed: 0.5, size: 40, color: '#400', score: 400 },
+    plague: { hp: 60, speed: 2, size: 25, color: '#0ff', score: 350, shoots: true },
+    necrosis: { hp: 100, speed: 0.8, size: 35, color: '#444', score: 500, armor: true }
 };
 
 const BOSS_TYPES = [
-    { name: 'VIRUS-α', color: '#0f0', baseHp: 2000, size: 60, pattern: 'radial' },
-    { name: 'BACTERIA-β', color: '#08f', baseHp: 3000, size: 65, pattern: 'spiral' },
-    { name: 'INFECTION-γ', color: '#f80', baseHp: 4500, size: 70, pattern: 'burst' },
-    { name: 'CANCER-δ', color: '#f00', baseHp: 6000, size: 80, pattern: 'divide' },
-    { name: 'PLAGUE-ε', color: '#f0f', baseHp: 8000, size: 90, pattern: 'swarm' },
-    { name: 'NECROSIS-ζ', color: '#888', baseHp: 10000, size: 100, pattern: 'laser' },
-    { name: 'PANDEMIC-η', color: '#ff0', baseHp: 15000, size: 110, pattern: 'chaos' },
-    { name: 'OMEGA-CELL', color: '#fff', baseHp: 20000, size: 120, pattern: 'all' }
+    { name: 'VIRUS-α', color: '#0f0', baseHp: 300, size: 50, pattern: 'radial' },
+    { name: 'BACTERIA-β', color: '#08f', baseHp: 450, size: 55, pattern: 'spiral' },
+    { name: 'INFECTION-γ', color: '#f80', baseHp: 600, size: 60, pattern: 'burst' },
+    { name: 'CANCER-δ', color: '#f00', baseHp: 800, size: 70, pattern: 'divide' },
+    { name: 'PLAGUE-ε', color: '#f0f', baseHp: 1000, size: 75, pattern: 'swarm' },
+    { name: 'NECROSIS-ζ', color: '#888', baseHp: 1200, size: 80, pattern: 'laser' },
+    { name: 'PANDEMIC-η', color: '#ff0', baseHp: 1500, size: 85, pattern: 'chaos' },
+    { name: 'OMEGA-CELL', color: '#fff', baseHp: 2000, size: 100, pattern: 'all' }
 ];
-
-const MEGA_BOSS_TYPES = [
-    { name: 'APOCALYPSE-Ω', color: '#f00', baseHp: 50000, size: 150, pattern: 'mega1' },
-    { name: 'EXTINCTION-Ψ', color: '#0ff', baseHp: 80000, size: 160, pattern: 'mega2' },
-    { name: 'OBLIVION-Φ', color: '#ff0', baseHp: 120000, size: 180, pattern: 'mega3' },
-    { name: 'GENESIS-∞', color: '#fff', baseHp: 200000, size: 200, pattern: 'final' }
-];
-
-const PLAYER_COLORS = ['#00f2ff', '#ff0055', '#00ff66', '#ffaa00'];
 
 // ========== ルーム管理 ==========
-const rooms = {};
+const rooms = new Map();
 
-class Room {
-    constructor(id, hostId, hostName) {
+class GameRoom {
+    constructor(id) {
         this.id = id;
-        this.hostId = hostId;
-        this.players = [];
+        this.players = new Map();
         this.enemies = [];
+        this.enemyBullets = [];
         this.items = [];
         this.walls = [];
-        this.enemyBullets = [];
         this.wave = 0;
         this.score = 0;
-        this.state = 'waiting';
+        this.state = 'waiting'; // waiting, playing, gameover
+        this.frame = 0;
         this.enemyIdCounter = 0;
         this.waveTimer = 0;
-        this.mobSpawnTimer = 0;
+        this.mobTimer = 0;
+        this.currentBosses = [];
+        this.lastUpdate = Date.now();
         
-        this.addPlayer(hostId, hostName, true);
+        this.generateWalls(0);
     }
-
-    addPlayer(id, name, isHost = false) {
-        const color = PLAYER_COLORS[this.players.length % PLAYER_COLORS.length];
-        const player = {
-            id: id, name: name, isHost: isHost, ready: isHost, color: color,
-            x: WORLD_W/2 + (Math.random()-0.5)*100, y: WORLD_H/2 + (Math.random()-0.5)*100,
-            angle: 0, hp: 100, maxHp: 100, score: 0, alive: true, respawnTimer: 0,
-            invincible: 0, dashing: false,
-            weaponLevels: { PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0, ALLRANGE: 0 },
-            thunderEnergy: 0, options: []
-        };
-        this.players.push(player);
-        return player;
-    }
-
-    removePlayer(id) {
-        const index = this.players.findIndex(p => p.id === id);
-        if (index !== -1) {
-            const wasHost = this.players[index].isHost;
-            this.players.splice(index, 1);
-            // 新しいホストを割り当てる
-            if (wasHost && this.players.length > 0) {
-                this.players[0].isHost = true;
-                this.players[0].ready = true;
-                this.hostId = this.players[0].id;
-                // 新ホスト通知は今回省略（簡易実装）
+    
+    generateWalls(waveNum) {
+        this.walls = [];
+        const thickness = 50;
+        
+        // 外壁
+        this.walls.push({ x: 0, y: 0, w: WORLD_W, h: thickness, type: 'border' });
+        this.walls.push({ x: 0, y: WORLD_H - thickness, w: WORLD_W, h: thickness, type: 'border' });
+        this.walls.push({ x: 0, y: 0, w: thickness, h: WORLD_H, type: 'border' });
+        this.walls.push({ x: WORLD_W - thickness, y: 0, w: thickness, h: WORLD_H, type: 'border' });
+        
+        // 迷路風の壁
+        const gridSize = 300;
+        const cellsX = Math.floor(WORLD_W / gridSize);
+        const cellsY = Math.floor(WORLD_H / gridSize);
+        
+        for (let gx = 1; gx < cellsX - 1; gx++) {
+            for (let gy = 1; gy < cellsY - 1; gy++) {
+                if (gx >= cellsX/2 - 1 && gx <= cellsX/2 + 1 && gy >= cellsY/2 - 1 && gy <= cellsY/2 + 1) continue;
+                
+                if (Math.random() < 0.4 + waveNum * 0.02) {
+                    const cx = gx * gridSize + gridSize / 2;
+                    const cy = gy * gridSize + gridSize / 2;
+                    const size = 40 + Math.random() * 60;
+                    
+                    this.walls.push({
+                        x: cx - size/2, y: cy - size/2,
+                        w: size, h: size,
+                        type: 'cell',
+                        cx: cx, cy: cy, radius: size / 2
+                    });
+                }
             }
-            return wasHost;
+        }
+        
+        // 追加の散らばった赤血球
+        const extraCount = 20 + waveNum * 3;
+        for (let i = 0; i < extraCount; i++) {
+            const size = 30 + Math.random() * 50;
+            const x = 150 + Math.random() * (WORLD_W - 300);
+            const y = 150 + Math.random() * (WORLD_H - 300);
+            
+            if (Math.hypot(x - WORLD_W/2, y - WORLD_H/2) < 300) continue;
+            
+            let overlap = false;
+            for (const wall of this.walls) {
+                if (wall.type === 'cell') {
+                    if (Math.hypot(x - wall.cx, y - wall.cy) < wall.radius + size/2 + 20) {
+                        overlap = true; break;
+                    }
+                }
+            }
+            if (overlap) continue;
+            
+            this.walls.push({
+                x: x - size/2, y: y - size/2, w: size, h: size,
+                type: 'cell', cx: x, cy: y, radius: size / 2
+            });
+        }
+    }
+    
+    checkWall(x, y) {
+        for (const w of this.walls) {
+            if (w.type === 'cell') {
+                if (Math.hypot(x - w.cx, y - w.cy) < w.radius) return true;
+            } else {
+                if (x >= w.x && x <= w.x + w.w && y >= w.y && y <= w.y + w.h) return true;
+            }
         }
         return false;
     }
-
-    getPlayer(id) { return this.players.find(p => p.id === id); }
-
+    
+    getWallNormal(x, y) {
+        for (const w of this.walls) {
+            if (w.type === 'cell') {
+                const dist = Math.hypot(x - w.cx, y - w.cy);
+                if (dist < w.radius + 10) {
+                    return { x: (x - w.cx) / dist, y: (y - w.cy) / dist };
+                }
+            }
+        }
+        if (x < 60) return { x: 1, y: 0 };
+        if (x > WORLD_W - 60) return { x: -1, y: 0 };
+        if (y < 60) return { x: 0, y: 1 };
+        if (y > WORLD_H - 60) return { x: 0, y: -1 };
+        return null;
+    }
+    
+    escapeFromWall(entity) {
+        if (!this.checkWall(entity.x, entity.y)) return false;
+        for (let dist = 10; dist < 500; dist += 10) {
+            for (let a = 0; a < Math.PI * 2; a += Math.PI / 16) {
+                const testX = entity.x + Math.cos(a) * dist;
+                const testY = entity.y + Math.sin(a) * dist;
+                if (!this.checkWall(testX, testY) && testX > 60 && testX < WORLD_W - 60 && testY > 60 && testY < WORLD_H - 60) {
+                    entity.x = testX;
+                    entity.y = testY;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+    addPlayer(socket, name, isHost = false) {
+        const playerIndex = this.players.size;
+        const colorData = PLAYER_COLORS[Math.min(playerIndex, PLAYER_COLORS.length - 1)];
+        
+        const player = {
+            id: socket.id,
+            name: name || 'Player',
+            x: WORLD_W / 2 + (Math.random() - 0.5) * 200,
+            y: WORLD_H / 2 + (Math.random() - 0.5) * 200,
+            angle: 0,
+            hp: 100,
+            maxHp: 100,
+            speed: 6,
+            invincible: 60,
+            dashing: false,
+            dashTimer: 0,
+            weaponLevels: { PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0, ALLRANGE: 0 },
+            thunderEnergy: 0,
+            options: [],
+            formation: 0,
+            score: 0,
+            alive: true,
+            lastInput: { x: 0, y: 0, angle: 0, dash: false },
+            // 新規追加
+            isHost: isHost,
+            playerIndex: playerIndex,
+            color: colorData.main,
+            glowColor: colorData.glow,
+            colorName: colorData.name,
+            ready: isHost, // ホストは常にready
+            respawnTimer: 0
+        };
+        
+        this.players.set(socket.id, player);
+        
+        return player;
+    }
+    
+    removePlayer(socketId) {
+        this.players.delete(socketId);
+        
+        // 全員離脱でルーム削除
+        if (this.players.size === 0) {
+            rooms.delete(this.id);
+        }
+    }
+    
     startGame() {
-        console.log(`Room ${this.id}: Game Starting...`);
+        if (this.state !== 'waiting') return;
+        
         this.state = 'playing';
         this.wave = 0;
         this.score = 0;
-        this.walls = generateMazeWalls(0);
+        this.frame = 0;
+        this.waveTimer = 0;
         this.enemies = [];
+        this.enemyBullets = [];
         this.items = [];
+        this.generateWalls(0);
         
-        this.players.forEach(p => {
-            p.hp = 100; p.alive = true;
-            p.x = WORLD_W/2 + (Math.random()-0.5)*100; p.y = WORLD_H/2 + (Math.random()-0.5)*100;
-            p.weaponLevels = { PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0, ALLRANGE: 0 };
-            p.score = 0;
-        });
-        
-        // 即座にWAVE開始
-        this.startWave();
+        io.to(this.id).emit('gameStart', { wave: this.wave });
     }
-
+    
     startWave() {
         this.wave++;
-        this.walls = generateMazeWalls(this.wave);
-        this.waveTimer = 0;
+        this.generateWalls(this.wave);
         
-        io.to(this.id).emit('waveStart', { wave: this.wave, walls: this.walls });
+        // 重要: 前のWAVEのボスをクリア
+        this.currentBosses = [];
+        this.enemies = this.enemies.filter(e => e.isBoss === false); // 残った雑魚もクリア
         
-        // ボス出現ロジック
+        // プレイヤーが壁に埋まっていたら脱出
+        this.players.forEach(player => {
+            if (player.alive && this.checkWall(player.x, player.y)) {
+                this.escapeFromWall(player);
+            }
+        });
+        
+        io.to(this.id).emit('waveStart', { 
+            wave: this.wave, 
+            walls: this.walls 
+        });
+        
+        // ボス数決定
         let bossCount = 1;
         if (this.wave >= 50) bossCount = 3;
         else if (this.wave >= 20) bossCount = 2;
         if (this.wave % 10 === 0) bossCount += 1;
-
-        // 最初のWAVEなら即座に、それ以外は少し待ってボス出現
-        const delay = this.wave === 1 ? 1000 : 3000;
-
+        
+        // マルチプレイ用にボスHP増加
+        const playerCount = this.players.size;
+        const multiplayerScale = 1 + (playerCount - 1) * 0.5;
+        
         setTimeout(() => {
-            if (this.state === 'playing') {
-                for (let i = 0; i < bossCount; i++) this.spawnBoss();
+            for (let i = 0; i < bossCount; i++) {
+                this.spawnBoss(multiplayerScale);
             }
-        }, delay);
+        }, 1500);
     }
-
-    spawnBoss() {
-        let template, bossIndex;
-        if (this.wave >= 100) {
-            bossIndex = (Math.floor((this.wave - 100) / 10)) % MEGA_BOSS_TYPES.length;
-            template = MEGA_BOSS_TYPES[bossIndex];
-        } else {
-            bossIndex = (this.wave - 1) % BOSS_TYPES.length;
-            template = BOSS_TYPES[bossIndex];
-        }
-
-        // ボス強化計算式 (超強化)
+    
+    spawnBoss(multiplayerScale = 1) {
+        const bossIndex = (this.wave - 1) % BOSS_TYPES.length;
+        const template = BOSS_TYPES[bossIndex];
+        
         let waveScale = 1 + Math.floor(this.wave / 5) * 1.0;
-        if (this.wave > 20) {
-            waveScale *= (1 + (this.wave - 20) * 0.5); // WAVE20以降、50%ずつ強くなる
-        }
-        const hardHpMult = 1.5;
-        const playerCountMult = 1 + (this.players.length - 1) * 1.0; // 人数分だけHP倍増
-
-        const pos = findSafeSpawnPosition(this.walls, this.players);
+        if (this.wave > 20) waveScale *= (1 + (this.wave - 20) * 0.5);
+        
+        const pos = this.findSafeSpawnPosition(500);
         
         const boss = {
             id: 'boss_' + (this.enemyIdCounter++),
             type: 'boss',
+            bossType: bossIndex,
+            pattern: template.pattern,
+            name: template.name,
             x: pos.x, y: pos.y,
-            hp: Math.floor(template.baseHp * waveScale * hardHpMult * playerCountMult),
-            maxHp: Math.floor(template.baseHp * waveScale * hardHpMult * playerCountMult),
+            hp: Math.floor(template.baseHp * waveScale * multiplayerScale * 1.5),
+            maxHp: Math.floor(template.baseHp * waveScale * multiplayerScale * 1.5),
             speed: 1.5,
             size: template.size + Math.floor(this.wave / 5) * 2,
             color: template.color,
-            score: 5000 + this.wave * 1000,
-            name: template.name,
+            score: 3000 + this.wave * 500,
             isBoss: true,
-            pattern: template.pattern,
-            timer: 0, attackTimer: 0, phase: 0
+            timer: 0,
+            attackTimer: 0,
+            phase: 0
         };
         
         this.enemies.push(boss);
-        io.to(this.id).emit('bossSpawn', { boss: boss });
-    }
-
-    spawnMob() {
-        const maxMobs = Math.min(300, 50 + this.wave * 5); // 雑魚の上限も解放
-        if (this.enemies.filter(e => !e.isBoss).length >= maxMobs) return;
-
-        const types = Object.keys(ENEMY_TYPES);
-        let availableTypes = ['virus', 'bacteria'];
-        if (this.wave >= 2) availableTypes.push('infected', 'toxin');
-        if (this.wave >= 4) availableTypes.push('mutant', 'parasite');
-        if (this.wave >= 6) availableTypes.push('cancer');
-        if (this.wave >= 8) availableTypes.push('tumor', 'plague');
-        if (this.wave >= 10) availableTypes.push('necrosis');
-
-        const typeKey = availableTypes[Math.floor(Math.random() * availableTypes.length)];
-        const template = ENEMY_TYPES[typeKey];
+        this.currentBosses.push(boss);
         
-        let waveScale = 1 + this.wave * 0.15;
+        io.to(this.id).emit('bossSpawn', { 
+            boss: this.sanitizeEnemy(boss),
+            bossCount: this.currentBosses.filter(b => b.hp > 0).length
+        });
+    }
+    
+    spawnEnemy(type, x, y) {
+        const template = ENEMY_TYPES[type];
+        if (!template) return null;
+        
+        let waveScale = 1 + this.wave * 0.1;
         let speedMult = 1;
         if (this.wave > 20) {
-            waveScale *= (1 + Math.pow((this.wave - 20) * 0.1, 2));
+            const hardModeFactor = 1 + Math.pow((this.wave - 20) * 0.1, 2);
+            waveScale *= hardModeFactor;
             speedMult = 1.3 + Math.min(0.5, (this.wave - 20) * 0.02);
         }
-
-        const pos = findSafeSpawnPosition(this.walls, this.players, 200);
-        this.enemies.push({
-            id: 'e_' + (this.enemyIdCounter++), type: typeKey, x: pos.x, y: pos.y,
-            hp: Math.floor(template.hp * waveScale), maxHp: Math.floor(template.hp * waveScale),
+        
+        const enemy = {
+            id: 'e_' + (this.enemyIdCounter++),
+            type,
+            x, y,
+            hp: Math.floor(template.hp * waveScale),
+            maxHp: Math.floor(template.hp * waveScale),
             speed: Math.min(template.speed * 2.5 * speedMult, (template.speed + this.wave * 0.05) * speedMult),
-            size: template.size, color: template.color, score: template.score,
-            isBoss: false, timer: Math.floor(Math.random() * 60), phase: Math.random() * Math.PI * 2
-        });
+            size: template.size,
+            color: template.color,
+            score: template.score,
+            shoots: template.shoots || false,
+            armor: template.armor || false,
+            divides: template.divides || false,
+            isBoss: false,
+            timer: Math.floor(Math.random() * 60),
+            phase: Math.random() * Math.PI * 2
+        };
+        
+        this.enemies.push(enemy);
+        return enemy;
     }
-
-    update() {
-        if (this.state !== 'playing') return;
-
-        this.waveTimer++;
-        this.mobSpawnTimer++;
-
-        // プレイヤー更新
-        this.players.forEach(p => {
-            if (!p.alive) {
-                p.respawnTimer--;
-                if (p.respawnTimer <= 0) {
-                    p.alive = true; p.hp = p.maxHp; p.x = WORLD_W/2; p.y = WORLD_H/2; p.invincible = 120;
-                    io.to(this.id).emit('playerRespawned', { playerId: p.id, name: p.name, x: p.x, y: p.y, hp: p.hp });
-                    io.to(p.id).emit('respawned', { x: p.x, y: p.y, hp: p.hp });
-                }
-            } else {
-                if (p.invincible > 0) p.invincible--;
-                p.x = Math.max(60, Math.min(WORLD_W - 60, p.x));
-                p.y = Math.max(60, Math.min(WORLD_H - 60, p.y));
-                if (p.weaponLevels.THUNDER > 0 && p.thunderEnergy < 180) p.thunderEnergy += 0.5;
-            }
-        });
-
-        // 敵生成
-        const activeBosses = this.enemies.filter(e => e.isBoss && e.hp > 0);
-        if (activeBosses.length > 0 && this.mobSpawnTimer >= 30) { 
-            this.mobSpawnTimer = 0;
-            const batchSize = 2 + Math.floor(this.wave / 5);
-            for(let i=0; i<batchSize; i++) this.spawnMob();
+    
+    spawnMobs() {
+        const activeBosses = this.currentBosses.filter(b => b.hp > 0);
+        if (activeBosses.length === 0) return;
+        
+        const maxMobs = Math.min(150, 30 + this.wave * 2);
+        const mobCount = this.enemies.filter(e => !e.isBoss && e.hp > 0).length;
+        if (mobCount >= maxMobs) return;
+        
+        const batchSize = 1 + Math.floor(this.wave / 10);
+        for (let i = 0; i < batchSize; i++) {
+            const pos = this.findSafeSpawnPosition(250);
+            const types = ['virus', 'bacteria'];
+            if (this.wave >= 2) types.push('infected', 'toxin');
+            if (this.wave >= 4) types.push('mutant', 'parasite');
+            if (this.wave >= 6) types.push('cancer');
+            if (this.wave >= 8) types.push('tumor', 'plague');
+            if (this.wave >= 10) types.push('necrosis');
+            const type = types[Math.floor(Math.random() * types.length)];
+            this.spawnEnemy(type, pos.x, pos.y);
         }
-
-        // 敵の更新
-        this.enemies.forEach(e => {
-            if (e.hp <= 0) return;
-            e.timer++;
-            if (checkWall(e.x, e.y, this.walls)) escapeFromWall(e, this.walls);
-
-            let target = null, minDist = 99999;
-            this.players.forEach(p => {
-                if (p.alive) {
-                    const dist = Math.hypot(p.x - e.x, p.y - e.y);
-                    if (dist < minDist) { minDist = dist; target = p; }
+    }
+    
+    findSafeSpawnPosition(minDist) {
+        for (let i = 0; i < 50; i++) {
+            const x = 150 + Math.random() * (WORLD_W - 300);
+            const y = 150 + Math.random() * (WORLD_H - 300);
+            if (this.checkWall(x, y)) continue;
+            
+            let tooClose = false;
+            this.players.forEach(player => {
+                if (player.alive && Math.hypot(player.x - x, player.y - y) < minDist) {
+                    tooClose = true;
                 }
             });
-
-            if (target) {
-                const angle = Math.atan2(target.y - e.y, target.x - e.x);
-                const vx = Math.cos(angle) * e.speed;
-                const vy = Math.sin(angle) * e.speed;
-                if (!checkWall(e.x + vx, e.y + vy, this.walls)) { e.x += vx; e.y += vy; }
-                
-                if (minDist < e.size + 10 && target.invincible <= 0 && !target.dashing) {
-                    const dmg = e.isBoss ? 40 : 15;
-                    target.hp -= dmg; target.invincible = 30;
-                    io.to(this.id).emit('playerDamaged', { playerId: target.id, damage: dmg, hp: target.hp });
-                    if (target.hp <= 0) {
-                        target.alive = false; target.respawnTimer = 150;
-                        io.to(this.id).emit('playerDied', { playerId: target.id, name: target.name });
-                        if (this.players.every(p => !p.alive)) {
-                            this.state = 'gameover';
-                            io.to(this.id).emit('gameOver', { score: this.score, wave: this.wave });
-                        }
-                    }
-                }
-            }
-            if (e.isBoss) e.attackTimer++;
-        });
-
-        for (let i = this.enemies.length - 1; i >= 0; i--) {
-            if (this.enemies[i].hp <= 0) this.enemies.splice(i, 1);
+            if (tooClose) continue;
+            
+            return { x, y };
         }
-
-        if (activeBosses.length === 0 && this.enemies.filter(e => e.isBoss).length === 0 && this.wave > 0) {
-             this.enemies.forEach(e => { if (!e.isBoss) { e.hp = 0; this.score += 50; } });
-             this.enemies = [];
-             io.to(this.id).emit('bossDefeated', { wave: this.wave });
-             setTimeout(() => { if (this.state === 'playing') this.startWave(); }, 3000);
-        }
+        return { x: WORLD_W - 300, y: WORLD_H - 300 };
     }
-}
-
-// ========== ユーティリティ ==========
-function generateMazeWalls(waveNum) {
-    const w = [];
-    const thickness = 50;
-    w.push({ x: 0, y: 0, w: WORLD_W, h: thickness, type: 'border' });
-    w.push({ x: 0, y: WORLD_H - thickness, w: WORLD_W, h: thickness, type: 'border' });
-    w.push({ x: 0, y: 0, w: thickness, h: WORLD_H, type: 'border' });
-    w.push({ x: WORLD_W - thickness, y: 0, w: thickness, h: WORLD_H, type: 'border' });
-    const gridSize = 300;
-    for (let gx = 1; gx < Math.floor(WORLD_W/gridSize); gx++) {
-        for (let gy = 1; gy < Math.floor(WORLD_H/gridSize); gy++) {
-            if (Math.random() < 0.4 + waveNum * 0.02) {
-                const cx = gx * gridSize + gridSize/2; const cy = gy * gridSize + gridSize/2;
-                w.push({ x: cx - 40, y: cy - 40, w: 80, h: 80, type: 'cell', cx: cx, cy: cy, radius: 40 });
-            }
-        }
-    }
-    return w;
-}
-function checkWall(x, y, walls) {
-    for (const w of walls) {
-        if (w.type === 'cell') { if (Math.hypot(x - w.cx, y - w.cy) < w.radius) return true; }
-        else { if (x >= w.x && x <= w.x + w.w && y >= w.y && y <= w.y + w.h) return true; }
-    }
-    return false;
-}
-function escapeFromWall(entity, walls) {
-    for (let dist = 10; dist < 500; dist += 10) {
-        for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) {
-            const tx = entity.x + Math.cos(a) * dist; const ty = entity.y + Math.sin(a) * dist;
-            if (!checkWall(tx, ty, walls) && tx > 50 && tx < WORLD_W - 50 && ty > 50 && ty < WORLD_H - 50) {
-                entity.x = tx; entity.y = ty; return;
-            }
-        }
-    }
-}
-function findSafeSpawnPosition(walls, players, minDist = 400) {
-    for (let i = 0; i < 50; i++) {
-        const x = 150 + Math.random() * (WORLD_W - 300);
-        const y = 150 + Math.random() * (WORLD_H - 300);
-        if (checkWall(x, y, walls)) continue;
-        let tooClose = false;
-        for (const p of players) { if (Math.hypot(p.x - x, p.y - y) < minDist) { tooClose = true; break; } }
-        if (!tooClose) return { x, y };
-    }
-    return { x: WORLD_W - 100, y: WORLD_H - 100 };
-}
-function generateRoomId() { return Math.floor(1000 + Math.random() * 9000).toString(); }
-
-// ========== Socket.IO ==========
-io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id);
-
-    socket.on('hostRoom', (data) => {
-        const roomId = generateRoomId();
-        const room = new Room(roomId, socket.id, data.name);
-        rooms[roomId] = room;
-        socket.join(roomId);
-        console.log(`Room created: ${roomId} by ${socket.id}`);
-        socket.emit('hosted', {
-            roomId: roomId, playerId: socket.id, player: room.getPlayer(socket.id),
-            players: room.players, walls: room.walls
-        });
-    });
-
-    socket.on('joinRoom', (data) => {
-        const room = rooms[data.roomId];
-        if (!room) { socket.emit('joinError', { message: 'Room not found' }); return; }
-        if (room.state !== 'waiting' && room.players.length >= 4) { socket.emit('joinError', { message: 'Room full/playing' }); return; }
+    
+    update() {
+        if (this.state !== 'playing') return;
         
-        socket.join(data.roomId);
-        const player = room.addPlayer(socket.id, data.name);
-        socket.emit('joined', {
-            roomId: data.roomId, playerId: socket.id, player: player,
-            players: room.players, walls: room.walls, isGuest: true, state: room.state
+        this.frame++;
+        this.waveTimer++;
+        this.mobTimer++;
+        
+        // Wave開始
+        if (this.wave === 0 && this.waveTimer > 60) {
+            this.startWave();
+        }
+        
+        // 雑魚敵スポーン
+        if (this.mobTimer >= 60) {
+            this.mobTimer = 0;
+            this.spawnMobs();
+        }
+        
+        // プレイヤー更新
+        this.players.forEach(player => {
+            if (!player.alive) return;
+            this.updatePlayer(player);
         });
-        socket.to(data.roomId).emit('playerJoined', { player: player, players: room.players });
-    });
-
-    socket.on('playerReady', () => {
-        for (const rid in rooms) {
-            const player = rooms[rid].getPlayer(socket.id);
-            if (player) {
-                player.ready = true;
-                io.to(rid).emit('playerReadyUpdate', { players: rooms[rid].players });
-                break;
-            }
+        
+        // 敵更新
+        this.updateEnemies();
+        
+        // 敵弾更新
+        this.updateEnemyBullets();
+        
+        // アイテム更新
+        this.updateItems();
+        
+        // ボス全滅チェック（ボスがスポーンされるまでスキップ）
+        const activeBosses = this.currentBosses.filter(b => b.hp > 0);
+        if (this.currentBosses.length > 0 && activeBosses.length === 0) {
+            this.currentBosses = [];
+            // 残り雑魚も全滅
+            this.enemies.forEach(e => {
+                if (!e.isBoss && e.hp > 0) {
+                    e.hp = 0;
+                    this.score += 50;
+                }
+            });
+            
+            io.to(this.id).emit('bossDefeated', { wave: this.wave, score: this.score });
+            
+            setTimeout(() => {
+                if (this.state === 'playing') this.startWave();
+            }, 3000);
         }
-    });
-
-    // ゲーム開始処理の修正（ルームIDの検索を確実に）
-    socket.on('startGame', () => {
-        let room = null;
-        // ホストしている部屋を探す
-        for (const rid in rooms) {
-            if (rooms[rid].hostId === socket.id) {
-                room = rooms[rid];
-                break;
+        
+        // 状態送信（高頻度）
+        this.broadcastState();
+    }
+    
+    updatePlayer(player) {
+        // リスポーン処理
+        if (!player.alive) {
+            player.respawnTimer++;
+            if (player.respawnTimer >= 180) { // 3秒でリスポーン
+                this.respawnPlayer(player);
             }
+            return;
         }
-
-        if (room) {
-            console.log(`Starting game in room ${room.id}`);
-            room.startGame();
-            io.to(room.id).emit('gameStarted', { players: room.players });
-            io.to(room.id).emit('gameStart');
+        
+        if (player.invincible > 0) player.invincible--;
+        
+        // 壁脱出
+        if (this.checkWall(player.x, player.y) && !player.dashing) {
+            this.escapeFromWall(player);
+        }
+        
+        // ダッシュ処理
+        if (player.dashing) {
+            player.dashTimer--;
+            const vx = Math.cos(player.angle) * 28;
+            const vy = Math.sin(player.angle) * 28;
+            player.x += vx;
+            player.y += vy;
+            player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
+            player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
+            if (player.dashTimer <= 0) player.dashing = false;
         } else {
-            console.log('Start game failed: Room not found for host', socket.id);
-        }
-    });
-
-    socket.on('input', (data) => {
-        for (const rid in rooms) {
-            const p = rooms[rid].getPlayer(socket.id);
-            if (p && p.alive) {
-                p.x = data.x; p.y = data.y; p.angle = data.angle; p.dashing = data.dash;
+            // 入力による移動
+            const input = player.lastInput;
+            if (input.moving) {
+                const vx = Math.cos(input.angle) * player.speed;
+                const vy = Math.sin(input.angle) * player.speed;
+                if (!this.checkWall(player.x + vx, player.y)) player.x += vx;
+                if (!this.checkWall(player.x, player.y + vy)) player.y += vy;
             }
+            player.angle = input.angle;
         }
-    });
-
-    socket.on('fire', (data) => {
-        for (const rid in rooms) {
-            if(rooms[rid].getPlayer(socket.id)) {
-                socket.to(rid).emit('remoteFire', { playerId: socket.id, type: data.type, angle: data.angle, options: data.options });
-                break;
-            }
+        
+        player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
+        player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
+        
+        // サンダーエネルギー
+        if (player.weaponLevels.THUNDER > 0) {
+            player.thunderEnergy++;
         }
-    });
-
-    socket.on('hit', (data) => {
-        for (const rid in rooms) {
-            const room = rooms[rid];
-            const p = room.getPlayer(socket.id);
-            if (p && p.alive) {
-                const enemy = room.enemies.find(e => e.id === data.enemyId);
-                if (enemy) {
-                    enemy.hp -= data.damage;
-                    p.score += Math.floor(data.damage / 2);
-                    if (enemy.hp <= 0) {
-                        p.score += enemy.score;
-                        const dropChance = enemy.isBoss ? 1.0 : 0.1;
-                        if (Math.random() < dropChance) {
-                            const types = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER', 'ALLRANGE', 'H'];
-                            const itemType = types[Math.floor(Math.random() * types.length)];
-                            if (itemType === 'H') p.hp = Math.min(p.maxHp, p.hp + 30);
-                            else if (itemType === 'ALLRANGE') { if(p.options.length < 6) p.options.push({}); p.weaponLevels.ALLRANGE++; }
-                            else p.weaponLevels[itemType]++;
-                            io.to(rid).emit('itemCollected', { playerId: p.id, weaponLevels: p.weaponLevels, hp: p.hp, options: p.options.length });
-                        }
-                        io.to(rid).emit('enemyDefeated', { isBoss: enemy.isBoss, enemyId: enemy.id });
-                    }
+        
+        // 敵との衝突
+        this.enemies.forEach(enemy => {
+            if (enemy.hp <= 0) return;
+            if (Math.hypot(player.x - enemy.x, player.y - enemy.y) < 8 + enemy.size) {
+                if (!player.dashing && player.invincible <= 0) {
+                    this.damagePlayer(player, enemy.isBoss ? 20 : 10);
                 }
             }
+        });
+    }
+    
+    respawnPlayer(player) {
+        const pos = this.findSafeSpawnPosition(300);
+        player.x = pos.x;
+        player.y = pos.y;
+        player.hp = player.maxHp;
+        player.alive = true;
+        player.invincible = 180; // 3秒無敵
+        player.respawnTimer = 0;
+        player.dashing = false;
+        player.dashTimer = 0;
+        
+        io.to(player.id).emit('respawned', {
+            x: player.x,
+            y: player.y,
+            hp: player.hp
+        });
+        
+        io.to(this.id).emit('playerRespawned', {
+            playerId: player.id,
+            name: player.name
+        });
+    }
+    
+    updateEnemies() {
+        // 最も近いプレイヤーを探す関数
+        const findNearestPlayer = (x, y) => {
+            let nearest = null, minDist = Infinity;
+            this.players.forEach(player => {
+                if (!player.alive) return;
+                const d = Math.hypot(player.x - x, player.y - y);
+                if (d < minDist) { minDist = d; nearest = player; }
+            });
+            return nearest;
+        };
+        
+        this.enemies.forEach(enemy => {
+            if (enemy.hp <= 0) return;
+            enemy.timer++;
+            
+            if (this.checkWall(enemy.x, enemy.y)) {
+                this.escapeFromWall(enemy);
+            }
+            
+            const target = findNearestPlayer(enemy.x, enemy.y);
+            if (target) {
+                const angle = Math.atan2(target.y - enemy.y, target.x - enemy.x);
+                const vx = Math.cos(angle) * enemy.speed;
+                const vy = Math.sin(angle) * enemy.speed;
+                
+                if (!this.checkWall(enemy.x + vx, enemy.y + vy)) {
+                    enemy.x += vx;
+                    enemy.y += vy;
+                } else {
+                    if (!this.checkWall(enemy.x + vx, enemy.y)) enemy.x += vx;
+                    else if (!this.checkWall(enemy.x, enemy.y + vy)) enemy.y += vy;
+                }
+                
+                // 射撃する敵
+                if (enemy.shoots && enemy.timer % 90 === 0) {
+                    const a = Math.atan2(target.y - enemy.y, target.x - enemy.x);
+                    this.enemyBullets.push({
+                        id: 'eb_' + this.enemyIdCounter++,
+                        x: enemy.x, y: enemy.y,
+                        vx: Math.cos(a) * 5, vy: Math.sin(a) * 5,
+                        life: 120, size: 5, color: enemy.color
+                    });
+                }
+                
+                // ボス攻撃
+                if (enemy.isBoss) {
+                    enemy.attackTimer++;
+                    this.bossAttack(enemy, target);
+                }
+            }
+        });
+        
+        // 死んだ敵を除去
+        this.enemies = this.enemies.filter(e => e.hp > 0);
+    }
+    
+    bossAttack(boss, target) {
+        const angle = Math.atan2(target.y - boss.y, target.x - boss.x);
+        
+        switch (boss.pattern) {
+            case 'radial':
+                if (boss.attackTimer % 60 === 0) {
+                    for (let i = 0; i < 16; i++) {
+                        const a = (Math.PI * 2 / 16) * i + boss.phase;
+                        this.enemyBullets.push({
+                            id: 'eb_' + this.enemyIdCounter++,
+                            x: boss.x, y: boss.y,
+                            vx: Math.cos(a) * 4, vy: Math.sin(a) * 4,
+                            life: 150, size: 6, color: boss.color
+                        });
+                    }
+                    boss.phase += 0.2;
+                }
+                break;
+            case 'spiral':
+                if (boss.attackTimer % 8 === 0) {
+                    const a = boss.timer * 0.15;
+                    this.enemyBullets.push({
+                        id: 'eb_' + this.enemyIdCounter++,
+                        x: boss.x, y: boss.y,
+                        vx: Math.cos(a) * 5, vy: Math.sin(a) * 5,
+                        life: 120, size: 5, color: boss.color
+                    });
+                }
+                break;
+            case 'burst':
+                if (boss.attackTimer % 40 === 0) {
+                    for (let i = 0; i < 8; i++) {
+                        const a = angle + (Math.random() - 0.5) * 0.8;
+                        const speed = 4 + Math.random() * 3;
+                        this.enemyBullets.push({
+                            id: 'eb_' + this.enemyIdCounter++,
+                            x: boss.x, y: boss.y,
+                            vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+                            life: 60, size: 8, color: '#f80'
+                        });
+                    }
+                }
+                break;
+            case 'swarm':
+                if (boss.attackTimer % 5 === 0) {
+                    const a = angle + (Math.random() - 0.5) * 1.5;
+                    this.enemyBullets.push({
+                        id: 'eb_' + this.enemyIdCounter++,
+                        x: boss.x, y: boss.y,
+                        vx: Math.cos(a) * 6, vy: Math.sin(a) * 6,
+                        life: 80, size: 4, color: boss.color
+                    });
+                }
+                break;
+            default:
+                // その他のパターン
+                if (boss.attackTimer % 30 === 0) {
+                    for (let i = 0; i < 12; i++) {
+                        const a = (Math.PI * 2 / 12) * i + boss.phase;
+                        this.enemyBullets.push({
+                            id: 'eb_' + this.enemyIdCounter++,
+                            x: boss.x, y: boss.y,
+                            vx: Math.cos(a) * 5, vy: Math.sin(a) * 5,
+                            life: 120, size: 6, color: boss.color
+                        });
+                    }
+                    boss.phase += 0.15;
+                }
+                break;
         }
-    });
-
-    socket.on('disconnect', () => {
-        for (const rid in rooms) {
-            const wasHost = rooms[rid].removePlayer(socket.id);
-            if (rooms[rid].players.length === 0) delete rooms[rid];
-            else {
-                io.to(rid).emit('playerLeft', { playerId: socket.id });
-                if (wasHost) {
-                    // ホストが抜けても部屋を維持する場合はここを調整
-                    // 今回は簡易的に、残ったプレイヤーに通知だけして継続
-                    // 本格的にはホスト移譲通知などが必要
-                } 
-                io.to(rid).emit('playerReadyUpdate', { players: rooms[rid].players });
+    }
+    
+    updateEnemyBullets() {
+        this.enemyBullets.forEach(b => {
+            b.x += b.vx;
+            b.y += b.vy;
+            b.life--;
+            
+            if (b.life <= 0 || this.checkWall(b.x, b.y)) {
+                b.dead = true;
+                return;
+            }
+            
+            // プレイヤーとの衝突
+            this.players.forEach(player => {
+                if (!player.alive || player.invincible > 0 || player.dashing) return;
+                if (Math.hypot(player.x - b.x, player.y - b.y) < 8 + b.size) {
+                    this.damagePlayer(player, 8);
+                    b.dead = true;
+                }
+            });
+        });
+        
+        this.enemyBullets = this.enemyBullets.filter(b => !b.dead);
+    }
+    
+    updateItems() {
+        this.items.forEach(item => {
+            this.players.forEach(player => {
+                if (!player.alive) return;
+                
+                // アイテム吸引
+                if (Math.hypot(player.x - item.x, player.y - item.y) < 150) {
+                    item.x += (player.x - item.x) * 0.1;
+                    item.y += (player.y - item.y) * 0.1;
+                }
+                
+                // アイテム取得
+                if (Math.hypot(player.x - item.x, player.y - item.y) < 20) {
+                    this.collectItem(player, item);
+                    item.collected = true;
+                }
+            });
+        });
+        
+        this.items = this.items.filter(i => !i.collected);
+    }
+    
+    collectItem(player, item) {
+        if (item.type === 'H') {
+            player.hp = Math.min(player.maxHp, player.hp + 30);
+        } else if (item.type === 'ALLRANGE') {
+            if (player.options.length < 6) {
+                player.options.push({ x: player.x, y: player.y, angle: 0 });
+            }
+            player.weaponLevels.ALLRANGE++;
+        } else {
+            player.weaponLevels[item.type] = (player.weaponLevels[item.type] || 0) + 1;
+        }
+        
+        io.to(player.id).emit('itemCollected', { 
+            type: item.type, 
+            weaponLevels: player.weaponLevels,
+            hp: player.hp,
+            options: player.options.length
+        });
+    }
+    
+    damagePlayer(player, damage) {
+        if (player.invincible > 0 || player.dashing) return;
+        
+        player.hp -= damage;
+        player.invincible = 30;
+        
+        io.to(player.id).emit('playerDamaged', { hp: player.hp, damage });
+        
+        if (player.hp <= 0) {
+            player.alive = false;
+            io.to(this.id).emit('playerDied', { playerId: player.id, name: player.name });
+        }
+    }
+    
+    damageEnemy(enemyId, damage, weaponType, attackerId) {
+        const enemy = this.enemies.find(e => e.id === enemyId);
+        if (!enemy || enemy.hp <= 0) return;
+        
+        if (enemy.armor && weaponType !== 'THUNDER' && weaponType !== 'LASER') {
+            damage = Math.floor(damage / 2);
+        }
+        
+        enemy.hp -= damage;
+        
+        if (enemy.hp <= 0) {
+            this.defeatEnemy(enemy, attackerId);
+        }
+        
+        return enemy.hp;
+    }
+    
+    defeatEnemy(enemy, attackerId) {
+        const attacker = this.players.get(attackerId);
+        if (attacker) {
+            attacker.score += enemy.score;
+        }
+        this.score += enemy.score;
+        
+        // アイテムドロップ
+        this.dropItems(enemy.x, enemy.y, enemy.isBoss);
+        
+        // 分裂する敵
+        if (enemy.divides && !enemy.isBoss) {
+            for (let i = 0; i < 2; i++) {
+                const a = Math.random() * Math.PI * 2;
+                this.spawnEnemy('virus', enemy.x + Math.cos(a) * 30, enemy.y + Math.sin(a) * 30);
             }
         }
-        console.log('Client disconnected:', socket.id);
+        
+        io.to(this.id).emit('enemyDefeated', { 
+            enemyId: enemy.id, 
+            isBoss: enemy.isBoss,
+            score: this.score 
+        });
+    }
+    
+    dropItems(x, y, isBoss) {
+        const itemColors = { PLAZMER: '#fff', HOMING: '#a0f', LASER: '#0ff', THUNDER: '#ff0', ALLRANGE: '#0f0', H: '#f06' };
+        
+        if (isBoss) {
+            const count = 5 + Math.floor(Math.random() * 3);
+            const types = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER', 'ALLRANGE', 'H'];
+            for (let i = 0; i < count; i++) {
+                const a = (Math.PI * 2 / count) * i;
+                const type = types[Math.floor(Math.random() * types.length)];
+                this.items.push({
+                    id: 'item_' + this.enemyIdCounter++,
+                    x: x + Math.cos(a) * 60,
+                    y: y + Math.sin(a) * 60,
+                    type,
+                    color: itemColors[type]
+                });
+            }
+        } else {
+            if (Math.random() < 0.10) {
+                const types = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'];
+                const type = types[Math.floor(Math.random() * types.length)];
+                this.items.push({
+                    id: 'item_' + this.enemyIdCounter++,
+                    x, y, type, color: itemColors[type]
+                });
+            }
+            if (Math.random() < 0.04) {
+                this.items.push({
+                    id: 'item_' + this.enemyIdCounter++,
+                    x, y, type: 'H', color: '#f06'
+                });
+            }
+            if (Math.random() < 0.03) {
+                this.items.push({
+                    id: 'item_' + this.enemyIdCounter++,
+                    x, y, type: 'ALLRANGE', color: '#0f0'
+                });
+            }
+        }
+    }
+    
+    handlePlayerInput(socketId, input) {
+        const player = this.players.get(socketId);
+        if (!player || !player.alive) return;
+        
+        player.lastInput = input;
+        
+        // クライアントからの位置情報を考慮（ある程度の誤差は許容）
+        if (input.x !== undefined && input.y !== undefined) {
+            const dist = Math.hypot(input.x - player.x, input.y - player.y);
+            // 1フレームで移動できる最大距離の3倍以内なら許容
+            if (dist < player.speed * 3) {
+                player.x = input.x;
+                player.y = input.y;
+            }
+        }
+        
+        if (input.dash && !player.dashing) {
+            player.dashing = true;
+            player.dashTimer = 10;
+            player.invincible = Math.max(player.invincible, 12);
+        }
+    }
+    
+    handlePlayerShoot(socketId, data) {
+        const player = this.players.get(socketId);
+        if (!player || !player.alive) return;
+        
+        // クライアントが計算した弾/ミサイルのダメージを検証して敵に適用
+        if (data.hits && data.hits.length > 0) {
+            data.hits.forEach(hit => {
+                this.damageEnemy(hit.enemyId, hit.damage, hit.weaponType, socketId);
+            });
+        }
+    }
+    
+    sanitizePlayer(player) {
+        return {
+            id: player.id,
+            name: player.name,
+            x: player.x,
+            y: player.y,
+            angle: player.angle,
+            hp: player.hp,
+            maxHp: player.maxHp,
+            invincible: player.invincible,
+            dashing: player.dashing,
+            alive: player.alive,
+            weaponLevels: player.weaponLevels,
+            thunderEnergy: player.thunderEnergy,
+            options: player.options,
+            formation: player.formation,
+            score: player.score,
+            // 新規追加
+            isHost: player.isHost,
+            playerIndex: player.playerIndex,
+            color: player.color,
+            glowColor: player.glowColor,
+            colorName: player.colorName,
+            ready: player.ready,
+            respawnTimer: player.respawnTimer
+        };
+    }
+    
+    sanitizeEnemy(enemy) {
+        return {
+            id: enemy.id,
+            type: enemy.type,
+            x: enemy.x,
+            y: enemy.y,
+            hp: enemy.hp,
+            maxHp: enemy.maxHp,
+            size: enemy.size,
+            color: enemy.color,
+            isBoss: enemy.isBoss,
+            name: enemy.name,
+            pattern: enemy.pattern
+        };
+    }
+    
+    broadcastState() {
+        const state = {
+            frame: this.frame,
+            wave: this.wave,
+            score: this.score,
+            players: Array.from(this.players.values()).map(p => this.sanitizePlayer(p)),
+            enemies: this.enemies.map(e => this.sanitizeEnemy(e)),
+            enemyBullets: this.enemyBullets.map(b => ({
+                id: b.id, x: b.x, y: b.y, size: b.size, color: b.color
+            })),
+            items: this.items,
+            bossCount: this.currentBosses.filter(b => b.hp > 0).length
+        };
+        
+        io.to(this.id).emit('gameState', state);
+    }
+}
+
+// ========== ルームコード生成 ==========
+function generateRoomCode() {
+    let code;
+    do {
+        code = Math.floor(1000 + Math.random() * 9000).toString();
+    } while (rooms.has(code));
+    return code;
+}
+
+// ========== プレイヤー色定義 ==========
+const PLAYER_COLORS = [
+    { main: '#ffffff', glow: '#0ff', name: 'WHITE' },   // HOST
+    { main: '#ff4444', glow: '#f00', name: 'RED' },     // Guest 1
+    { main: '#aa44ff', glow: '#a0f', name: 'PURPLE' },  // Guest 2
+    { main: '#4488ff', glow: '#08f', name: 'BLUE' }     // Guest 3
+];
+
+// ========== Socket.io 接続処理 ==========
+io.on('connection', (socket) => {
+    console.log('Player connected:', socket.id);
+    
+    let currentRoom = null;
+    
+    // ホストとしてルーム作成
+    socket.on('hostRoom', (data) => {
+        const playerName = data.name || 'Host';
+        const roomId = generateRoomCode();
+        
+        // 新しいルームを作成
+        const room = new GameRoom(roomId);
+        room.hostId = socket.id;
+        rooms.set(roomId, room);
+        
+        currentRoom = room;
+        socket.join(roomId);
+        
+        const player = currentRoom.addPlayer(socket, playerName, true); // isHost = true
+        
+        socket.emit('hosted', {
+            playerId: socket.id,
+            roomId: roomId,
+            player: currentRoom.sanitizePlayer(player),
+            walls: currentRoom.walls,
+            state: currentRoom.state,
+            wave: currentRoom.wave,
+            players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p))
+        });
+        
+        console.log(`Player ${playerName} hosted room ${roomId}`);
+    });
+    
+    // 既存ルームに参加
+    socket.on('joinRoom', (data) => {
+        const roomId = data.roomId;
+        const playerName = data.name || 'Player';
+        
+        // ルームが存在するかチェック
+        if (!rooms.has(roomId)) {
+            socket.emit('joinError', { message: `Room ${roomId} not found!` });
+            return;
+        }
+        
+        const room = rooms.get(roomId);
+        
+        // 最大4人まで
+        if (room.players.size >= 4) {
+            socket.emit('joinError', { message: 'Room is full! (Max 4 players)' });
+            return;
+        }
+        
+        // ゲーム中は参加不可
+        if (room.state === 'playing') {
+            socket.emit('joinError', { message: 'Game already in progress!' });
+            return;
+        }
+        
+        currentRoom = room;
+        socket.join(roomId);
+        
+        const player = currentRoom.addPlayer(socket, playerName, false); // isHost = false
+        
+        socket.emit('joined', {
+            playerId: socket.id,
+            roomId: roomId,
+            player: currentRoom.sanitizePlayer(player),
+            walls: currentRoom.walls,
+            state: currentRoom.state,
+            wave: currentRoom.wave,
+            players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p)),
+            isGuest: true
+        });
+        
+        // ホストと他のプレイヤーに通知
+        socket.to(roomId).emit('playerJoined', {
+            player: currentRoom.sanitizePlayer(player),
+            players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p))
+        });
+        
+        console.log(`Player ${playerName} joined room ${roomId} as Guest ${player.playerIndex}`);
+    });
+    
+    // ゲストがREADY
+    socket.on('playerReady', () => {
+        if (!currentRoom) return;
+        const player = currentRoom.players.get(socket.id);
+        if (player && !player.isHost) {
+            player.ready = true;
+            
+            // 全員に通知
+            io.to(currentRoom.id).emit('playerReadyUpdate', {
+                playerId: socket.id,
+                players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p))
+            });
+            
+            console.log(`Player ${player.name} is READY in room ${currentRoom.id}`);
+        }
+    });
+    
+    // ホストがゲーム開始
+    socket.on('startGame', () => {
+        if (!currentRoom) return;
+        if (currentRoom.hostId !== socket.id) return; // ホストのみ開始可能
+        if (currentRoom.state !== 'waiting') return;
+        
+        currentRoom.startGame();
+        io.to(currentRoom.id).emit('gameStarted', {
+            players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p))
+        });
+        console.log(`Game started in room ${currentRoom.id}`);
+    });
+    
+    // ホストがキャンセル
+    socket.on('cancelHost', () => {
+        if (currentRoom) {
+            io.to(currentRoom.id).emit('hostCancelled');
+            rooms.delete(currentRoom.id);
+            currentRoom = null;
+        }
+    });
+    
+    socket.on('input', (input) => {
+        if (currentRoom) {
+            currentRoom.handlePlayerInput(socket.id, input);
+        }
+    });
+    
+    socket.on('shoot', (data) => {
+        if (currentRoom) {
+            currentRoom.handlePlayerShoot(socket.id, data);
+        }
+    });
+    
+    socket.on('formation', (data) => {
+        if (currentRoom) {
+            const player = currentRoom.players.get(socket.id);
+            if (player) {
+                player.formation = data.formation;
+            }
+        }
+    });
+    
+    socket.on('disconnect', () => {
+        console.log('Player disconnected:', socket.id);
+        if (currentRoom) {
+            currentRoom.removePlayer(socket.id);
+            socket.to(currentRoom.id).emit('playerLeft', { playerId: socket.id });
+        }
     });
 });
 
+// ========== ゲームループ ==========
 setInterval(() => {
-    for (const rid in rooms) {
-        const room = rooms[rid];
-        if (room.state === 'playing') {
-            room.update();
-            io.to(rid).emit('gameState', {
-                players: room.players.map(p => ({
-                    id: p.id, name: p.name, x: Math.round(p.x), y: Math.round(p.y),
-                    angle: p.angle, hp: p.hp, maxHp: p.maxHp, alive: p.alive,
-                    color: p.color, dashing: p.dashing, score: p.score,
-                    invincible: p.invincible, thunderEnergy: p.thunderEnergy,
-                    respawnTimer: p.respawnTimer
-                })),
-                enemies: room.enemies.map(e => ({
-                    id: e.id, x: Math.round(e.x), y: Math.round(e.y),
-                    type: e.type, hp: e.hp, maxHp: e.maxHp, size: e.size, color: e.color, isBoss: e.isBoss
-                })),
-                wave: room.wave, score: room.score, items: room.items
-            });
-        }
-    }
-}, 1000 / FPS);
+    rooms.forEach(room => {
+        room.update();
+    });
+}, TICK_INTERVAL);
 
+// ========== サーバー起動 ==========
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`PLAZMERS Server running on port ${PORT}`));
+server.listen(PORT, () => {
+    console.log(`PLAZMERS Server running on port ${PORT}`);
+});
