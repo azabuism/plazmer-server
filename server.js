@@ -31,14 +31,16 @@ const ENEMY_TYPES = {
 };
 
 const BOSS_TYPES = [
-    { name: 'VIRUS-α', color: '#0f0', baseHp: 150, size: 50, pattern: 'radial' },
-    { name: 'BACTERIA-β', color: '#08f', baseHp: 300, size: 55, pattern: 'spiral' },
-    { name: 'INFECTION-γ', color: '#f80', baseHp: 450, size: 60, pattern: 'burst' },
-    { name: 'CANCER-δ', color: '#f00', baseHp: 600, size: 70, pattern: 'divide' },
-    { name: 'PLAGUE-ε', color: '#f0f', baseHp: 800, size: 75, pattern: 'swarm' },
-    { name: 'NECROSIS-ζ', color: '#888', baseHp: 1000, size: 80, pattern: 'laser' },
-    { name: 'PANDEMIC-η', color: '#ff0', baseHp: 1200, size: 85, pattern: 'chaos' },
-    { name: 'OMEGA-CELL', color: '#fff', baseHp: 1500, size: 100, pattern: 'all' }
+    { name: 'VIRUS-α', color: '#0f0', baseHp: 200, size: 50, pattern: 'radial', speed: 2 },
+    { name: 'BACTERIA-β', color: '#08f', baseHp: 400, size: 55, pattern: 'spiral', speed: 2.5 },
+    { name: 'INFECTION-γ', color: '#f80', baseHp: 600, size: 60, pattern: 'burst', speed: 3 },
+    { name: 'CANCER-δ', color: '#f00', baseHp: 900, size: 70, pattern: 'divide', speed: 2 },
+    { name: 'PLAGUE-ε', color: '#f0f', baseHp: 1200, size: 75, pattern: 'swarm', speed: 3.5 },
+    { name: 'NECROSIS-ζ', color: '#888', baseHp: 1600, size: 80, pattern: 'laser', speed: 2 },
+    { name: 'PANDEMIC-η', color: '#ff0', baseHp: 2000, size: 85, pattern: 'chaos', speed: 4 },
+    { name: 'NIGHTMARE-θ', color: '#f44', baseHp: 2500, size: 90, pattern: 'nightmare', speed: 3 },
+    { name: 'APOCALYPSE-ι', color: '#a0f', baseHp: 3000, size: 95, pattern: 'apocalypse', speed: 3.5 },
+    { name: 'OMEGA-CELL', color: '#fff', baseHp: 4000, size: 120, pattern: 'all', speed: 4 }
 ];
 
 // ========== ルーム管理 ==========
@@ -513,10 +515,23 @@ class GameRoom {
         player.dashing = false;
         player.dashTimer = 0;
         
+        // 武器レベルを半減（最低1は維持）
+        player.weaponLevels.PLAZMER = Math.max(1, Math.floor(player.weaponLevels.PLAZMER / 2));
+        player.weaponLevels.HOMING = Math.floor(player.weaponLevels.HOMING / 2);
+        player.weaponLevels.LASER = Math.floor(player.weaponLevels.LASER / 2);
+        player.weaponLevels.THUNDER = Math.floor(player.weaponLevels.THUNDER / 2);
+        player.weaponLevels.ALLRANGE = Math.floor(player.weaponLevels.ALLRANGE / 2);
+        
+        // オプション数も半減
+        const newOptionCount = Math.floor(player.options.length / 2);
+        player.options = player.options.slice(0, newOptionCount);
+        
         io.to(player.id).emit('respawned', {
             x: player.x,
             y: player.y,
-            hp: player.hp
+            hp: player.hp,
+            weaponLevels: player.weaponLevels,
+            options: player.options.length
         });
         
         io.to(this.id).emit('playerRespawned', {
@@ -636,19 +651,163 @@ class GameRoom {
                     });
                 }
                 break;
-            default:
-                // その他のパターン
-                if (boss.attackTimer % 30 === 0) {
-                    for (let i = 0; i < 12; i++) {
-                        const a = (Math.PI * 2 / 12) * i + boss.phase;
+            case 'laser':
+                // レーザービーム攻撃
+                if (boss.attackTimer % 90 === 0) {
+                    // 8方向レーザー
+                    for (let i = 0; i < 8; i++) {
+                        const a = (Math.PI * 2 / 8) * i + boss.phase;
+                        for (let j = 0; j < 20; j++) {
+                            this.enemyBullets.push({
+                                id: 'eb_' + this.enemyIdCounter++,
+                                x: boss.x + Math.cos(a) * j * 25,
+                                y: boss.y + Math.sin(a) * j * 25,
+                                vx: Math.cos(a) * 8, vy: Math.sin(a) * 8,
+                                life: 40, size: 4, color: '#f00'
+                            });
+                        }
+                    }
+                    boss.phase += 0.3;
+                }
+                break;
+            case 'chaos':
+                // カオスパターン：複数の攻撃を同時に
+                if (boss.attackTimer % 20 === 0) {
+                    // 螺旋
+                    for (let i = 0; i < 3; i++) {
+                        const a = boss.timer * 0.2 + i * (Math.PI * 2 / 3);
                         this.enemyBullets.push({
                             id: 'eb_' + this.enemyIdCounter++,
                             x: boss.x, y: boss.y,
                             vx: Math.cos(a) * 5, vy: Math.sin(a) * 5,
-                            life: 120, size: 6, color: boss.color
+                            life: 150, size: 6, color: '#ff0'
                         });
                     }
+                }
+                if (boss.attackTimer % 60 === 0) {
+                    // 放射
+                    for (let i = 0; i < 24; i++) {
+                        const a = (Math.PI * 2 / 24) * i;
+                        this.enemyBullets.push({
+                            id: 'eb_' + this.enemyIdCounter++,
+                            x: boss.x, y: boss.y,
+                            vx: Math.cos(a) * 3, vy: Math.sin(a) * 3,
+                            life: 200, size: 8, color: '#f80'
+                        });
+                    }
+                }
+                break;
+            case 'nightmare':
+                // ナイトメア：追尾弾＋壁弾幕
+                if (boss.attackTimer % 30 === 0) {
+                    // プレイヤー追尾弾
+                    for (let i = 0; i < 5; i++) {
+                        const spreadAngle = angle + (i - 2) * 0.2;
+                        this.enemyBullets.push({
+                            id: 'eb_' + this.enemyIdCounter++,
+                            x: boss.x, y: boss.y,
+                            vx: Math.cos(spreadAngle) * 7, vy: Math.sin(spreadAngle) * 7,
+                            life: 100, size: 10, color: '#f44',
+                            homing: true, target: target
+                        });
+                    }
+                }
+                if (boss.attackTimer % 15 === 0) {
+                    // 回転弾幕
+                    for (let i = 0; i < 6; i++) {
+                        const a = boss.timer * 0.1 + i * (Math.PI / 3);
+                        this.enemyBullets.push({
+                            id: 'eb_' + this.enemyIdCounter++,
+                            x: boss.x, y: boss.y,
+                            vx: Math.cos(a) * 4, vy: Math.sin(a) * 4,
+                            life: 180, size: 5, color: '#a44'
+                        });
+                    }
+                }
+                break;
+            case 'apocalypse':
+                // アポカリプス：全画面攻撃
+                if (boss.attackTimer % 10 === 0) {
+                    // 超高速螺旋
+                    const a1 = boss.timer * 0.3;
+                    const a2 = boss.timer * 0.3 + Math.PI;
+                    this.enemyBullets.push({
+                        id: 'eb_' + this.enemyIdCounter++,
+                        x: boss.x, y: boss.y,
+                        vx: Math.cos(a1) * 6, vy: Math.sin(a1) * 6,
+                        life: 200, size: 7, color: '#a0f'
+                    });
+                    this.enemyBullets.push({
+                        id: 'eb_' + this.enemyIdCounter++,
+                        x: boss.x, y: boss.y,
+                        vx: Math.cos(a2) * 6, vy: Math.sin(a2) * 6,
+                        life: 200, size: 7, color: '#f0a'
+                    });
+                }
+                if (boss.attackTimer % 45 === 0) {
+                    // 爆発放射
+                    for (let i = 0; i < 32; i++) {
+                        const a = (Math.PI * 2 / 32) * i + boss.phase;
+                        const speed = 3 + (i % 2) * 2;
+                        this.enemyBullets.push({
+                            id: 'eb_' + this.enemyIdCounter++,
+                            x: boss.x, y: boss.y,
+                            vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+                            life: 250, size: 6, color: '#f0f'
+                        });
+                    }
+                    boss.phase += 0.1;
+                }
+                if (boss.attackTimer % 120 === 0) {
+                    // 十字レーザー
+                    for (let dir = 0; dir < 4; dir++) {
+                        const baseA = dir * (Math.PI / 2);
+                        for (let j = 0; j < 30; j++) {
+                            this.enemyBullets.push({
+                                id: 'eb_' + this.enemyIdCounter++,
+                                x: boss.x + Math.cos(baseA) * j * 20,
+                                y: boss.y + Math.sin(baseA) * j * 20,
+                                vx: Math.cos(baseA) * 10, vy: Math.sin(baseA) * 10,
+                                life: 30, size: 8, color: '#fff'
+                            });
+                        }
+                    }
+                }
+                break;
+            case 'all':
+                // 全パターン使用（最終ボス）
+                const phase = Math.floor(boss.attackTimer / 120) % 5;
+                if (phase === 0 && boss.attackTimer % 20 === 0) {
+                    // 螺旋×2
+                    const a1 = boss.timer * 0.2;
+                    const a2 = boss.timer * 0.2 + Math.PI;
+                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a1) * 5, vy: Math.sin(a1) * 5, life: 150, size: 6, color: '#fff' });
+                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a2) * 5, vy: Math.sin(a2) * 5, life: 150, size: 6, color: '#fff' });
+                }
+                if (phase === 1 && boss.attackTimer % 40 === 0) {
+                    for (let i = 0; i < 24; i++) {
+                        const a = (Math.PI * 2 / 24) * i + boss.phase;
+                        this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 4, vy: Math.sin(a) * 4, life: 200, size: 8, color: '#ff0' });
+                    }
                     boss.phase += 0.15;
+                }
+                if (phase === 2 && boss.attackTimer % 5 === 0) {
+                    const a = angle + (Math.random() - 0.5) * 2;
+                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 8, vy: Math.sin(a) * 8, life: 80, size: 5, color: '#f00' });
+                }
+                if (phase === 3 && boss.attackTimer % 60 === 0) {
+                    for (let dir = 0; dir < 8; dir++) {
+                        const baseA = dir * (Math.PI / 4);
+                        for (let j = 0; j < 15; j++) {
+                            this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x + Math.cos(baseA) * j * 30, y: boss.y + Math.sin(baseA) * j * 30, vx: Math.cos(baseA) * 12, vy: Math.sin(baseA) * 12, life: 25, size: 6, color: '#0ff' });
+                        }
+                    }
+                }
+                if (phase === 4 && boss.attackTimer % 15 === 0) {
+                    for (let i = 0; i < 8; i++) {
+                        const a = (Math.PI * 2 / 8) * i + boss.timer * 0.15;
+                        this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 6, vy: Math.sin(a) * 6, life: 120, size: 7, color: '#f0f' });
+                    }
                 }
                 break;
         }
@@ -656,6 +815,23 @@ class GameRoom {
     
     updateEnemyBullets() {
         this.enemyBullets.forEach(b => {
+            // 追尾弾の処理
+            if (b.homing && b.target) {
+                const player = this.players.get(b.target.id);
+                if (player && player.alive) {
+                    const angleToPlayer = Math.atan2(player.y - b.y, player.x - b.x);
+                    const currentAngle = Math.atan2(b.vy, b.vx);
+                    let angleDiff = angleToPlayer - currentAngle;
+                    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+                    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+                    const turnSpeed = 0.08;
+                    const newAngle = currentAngle + Math.max(-turnSpeed, Math.min(turnSpeed, angleDiff));
+                    const speed = Math.hypot(b.vx, b.vy);
+                    b.vx = Math.cos(newAngle) * speed;
+                    b.vy = Math.sin(newAngle) * speed;
+                }
+            }
+            
             b.x += b.vx;
             b.y += b.vy;
             b.life--;
@@ -795,7 +971,15 @@ class GameRoom {
     }
     
     dropItems(x, y, isBoss) {
-        const itemColors = { PLAZMER: '#fff', HOMING: '#a0f', LASER: '#0ff', THUNDER: '#ff0', ALLRANGE: '#0f0', H: '#f06' };
+        // 武器と同じ色に合わせる
+        const itemColors = { 
+            PLAZMER: '#0ff',  // シアン（PLAZMER弾と同じ）
+            HOMING: '#a0f',   // 紫（ホーミングミサイルと同じ）
+            LASER: '#0ff',    // シアン（レーザーと同じ）
+            THUNDER: '#ff0',  // 黄色（サンダーと同じ）
+            ALLRANGE: '#0f0', // 緑（オールレンジと同じ）
+            H: '#f44'         // 赤（HP回復）
+        };
         
         // 安全なアイテム位置を見つける関数
         const findSafeItemPos = (baseX, baseY) => {
