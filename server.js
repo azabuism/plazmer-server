@@ -432,8 +432,10 @@ class GameRoom {
             }, 3000);
         }
         
-        // 状態送信（高頻度）
-        this.broadcastState();
+        // 状態送信（20fps に削減）
+        if (this.frame % 3 === 0) {
+            this.broadcastState();
+        }
     }
     
     updatePlayer(player) {
