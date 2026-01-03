@@ -238,6 +238,7 @@ let combo = { count: 0, timer: 0, multiplier: 1 };
 // 入力
 let input = { x: 0, y: 0, active: false };
 let joystick = { active: false, dx: 0, dy: 0 };
+let hasUsedJoystick = false; // ★スマホ判定用：一度でもジョイスティックを使ったらTrue
 
 // ソロモード用
 let soloWaveTimer = 0;
@@ -332,9 +333,12 @@ function initMobileControls() {
     joyZone.addEventListener('touchstart', (e) => {
         e.preventDefault();
         const touch = e.changedTouches[0];
+        const rect = joyZone.getBoundingClientRect();
+        
         startX = touch.clientX;
         startY = touch.clientY;
         joystick.active = true;
+        hasUsedJoystick = true; // ★一度でも使ったらスマホ操作とみなす
         stick.style.transition = 'none';
     }, { passive: false });
 
@@ -1837,67 +1841,6 @@ function draw() {
     }
     drawMinimap();
 }
-function drawEnemy(e, sx, sy) {
-    ctx.save(); ctx.translate(sx, sy);
-    const pulse = Math.sin(frame * 0.1 + e.phase) * 2;
-    ctx.fillStyle = e.color; ctx.shadowBlur = 10; ctx.shadowColor = e.color;
-    ctx.beginPath();
-    for (let i = 0; i < 12; i++) {
-        const a = (Math.PI * 2 / 12) * i + frame * 0.02; const r = e.size + (i % 2 === 0 ? 4 + pulse : 0);
-        const px = Math.cos(a) * r; const py = Math.sin(a) * r;
-        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-    }
-    ctx.closePath(); ctx.fill();
-    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(0, 0, e.size * 0.3, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
-    const hpRatio = e.hp / e.maxHp;
-    ctx.fillStyle = '#300'; ctx.fillRect(sx - e.size, sy - e.size - 10, e.size * 2, 4);
-    ctx.fillStyle = hpRatio > 0.5 ? '#0f0' : hpRatio > 0.25 ? '#ff0' : '#f00';
-    ctx.fillRect(sx - e.size, sy - e.size - 10, e.size * 2 * hpRatio, 4);
-    ctx.fillStyle = '#fff'; ctx.font = '10px Courier New'; ctx.textAlign = 'center'; ctx.fillText(e.hp, sx, sy - e.size - 14);
-}
-function drawBoss(boss, sx, sy) {
-    ctx.save(); ctx.translate(sx, sy);
-    const pulse = Math.sin(frame * 0.05) * 5;
-    ctx.strokeStyle = boss.color; ctx.lineWidth = 3; ctx.shadowBlur = 30; ctx.shadowColor = boss.color;
-    ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(0, 0, boss.size + 20 + pulse, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
-    ctx.rotate(frame * 0.02); ctx.strokeStyle = boss.color; ctx.lineWidth = 2; ctx.beginPath();
-    for (let i = 0; i < 6; i++) {
-        const a = (Math.PI * 2 / 6) * i; const r = boss.size + 10;
-        if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
-    }
-    ctx.closePath(); ctx.stroke();
-    ctx.rotate(-frame * 0.02); ctx.fillStyle = boss.color; ctx.shadowBlur = 20; ctx.beginPath();
-    for (let i = 0; i < 16; i++) {
-        const a = (Math.PI * 2 / 16) * i + frame * 0.01; const r = boss.size + (i % 2 === 0 ? 8 + pulse : 0);
-        if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
-    }
-    ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(0, 0, boss.size * 0.4, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, boss.size * 0.15, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
-}
-function drawMinimap() {
-    if(!ctx) return;
-    const mapW = 120, mapH = 120;
-    const mapX = canvas.width - mapW - 10; const mapY = canvas.height - mapH - 10; const scale = mapW / WORLD_W;
-    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(mapX, mapY, mapW, mapH);
-    ctx.strokeStyle = '#0ff'; ctx.lineWidth = 1; ctx.strokeRect(mapX, mapY, mapW, mapH);
-    ctx.fillStyle = 'rgba(255,100,100,0.5)';
-    walls.forEach(w => {
-        if (w.type === 'cell') {
-            ctx.beginPath(); ctx.arc(mapX + w.cx * scale, mapY + w.cy * scale, w.radius * scale, 0, Math.PI * 2); ctx.fill();
-        } else { ctx.fillRect(mapX + w.x * scale, mapY + w.y * scale, w.w * scale, w.h * scale); }
-    });
-    enemies.forEach(e => {
-        if (e.hp <= 0) return;
-        ctx.fillStyle = e.isBoss ? '#ff0' : e.color;
-        ctx.beginPath(); ctx.arc(mapX + e.x * scale, mapY + e.y * scale, e.isBoss ? 4 : 2, 0, Math.PI * 2); ctx.fill();
-    });
-    if (player) {
-        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(mapX + player.x * scale, mapY + player.y * scale, 3, 0, Math.PI * 2); ctx.fill();
-    }
-}
 let audioCtx = null;
 let bgmOsc = null;
 let bgmGain = null;
@@ -1937,6 +1880,28 @@ function playSound(type) {
 
 function update() {
     if (gameState !== 'playing') return;
+
+    // スマホ操作：ジョイスティックを触ったことがあり、かつ現在触っていない（ニュートラル）なら一時停止
+    if (hasUsedJoystick && !joystick.active) {
+        draw(); // 画面は描画し続ける（止まった絵を表示）
+        
+        // PAUSE文字表示
+        if(ctx) {
+            ctx.save();
+            ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#fff";
+            ctx.font = "20px Courier New";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText("PAUSED", canvas.width/2, canvas.height/2);
+            ctx.restore();
+        }
+        
+        requestAnimationFrame(update);
+        return; // ゲームの進行をここで止める
+    }
+
     try {
         frame++;
         if (player) { player.update(); updateCamera(); }
