@@ -1072,6 +1072,22 @@ io.on('connection', (socket) => {
         }
     });
     
+    socket.on('fire', (data) => {
+        if (currentRoom) {
+            const player = currentRoom.players.get(socket.id);
+            if (player) {
+                // 他のプレイヤーに弾丸を通知
+                socket.to(currentRoom.id).emit('remoteFire', {
+                    playerId: socket.id,
+                    type: data.type,
+                    angle: data.angle,
+                    x: player.x,
+                    y: player.y
+                });
+            }
+        }
+    });
+    
     socket.on('formation', (data) => {
         if (currentRoom) {
             const player = currentRoom.players.get(socket.id);
