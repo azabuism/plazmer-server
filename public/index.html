@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>PLAZMER - INNER SPACE</title>
+    <title>PLAZMERS - INNER SPACE</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -56,9 +56,9 @@
         
         #boss-container {
             position: fixed; top: 50px; left: 50%; transform: translateX(-50%);
-            width: 400px; max-width: 80%; display: none; text-align: center;
+            width: 500px; max-width: 90%; display: none; text-align: center;
         }
-        #boss-name { font-size: 14px; color: #f00; margin-bottom: 5px; text-shadow: 0 0 10px #f00; }
+        #boss-name { font-size: 14px; color: #f00; margin-bottom: 5px; text-shadow: 0 0 10px #f00; font-weight: bold; }
         #boss-bar { width: 100%; height: 12px; background: #200; border: 1px solid #f00; }
         #boss-hp { width: 100%; height: 100%; background: linear-gradient(90deg, #f00, #ff0); transition: width 0.3s; }
         
@@ -115,7 +115,7 @@
         #message {
             position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%);
             font-size: 32px; color: #0ff; text-shadow: 0 0 20px #0ff;
-            opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 150;
+            opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 150; width: 100%; text-align: center;
         }
         
         @media (max-width: 768px) {
@@ -129,7 +129,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMER</h1>
+        <h1>PLAZMERS</h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <input type="text" id="player-name" class="name-input" placeholder="ENTER NAME" maxlength="12">
         <button class="menu-btn" onclick="startSoloGame()">START</button>
@@ -198,13 +198,14 @@ let texts = [];
 let items = [];
 let options = [];
 let walls = [];
-let activeLaser = null; // 現在発射中のレーザー
-let missiles = []; // 整列中のミサイル
+let activeLaser = null;
+let missiles = []; 
 
 let wave = 0;
 let score = 0;
 let frame = 0;
 let gameState = 'title';
+// currentBossは「最後に生成されたボス」を指すが、HP表示等は配列で管理する
 let currentBoss = null;
 
 // 武器レベル
@@ -212,7 +213,7 @@ let weaponLevels = { PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0, ALLRANGE: 0 };
 
 // サンダーエネルギー
 let thunderEnergy = 0;
-const THUNDER_MAX_ENERGY = 180; // 3秒 = 180フレーム
+const THUNDER_MAX_ENERGY = 180;
 
 // フォーメーション
 const FORMATIONS = ['FOLLOW', 'GO AROUND 1', 'GO AROUND 2', 'HUNT'];
@@ -331,68 +332,50 @@ function generateMazeWalls(waveNum) {
     w.push({ x: 0, y: 0, w: thickness, h: WORLD_H, type: 'border' });
     w.push({ x: WORLD_W - thickness, y: 0, w: thickness, h: WORLD_H, type: 'border' });
     
-    // 迷路風の通路を作る
     const gridSize = 300;
     const cellsX = Math.floor(WORLD_W / gridSize);
     const cellsY = Math.floor(WORLD_H / gridSize);
     
-    // ランダムな壁を配置（迷路風）
     for (let gx = 1; gx < cellsX - 1; gx++) {
         for (let gy = 1; gy < cellsY - 1; gy++) {
-            // 中央エリアは空ける
             if (gx >= cellsX/2 - 1 && gx <= cellsX/2 + 1 && gy >= cellsY/2 - 1 && gy <= cellsY/2 + 1) continue;
             
-            // ランダムに壁を配置
             if (Math.random() < 0.4 + waveNum * 0.02) {
                 const cx = gx * gridSize + gridSize / 2;
                 const cy = gy * gridSize + gridSize / 2;
                 const size = 40 + Math.random() * 60;
                 
                 w.push({
-                    x: cx - size/2,
-                    y: cy - size/2,
-                    w: size,
-                    h: size,
+                    x: cx - size/2, y: cy - size/2,
+                    w: size, h: size,
                     type: 'cell',
-                    cx: cx,
-                    cy: cy,
-                    radius: size / 2
+                    cx: cx, cy: cy, radius: size / 2
                 });
             }
         }
     }
     
-    // 追加の散らばった赤血球
     const extraCount = 20 + waveNum * 3;
     for (let i = 0; i < extraCount; i++) {
         const size = 30 + Math.random() * 50;
         const x = 150 + Math.random() * (WORLD_W - 300);
         const y = 150 + Math.random() * (WORLD_H - 300);
         
-        // 中央エリアは空ける
         if (Math.hypot(x - WORLD_W/2, y - WORLD_H/2) < 300) continue;
         
-        // 既存の壁と重ならないかチェック
         let overlap = false;
         for (const wall of w) {
             if (wall.type === 'cell') {
                 if (Math.hypot(x - wall.cx, y - wall.cy) < wall.radius + size/2 + 20) {
-                    overlap = true;
-                    break;
+                    overlap = true; break;
                 }
             }
         }
         if (overlap) continue;
         
         w.push({
-            x: x - size/2,
-            y: y - size/2,
-            w: size,
-            h: size,
-            type: 'cell',
-            cx: x,
-            cy: y,
-            radius: size / 2
+            x: x - size/2, y: y - size/2, w: size, h: size,
+            type: 'cell', cx: x, cy: y, radius: size / 2
         });
     }
     
@@ -426,10 +409,8 @@ function getWallNormal(x, y) {
     return null;
 }
 
-// 壁から脱出する関数（敵・ボス・プレイヤー共通）
 function escapeFromWall(entity) {
     if (!checkWall(entity.x, entity.y)) return false;
-    
     for (let dist = 10; dist < 500; dist += 10) {
         for (let a = 0; a < Math.PI * 2; a += Math.PI / 16) {
             const testX = entity.x + Math.cos(a) * dist;
@@ -469,23 +450,30 @@ class Player {
         this.pulsePhase += 0.1;
         
         // 壁から脱出
-        if (checkWall(this.x, this.y)) {
+        if (checkWall(this.x, this.y) && !this.dashing) {
             if (escapeFromWall(this)) {
                 createParticles(this.x, this.y, '#fff', 10);
-                showMessage('ESCAPED!');
             }
         }
         
-        // ダッシュ
+        // ダッシュ (壁抜け実装)
         if (this.dashing) {
             this.dashTimer--;
             const vx = Math.cos(this.angle) * 28;
             const vy = Math.sin(this.angle) * 28;
-            if (!checkWall(this.x + vx, this.y)) this.x += vx;
-            if (!checkWall(this.x, this.y + vy)) this.y += vy;
+            
+            // 壁判定を無視して移動
+            this.x += vx;
+            this.y += vy;
+            
+            // エリア外に出ないように制限
+            this.x = Math.max(60, Math.min(WORLD_W - 60, this.x));
+            this.y = Math.max(60, Math.min(WORLD_H - 60, this.y));
+
             if (frame % 2 === 0) particles.push(new Particle(this.x, this.y, '#fff', 5, 5));
             if (this.dashTimer <= 0) this.dashing = false;
         } else {
+            // 通常移動
             if (joystick.active && (Math.abs(joystick.dx) > 0.1 || Math.abs(joystick.dy) > 0.1)) {
                 this.angle = Math.atan2(joystick.dy, joystick.dx);
                 const mag = Math.min(1, Math.hypot(joystick.dx, joystick.dy));
@@ -543,18 +531,10 @@ class Player {
     }
     
     fireWeapons() {
-        // PLAZMER
         this.firePlazmer();
-        
-        // HOMING（ミサイル）
         if (weaponLevels.HOMING > 0) this.fireHoming();
+        if (weaponLevels.LASER > 0 && !activeLaser) this.fireLaser();
         
-        // LASER（持続ビーム）
-        if (weaponLevels.LASER > 0 && !activeLaser) {
-            this.fireLaser();
-        }
-        
-        // ALL-RANGEオプションからも発射
         options.forEach(opt => {
             if (currentFormation !== 3) {
                 bullets.push(new PlazmerBullet({
@@ -565,22 +545,28 @@ class Player {
                 }));
             }
         });
-        
         playSound('shoot');
     }
     
     firePlazmer() {
         const lv = weaponLevels.PLAZMER;
-        // レベル1-10: 方向が増える（1→10方向）
-        // レベル11以降: 威力アップ
-        const directions = Math.min(10, lv);
+        const count = 1 + Math.floor(lv / 1.5); 
+        const maxSpread = Math.min(Math.PI * 2, lv * (Math.PI / 10)); 
         const damageBonus = Math.max(0, lv - 10);
-        
-        for (let i = 0; i < directions; i++) {
-            const a = directions === 1 ? this.angle : (Math.PI * 2 / directions) * i;
+
+        for (let i = 0; i < count; i++) {
+            let angleOffset = 0;
+            if (count > 1) {
+                const range = maxSpread * (i / (count - 1)) - (maxSpread / 2);
+                if (maxSpread >= Math.PI * 2 - 0.1) {
+                     angleOffset = (Math.PI * 2 / count) * i;
+                } else {
+                    angleOffset = range;
+                }
+            }
             bullets.push(new PlazmerBullet({
                 x: this.x, y: this.y,
-                angle: a,
+                angle: this.angle + angleOffset,
                 damage: 3 + damageBonus,
                 color: '#fff'
             }));
@@ -589,23 +575,19 @@ class Player {
     
     fireHoming() {
         const lv = weaponLevels.HOMING;
-        // レベル1-12: ミサイル数が増える
-        // レベル13以降: 威力アップ
-        const missileCount = Math.min(12, lv);
-        const damageBonus = Math.max(0, lv - 12) * 3;
+        const missileCount = 4 + lv * 2; 
+        const damage = 4 + Math.floor(lv / 3); 
         
         for (let i = 0; i < missileCount; i++) {
-            // 左右交互に配置
-            const side = i % 2 === 0 ? -1 : 1; // 左(-1)か右(1)
-            const row = Math.floor(i / 2); // 何列目か
+            const spreadAngle = this.angle + (Math.random() - 0.5) * Math.PI; 
+            const speed = 5 + Math.random() * 8;
             
-            missiles.push(new FormationMissile({
-                owner: this,
-                side: side,
-                row: row,
-                damage: 10 + damageBonus,
-                index: i,
-                total: missileCount
+            missiles.push(new MacrossMissile({
+                x: this.x, y: this.y,
+                vx: Math.cos(spreadAngle) * speed,
+                vy: Math.sin(spreadAngle) * speed,
+                damage: damage,
+                color: '#a0f'
             }));
         }
         playSound('missile');
@@ -613,16 +595,15 @@ class Player {
     
     fireLaser() {
         const lv = weaponLevels.LASER;
-        // レベル1-8: 太くなる
-        // レベル9以降: 威力アップ
-        const width = Math.min(80, 8 + lv * 8);
+        // 初期値を細くし、レベルで太くする
+        const width = Math.min(60, 3 + lv * 3); 
         const damageBonus = Math.max(0, lv - 8) * 2;
         
         activeLaser = new KamehamehaLaser({
             owner: this,
             width: width,
             damage: 3 + damageBonus,
-            duration: 60, // 1秒
+            duration: 60,
             maxBounces: 5 + Math.floor(lv / 2)
         });
         playSound('laser');
@@ -630,8 +611,6 @@ class Player {
     
     fireThunder() {
         const lv = weaponLevels.THUNDER;
-        
-        // 最も近い敵を探す
         let target = null, minDist = 1000;
         enemies.forEach(e => {
             if (e.hp > 0) {
@@ -639,11 +618,9 @@ class Player {
                 if (d < minDist) { minDist = d; target = e; }
             }
         });
-        
         bullets.push(new ThunderBolt({
             x: this.x, y: this.y,
-            target: target,
-            angle: this.angle,
+            target: target, angle: this.angle,
             damage: 30 + lv * 10
         }));
         playSound('thunder');
@@ -670,7 +647,6 @@ class Player {
         playSound('hit');
         triggerScreenShake(10);
         this.invincible = 30;
-        
         if (this.hp <= 0) endGame();
     }
     
@@ -718,13 +694,10 @@ class Player {
         
         if (this.invincible % 4 < 2) {
             const pulse = Math.sin(this.pulsePhase) * 2;
-            
             ctx.save();
             ctx.translate(sx, sy);
-            
             ctx.shadowBlur = this.dashing ? 30 : 15;
             ctx.shadowColor = this.dashing ? '#fff' : '#0ff';
-            
             ctx.fillStyle = this.dashing ? '#fff' : 'rgba(200,240,255,0.9)';
             ctx.beginPath();
             for (let i = 0; i < 8; i++) {
@@ -750,17 +723,15 @@ class Player {
             ctx.lineTo(this.r, -3);
             ctx.lineTo(this.r, 3);
             ctx.fill();
-            
             ctx.restore();
         }
     }
 }
 
-// ========== オプション（ALL-RANGE）==========
+// ========== オプション ==========
 class Option {
     constructor() {
-        this.x = player.x;
-        this.y = player.y;
+        this.x = player.x; this.y = player.y;
         this.angle = 0;
         this.orbitAngle = Math.random() * Math.PI * 2;
         this.target = null;
@@ -769,7 +740,6 @@ class Option {
     
     update(index, total) {
         const formation = FORMATIONS[currentFormation];
-        
         switch (formation) {
             case 'FOLLOW':
                 const histIndex = Math.min((index + 1) * 15, player.history.length - 1);
@@ -780,7 +750,6 @@ class Option {
                     this.angle = target.angle;
                 }
                 break;
-                
             case 'GO AROUND 1':
                 this.orbitAngle += 0.04;
                 const baseAngle1 = (Math.PI * 2 / total) * index + this.orbitAngle;
@@ -788,7 +757,6 @@ class Option {
                 this.y = player.y + Math.sin(baseAngle1) * 50;
                 this.angle = player.angle;
                 break;
-                
             case 'GO AROUND 2':
                 this.orbitAngle += 0.04;
                 const baseAngle2 = (Math.PI * 2 / total) * index + this.orbitAngle;
@@ -796,20 +764,16 @@ class Option {
                 this.y = player.y + Math.sin(baseAngle2) * 50;
                 this.angle = baseAngle2;
                 break;
-                
             case 'HUNT':
                 this.attackTimer++;
-                
+                // 索敵範囲拡大＆頻度アップ
                 if (!this.target || this.target.hp <= 0 || frame % 60 === 0) {
-                    let minDist = 500;
+                    let minDist = 800;
                     this.target = null;
                     enemies.forEach(e => {
                         if (e.hp > 0) {
                             const d = Math.hypot(e.x - this.x, e.y - this.y);
-                            if (d < minDist) {
-                                minDist = d;
-                                this.target = e;
-                            }
+                            if (d < minDist) { minDist = d; this.target = e; }
                         }
                     });
                 }
@@ -817,34 +781,30 @@ class Option {
                 if (this.target && this.target.hp > 0) {
                     const toTarget = Math.atan2(this.target.y - this.y, this.target.x - this.x);
                     const dist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
-                    
-                    if (dist > 100) {
-                        const vx = Math.cos(toTarget) * 5;
-                        const vy = Math.sin(toTarget) * 5;
+                    // 猛スピードで接近
+                    if (dist > 60) {
+                        const vx = Math.cos(toTarget) * 25;
+                        const vy = Math.sin(toTarget) * 25;
                         if (!checkWall(this.x + vx, this.y + vy)) {
-                            this.x += vx;
-                            this.y += vy;
+                            this.x += vx; this.y += vy;
                         }
                     }
-                    
                     this.angle = toTarget;
-                    
-                    if (this.attackTimer >= 20) {
+                    // 攻撃頻度アップ
+                    if (this.attackTimer >= 10) { 
                         this.attackTimer = 0;
                         bullets.push(new PlazmerBullet({
                             x: this.x, y: this.y,
-                            angle: this.angle,
-                            damage: 5,
-                            color: '#0f0'
+                            angle: this.angle + (Math.random() - 0.5) * 0.5,
+                            damage: 5, color: '#0f0'
                         }));
                     }
                 } else {
                     const toPlayer = Math.atan2(player.y - this.y, player.x - this.x);
                     const distToPlayer = Math.hypot(player.x - this.x, player.y - this.y);
-                    
-                    if (distToPlayer > 150) {
-                        this.x += Math.cos(toPlayer) * 4;
-                        this.y += Math.sin(toPlayer) * 4;
+                    if (distToPlayer > 100) {
+                        this.x += Math.cos(toPlayer) * 20;
+                        this.y += Math.sin(toPlayer) * 20;
                     }
                     this.angle = player.angle;
                 }
@@ -855,36 +815,24 @@ class Option {
     draw() {
         const sx = this.x - camera.x + screenShake.x;
         const sy = this.y - camera.y + screenShake.y;
-        
         ctx.save();
         ctx.translate(sx, sy);
         ctx.rotate(this.angle);
-        
         ctx.fillStyle = '#0f0';
         ctx.shadowBlur = 10;
         ctx.shadowColor = '#0f0';
-        ctx.beginPath();
-        ctx.arc(0, 0, 6, 0, Math.PI * 2);
-        ctx.fill();
-        
+        ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = '#fff';
-        ctx.beginPath();
-        ctx.moveTo(8, 0);
-        ctx.lineTo(4, -3);
-        ctx.lineTo(4, 3);
-        ctx.fill();
-        
+        ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(4, -3); ctx.lineTo(4, 3); ctx.fill();
         ctx.restore();
     }
 }
 
 // ========== 弾クラス ==========
 
-// PLAZMER弾
 class PlazmerBullet {
     constructor(data) {
-        this.x = data.x;
-        this.y = data.y;
+        this.x = data.x; this.y = data.y;
         this.angle = data.angle;
         this.speed = 14;
         this.vx = Math.cos(this.angle) * this.speed;
@@ -896,8 +844,7 @@ class PlazmerBullet {
         this.type = 'PLAZMER';
     }
     update() {
-        this.x += this.vx;
-        this.y += this.vy;
+        this.x += this.vx; this.y += this.vy;
         this.life--;
         if (this.life <= 0 || checkWall(this.x, this.y)) this.dead = true;
         this.checkHit();
@@ -913,158 +860,102 @@ class PlazmerBullet {
         }
     }
     draw() {
-        const sx = this.x - camera.x;
-        const sy = this.y - camera.y;
+        const sx = this.x - camera.x; const sy = this.y - camera.y;
         ctx.fillStyle = this.color;
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = this.color;
-        ctx.beginPath();
-        ctx.arc(sx, sy, this.size, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.shadowBlur = 10; ctx.shadowColor = this.color;
+        ctx.beginPath(); ctx.arc(sx, sy, this.size, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
     }
 }
 
-// フォーメーションミサイル
-class FormationMissile {
+class MacrossMissile {
     constructor(data) {
-        this.owner = data.owner;
-        this.side = data.side; // -1: 左, 1: 右
-        this.row = data.row;
-        this.damage = data.damage || 10;
-        this.index = data.index;
-        this.total = data.total;
-        
-        // プレイヤーの後ろからスタート
-        const behindAngle = this.owner.angle + Math.PI;
-        this.x = this.owner.x + Math.cos(behindAngle) * 30;
-        this.y = this.owner.y + Math.sin(behindAngle) * 30;
-        this.angle = this.owner.angle;
-        
-        this.phase = 0; // 0: 後ろから出る, 1: 横に並ぶ, 2: 発射
-        this.phaseTimer = 0;
-        this.speed = 0;
-        this.targetX = 0;
-        this.targetY = 0;
-        this.trail = [];
-        this.life = 300;
+        this.x = data.x; this.y = data.y;
+        this.vx = data.vx;
+        this.vy = data.vy;
+        this.damage = data.damage || 4;
+        this.color = data.color || '#a0f';
+        this.life = 200;
         this.type = 'HOMING';
+        this.dead = false;
+        this.phase = 0;
+        this.timer = 0;
+        this.waitTime = 10 + Math.random() * 15;
+        this.trail = [];
     }
-    
     update() {
-        this.life--;
+        this.life--; this.timer++;
         if (this.life <= 0) this.dead = true;
-        
-        this.phaseTimer++;
-        
-        switch (this.phase) {
-            case 0: // 後ろから引き出す
-                const behindAngle = this.owner.angle + Math.PI;
-                const startX = this.owner.x + Math.cos(behindAngle) * 30;
-                const startY = this.owner.y + Math.sin(behindAngle) * 30;
-                this.x += (startX - this.x) * 0.3;
-                this.y += (startY - this.y) * 0.3;
-                
-                if (this.phaseTimer > 10) {
-                    this.phase = 1;
-                    this.phaseTimer = 0;
+
+        if (this.phase === 0) {
+            this.x += this.vx; this.y += this.vy;
+            this.vx *= 0.92; this.vy *= 0.92;
+            if (this.timer > this.waitTime) this.phase = 1;
+        } else {
+            let target = null, minDist = 1000;
+            enemies.forEach(e => {
+                if (e.hp > 0) {
+                    const d = Math.hypot(e.x - this.x, e.y - this.y);
+                    if (d < minDist) { minDist = d; target = e; }
                 }
-                break;
-                
-            case 1: // 横に並ぶ
-                const perpAngle = this.owner.angle + Math.PI / 2;
-                const offset = (this.row + 1) * 20;
-                this.targetX = this.owner.x + Math.cos(perpAngle) * offset * this.side;
-                this.targetY = this.owner.y + Math.sin(perpAngle) * offset * this.side;
-                
-                this.x += (this.targetX - this.x) * 0.2;
-                this.y += (this.targetY - this.y) * 0.2;
-                this.angle = this.owner.angle;
-                
-                if (this.phaseTimer > 15) {
-                    this.phase = 2;
-                    this.phaseTimer = 0;
-                    this.speed = 3;
-                }
-                break;
-                
-            case 2: // 発射＆追尾
-                if (this.speed < 15) this.speed += 0.8;
-                
-                // 追尾
-                let target = null, minDist = 600;
-                enemies.forEach(e => {
-                    if (e.hp > 0) {
-                        const d = Math.hypot(e.x - this.x, e.y - this.y);
-                        if (d < minDist) { minDist = d; target = e; }
-                    }
-                });
-                
-                if (target) {
-                    let d = Math.atan2(target.y - this.y, target.x - this.x) - this.angle;
-                    while (d < -Math.PI) d += Math.PI * 2;
-                    while (d > Math.PI) d -= Math.PI * 2;
-                    this.angle += d * 0.15;
-                }
-                
-                this.x += Math.cos(this.angle) * this.speed;
-                this.y += Math.sin(this.angle) * this.speed;
-                
-                // 壁で爆発
-                if (checkWall(this.x, this.y)) {
-                    this.dead = true;
-                    createParticles(this.x, this.y, '#f80', 10);
-                    playSound('explode');
-                }
-                
-                // 敵に当たる
-                for (const e of enemies) {
-                    if (e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < e.size + 8) {
-                        damageEnemy(e, this.damage, this.type);
-                        this.dead = true;
-                        createParticles(this.x, this.y, '#a0f', 12);
-                        playSound('explode');
-                        break;
-                    }
-                }
-                break;
+            });
+
+            const maxSpeed = 18;
+            const turnSpeed = 0.8;
+
+            if (target) {
+                const desiredAngle = Math.atan2(target.y - this.y, target.x - this.x);
+                const currentAngle = Math.atan2(this.vy, this.vx);
+                let delta = desiredAngle - currentAngle;
+                while (delta < -Math.PI) delta += Math.PI * 2;
+                while (delta > Math.PI) delta -= Math.PI * 2;
+                const newAngle = currentAngle + Math.max(-turnSpeed, Math.min(turnSpeed, delta));
+                const currentSpeed = Math.hypot(this.vx, this.vy);
+                const nextSpeed = Math.min(maxSpeed, currentSpeed + 1.5);
+                this.vx = Math.cos(newAngle) * nextSpeed;
+                this.vy = Math.sin(newAngle) * nextSpeed;
+            } else {
+                this.vx *= 1.1; this.vy *= 1.1;
+            }
+            this.x += this.vx; this.y += this.vy;
         }
-        
-        // 軌跡
+
+        if (checkWall(this.x, this.y)) {
+            this.dead = true;
+            createParticles(this.x, this.y, '#f80', 5);
+        }
+
+        for (const e of enemies) {
+            if (e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < e.size + 10) {
+                damageEnemy(e, this.damage, this.type);
+                this.dead = true;
+                createParticles(this.x, this.y, '#a0f', 8);
+                break;
+            }
+        }
+
         this.trail.unshift({ x: this.x, y: this.y });
-        if (this.trail.length > 15) this.trail.pop();
+        if (this.trail.length > 10) this.trail.pop();
     }
-    
     draw() {
-        const sx = this.x - camera.x;
-        const sy = this.y - camera.y;
-        
-        // 軌跡
-        this.trail.forEach((p, i) => {
-            const alpha = 1 - i / this.trail.length;
-            ctx.fillStyle = `rgba(170,0,255,${alpha * 0.6})`;
+        if (this.trail.length > 1) {
             ctx.beginPath();
-            ctx.arc(p.x - camera.x, p.y - camera.y, 3, 0, Math.PI * 2);
-            ctx.fill();
-        });
-        
-        ctx.save();
-        ctx.translate(sx, sy);
-        ctx.rotate(this.angle);
-        ctx.fillStyle = '#a0f';
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = '#a0f';
-        ctx.beginPath();
-        ctx.moveTo(10, 0);
-        ctx.lineTo(-6, 5);
-        ctx.lineTo(-3, 0);
-        ctx.lineTo(-6, -5);
-        ctx.fill();
-        ctx.restore();
+            ctx.strokeStyle = `rgba(100, 50, 255, 0.5)`;
+            ctx.lineWidth = 2;
+            for (let i = 0; i < this.trail.length; i++) {
+                const p = this.trail[i];
+                if (i === 0) ctx.moveTo(p.x - camera.x, p.y - camera.y);
+                else ctx.lineTo(p.x - camera.x, p.y - camera.y);
+            }
+            ctx.stroke();
+        }
+        ctx.fillStyle = '#fff';
+        ctx.shadowBlur = 5; ctx.shadowColor = this.color;
+        ctx.beginPath(); ctx.arc(this.x - camera.x, this.y - camera.y, 2, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
     }
 }
 
-// カメハメ波レーザー
 class KamehamehaLaser {
     constructor(data) {
         this.owner = data.owner;
@@ -1075,96 +966,59 @@ class KamehamehaLaser {
         this.life = this.duration;
         this.damageTimer = 0;
         this.type = 'LASER';
-        
-        // レーザーの経路
         this.segments = [];
         this.updatePath();
     }
-    
     updatePath() {
         this.segments = [];
-        let x = this.owner.x;
-        let y = this.owner.y;
-        let angle = this.owner.angle;
-        let bounces = this.maxBounces;
-        let totalLength = 0;
-        const maxLength = 2500;
-        const step = 20;
-        
+        let x = this.owner.x, y = this.owner.y, angle = this.owner.angle;
+        let bounces = this.maxBounces, totalLength = 0;
+        const maxLength = 2500, step = 20;
         this.segments.push({ x, y });
-        
         while (totalLength < maxLength && bounces >= 0) {
             const nextX = x + Math.cos(angle) * step;
             const nextY = y + Math.sin(angle) * step;
-            
             const normal = getWallNormal(nextX, nextY);
             if (normal && bounces > 0) {
-                // 反射点を追加
                 this.segments.push({ x, y, bounce: true });
-                // 反射
                 const dot = Math.cos(angle) * normal.x + Math.sin(angle) * normal.y;
-                angle = angle - 2 * Math.atan2(dot * normal.y, dot * normal.x);
                 angle = Math.atan2(Math.sin(angle) - 2 * dot * normal.y, Math.cos(angle) - 2 * dot * normal.x);
                 bounces--;
                 createParticle(x, y, '#0ff');
             } else if (normal && bounces <= 0) {
-                this.segments.push({ x, y });
-                break;
+                this.segments.push({ x, y }); break;
             }
-            
-            x = nextX;
-            y = nextY;
-            totalLength += step;
-            
-            if (totalLength % 100 < step) {
-                this.segments.push({ x, y });
-            }
+            x = nextX; y = nextY; totalLength += step;
+            if (totalLength % 100 < step) this.segments.push({ x, y });
         }
-        
         this.segments.push({ x, y });
     }
-    
     update() {
         this.life--;
         if (this.life <= 0) this.dead = true;
-        
-        // 経路を更新
         this.updatePath();
-        
-        // ダメージ判定（毎フレーム）
         this.damageTimer++;
         if (this.damageTimer >= 3) {
             this.damageTimer = 0;
-            
-            // 各セグメントで敵にダメージ
             for (let i = 0; i < this.segments.length - 1; i++) {
-                const s1 = this.segments[i];
-                const s2 = this.segments[i + 1];
-                
+                const s1 = this.segments[i], s2 = this.segments[i + 1];
                 enemies.forEach(e => {
-                    if (e.hp > 0) {
-                        const dist = distToSegment(e.x, e.y, s1.x, s1.y, s2.x, s2.y);
-                        if (dist < e.size + this.width / 2) {
-                            damageEnemy(e, this.damage, this.type);
-                        }
+                    if (e.hp > 0 && distToSegment(e.x, e.y, s1.x, s1.y, s2.x, s2.y) < e.size + this.width / 2) {
+                        damageEnemy(e, this.damage, this.type);
                     }
                 });
             }
         }
     }
-    
     draw() {
         if (this.segments.length < 2) return;
-        
         const alpha = this.life / this.duration;
         const pulse = Math.sin(frame * 0.3) * 0.2 + 1;
         const currentWidth = this.width * pulse * alpha;
         
-        // 外側のグロー
         ctx.strokeStyle = `rgba(0,255,255,${alpha * 0.3})`;
         ctx.lineWidth = currentWidth + 30;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         ctx.beginPath();
         this.segments.forEach((s, i) => {
             if (i === 0) ctx.moveTo(s.x - camera.x, s.y - camera.y);
@@ -1172,40 +1026,21 @@ class KamehamehaLaser {
         });
         ctx.stroke();
         
-        // メインビーム
         ctx.strokeStyle = `rgba(0,255,255,${alpha * 0.8})`;
         ctx.lineWidth = currentWidth;
-        ctx.shadowBlur = 30;
-        ctx.shadowColor = '#0ff';
+        ctx.shadowBlur = 30; ctx.shadowColor = '#0ff';
         ctx.stroke();
         
-        // コアビーム（白）
         ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
         ctx.lineWidth = currentWidth * 0.4;
         ctx.stroke();
-        
-        // カメハメ波エフェクト（波紋）
-        if (this.width >= 50) {
-            for (let i = 0; i < this.segments.length; i += 3) {
-                const s = this.segments[i];
-                const waveRadius = (currentWidth / 2) + Math.sin(frame * 0.5 + i) * 10;
-                ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.3})`;
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(s.x - camera.x, s.y - camera.y, waveRadius, 0, Math.PI * 2);
-                ctx.stroke();
-            }
-        }
-        
         ctx.shadowBlur = 0;
     }
 }
 
-// サンダーボルト
 class ThunderBolt {
     constructor(data) {
-        this.x = data.x;
-        this.y = data.y;
+        this.x = data.x; this.y = data.y;
         this.target = data.target;
         this.angle = data.angle;
         this.damage = data.damage || 30;
@@ -1217,53 +1052,34 @@ class ThunderBolt {
         this.targetY = this.target ? this.target.y : this.y + Math.sin(this.angle) * 600;
         this.hitEnemies = new Set();
         this.progress = 0;
-        
         this.generatePath();
     }
-    
     generatePath() {
         const segments = 15;
         const perpAngle = Math.atan2(this.targetY - this.y, this.targetX - this.x) + Math.PI / 2;
-        
         for (let i = 1; i <= segments; i++) {
             const progress = i / segments;
             const baseX = this.x + (this.targetX - this.x) * progress;
             const baseY = this.y + (this.targetY - this.y) * progress;
-            // 大きなギザギザ
             const zigzag = (i % 2 === 0 ? 1 : -1) * (40 + Math.random() * 30);
-            this.points.push({
-                x: baseX + Math.cos(perpAngle) * zigzag,
-                y: baseY + Math.sin(perpAngle) * zigzag
-            });
+            this.points.push({ x: baseX + Math.cos(perpAngle) * zigzag, y: baseY + Math.sin(perpAngle) * zigzag });
         }
     }
-    
     update() {
-        this.life--;
-        if (this.life <= 0) this.dead = true;
-        
-        // ターゲット更新
+        this.life--; if (this.life <= 0) this.dead = true;
         if (this.target && this.target.hp > 0) {
-            this.targetX = this.target.x;
-            this.targetY = this.target.y;
+            this.targetX = this.target.x; this.targetY = this.target.y;
         }
-        
-        // 揺らぎ
         this.points.forEach((p, i) => {
             if (i > 0 && i < this.points.length - 1) {
                 p.x += (Math.random() - 0.5) * 15;
                 p.y += (Math.random() - 0.5) * 15;
             }
         });
-        
         this.progress = Math.min(1, this.progress + 0.2);
-        
-        // 当たり判定
         const currentSegment = Math.floor(this.progress * (this.points.length - 1));
         for (let i = 0; i <= currentSegment && i < this.points.length - 1; i++) {
-            const p1 = this.points[i];
-            const p2 = this.points[i + 1];
-            
+            const p1 = this.points[i], p2 = this.points[i + 1];
             enemies.forEach(e => {
                 if (e.hp > 0 && !this.hitEnemies.has(e.id)) {
                     if (distToSegment(e.x, e.y, p1.x, p1.y, p2.x, p2.y) < e.size + 25) {
@@ -1275,16 +1091,11 @@ class ThunderBolt {
             });
         }
     }
-    
     draw() {
         const alpha = this.life / 30;
         const currentSegment = Math.floor(this.progress * (this.points.length - 1));
-        
-        // 外側のグロー
         ctx.strokeStyle = `rgba(255,255,0,${alpha * 0.4})`;
-        ctx.lineWidth = 25;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
+        ctx.lineWidth = 25; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         ctx.beginPath();
         for (let i = 0; i <= currentSegment && i < this.points.length; i++) {
             const p = this.points[i];
@@ -1292,19 +1103,10 @@ class ThunderBolt {
             else ctx.lineTo(p.x - camera.x, p.y - camera.y);
         }
         ctx.stroke();
-        
-        // メインの雷
         ctx.strokeStyle = `rgba(255,255,0,${alpha})`;
-        ctx.lineWidth = 8;
-        ctx.shadowBlur = 35;
-        ctx.shadowColor = '#ff0';
-        ctx.stroke();
-        
-        // コア
+        ctx.lineWidth = 8; ctx.shadowBlur = 35; ctx.shadowColor = '#ff0'; ctx.stroke();
         ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
-        ctx.lineWidth = 3;
-        ctx.stroke();
-        ctx.shadowBlur = 0;
+        ctx.lineWidth = 3; ctx.stroke(); ctx.shadowBlur = 0;
     }
 }
 
@@ -1322,7 +1124,6 @@ const ENEMY_TYPES = {
     necrosis: { hp: 100, speed: 0.8, size: 35, color: '#444', score: 500, name: 'NECROSIS', armor: true }
 };
 
-// ========== ボステンプレート ==========
 const BOSS_TYPES = [
     { name: 'VIRUS-α', color: '#0f0', baseHp: 300, size: 50, pattern: 'radial' },
     { name: 'BACTERIA-β', color: '#08f', baseHp: 450, size: 55, pattern: 'spiral' },
@@ -1346,15 +1147,18 @@ function spawnEnemy(type, x, y) {
     const template = ENEMY_TYPES[type];
     if (!template) return null;
     
-    const waveScale = 1 + wave * 0.08;
+    let waveScale = 1 + wave * 0.1;
+    if (wave >= 30) {
+        const hardModeFactor = 1 + Math.pow((wave - 30) * 0.05, 2);
+        waveScale *= hardModeFactor;
+    }
     
     const enemy = {
         id: 'e_' + (enemyIdCounter++),
-        type,
-        x, y,
+        type, x, y,
         hp: Math.floor(template.hp * waveScale),
         maxHp: Math.floor(template.hp * waveScale),
-        speed: template.speed + wave * 0.03,
+        speed: Math.min(template.speed * 2.5, template.speed + wave * 0.05),
         size: template.size,
         color: template.color,
         score: template.score,
@@ -1366,14 +1170,12 @@ function spawnEnemy(type, x, y) {
         timer: Math.floor(Math.random() * 60),
         phase: Math.random() * Math.PI * 2
     };
-    
     enemies.push(enemy);
     return enemy;
 }
 
 function spawnBoss() {
     let template, bossIndex;
-    
     if (wave >= 100) {
         bossIndex = (Math.floor((wave - 100) / 10)) % MEGA_BOSS_TYPES.length;
         template = MEGA_BOSS_TYPES[bossIndex];
@@ -1382,7 +1184,8 @@ function spawnBoss() {
         template = BOSS_TYPES[bossIndex];
     }
     
-    const waveScale = 1 + Math.floor(wave / 10) * 0.3;
+    let waveScale = 1 + Math.floor(wave / 5) * 0.5;
+    if (wave >= 30) waveScale *= (1 + (wave - 30) * 0.2); 
     
     const pos = findSafeSpawnPosition(500);
     
@@ -1391,8 +1194,7 @@ function spawnBoss() {
         type: 'boss',
         bossType: bossIndex,
         pattern: template.pattern,
-        x: pos.x,
-        y: pos.y,
+        x: pos.x, y: pos.y,
         hp: Math.floor(template.baseHp * waveScale),
         maxHp: Math.floor(template.baseHp * waveScale),
         speed: 1.5,
@@ -1401,9 +1203,7 @@ function spawnBoss() {
         score: 3000 + wave * 500,
         name: template.name,
         isBoss: true,
-        timer: 0,
-        attackTimer: 0,
-        phase: 0,
+        timer: 0, attackTimer: 0, phase: 0,
         isMega: wave >= 100
     };
     
@@ -1411,11 +1211,9 @@ function spawnBoss() {
     currentBoss = boss;
     
     ui.bossContainer.style.display = 'block';
-    ui.bossName.textContent = `◆ WAVE ${wave} - ${boss.name} ◆`;
-    showMessage(`◆ ${boss.name} ◆`);
+    showMessage(`◆ ${boss.name} APPEARED ◆`);
     triggerScreenShake(wave >= 100 ? 40 : 20);
     playSound('bossAppear');
-    
     return boss;
 }
 
@@ -1430,39 +1228,22 @@ function findSafeSpawnPosition(minDist) {
     return { x: WORLD_W - 300, y: WORLD_H - 300 };
 }
 
-// ========== 敵更新 ==========
 function updateEnemies() {
     enemies.forEach(enemy => {
         if (enemy.hp <= 0) return;
         enemy.timer++;
         
-        // 壁から脱出
-        if (checkWall(enemy.x, enemy.y)) {
-            escapeFromWall(enemy);
-        }
+        if (checkWall(enemy.x, enemy.y)) escapeFromWall(enemy);
         
         const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
         const vx = Math.cos(angle) * enemy.speed;
         const vy = Math.sin(angle) * enemy.speed;
         
         if (!checkWall(enemy.x + vx, enemy.y + vy)) {
-            enemy.x += vx;
-            enemy.y += vy;
+            enemy.x += vx; enemy.y += vy;
         } else {
             if (!checkWall(enemy.x + vx, enemy.y)) enemy.x += vx;
             else if (!checkWall(enemy.x, enemy.y + vy)) enemy.y += vy;
-            else {
-                // 別の方向を試す
-                for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) {
-                    const testX = enemy.x + Math.cos(a) * enemy.speed;
-                    const testY = enemy.y + Math.sin(a) * enemy.speed;
-                    if (!checkWall(testX, testY)) {
-                        enemy.x = testX;
-                        enemy.y = testY;
-                        break;
-                    }
-                }
-            }
         }
         
         if (player && Math.hypot(player.x - enemy.x, player.y - enemy.y) < player.r + enemy.size) {
@@ -1487,7 +1268,6 @@ function updateEnemies() {
 // ========== ボス攻撃パターン ==========
 function bossAttack(boss) {
     const angle = Math.atan2(player.y - boss.y, player.x - boss.x);
-    
     switch (boss.pattern) {
         case 'radial':
             if (boss.attackTimer % 60 === 0) {
@@ -1495,18 +1275,15 @@ function bossAttack(boss) {
                     const a = (Math.PI * 2 / 16) * i + boss.phase;
                     enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 4, vy: Math.sin(a) * 4, life: 150, size: 6, color: boss.color });
                 }
-                boss.phase += 0.2;
-                playSound('bossAttack');
+                boss.phase += 0.2; playSound('bossAttack');
             }
             break;
-            
         case 'spiral':
             if (boss.attackTimer % 8 === 0) {
                 const a = boss.timer * 0.15;
                 enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5, life: 120, size: 5, color: boss.color });
             }
             break;
-            
         case 'burst':
             if (boss.attackTimer % 40 === 0) {
                 for (let i = 0; i < 8; i++) {
@@ -1517,7 +1294,6 @@ function bossAttack(boss) {
                 playSound('bossAttack');
             }
             break;
-            
         case 'divide':
             if (boss.attackTimer % 90 === 0) {
                 for (let i = 0; i < 6; i++) {
@@ -1527,59 +1303,31 @@ function bossAttack(boss) {
                 playSound('bossAttack');
             }
             break;
-            
         case 'swarm':
             if (boss.attackTimer % 5 === 0) {
                 const a = angle + (Math.random() - 0.5) * 1.5;
                 enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 6, vy: Math.sin(a) * 6, life: 80, size: 4, color: boss.color });
             }
             break;
-            
         case 'laser':
             if (boss.attackTimer % 120 === 0) {
                 for (let i = 0; i < 4; i++) {
                     const a = (Math.PI * 2 / 4) * i + boss.phase;
                     enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 12, vy: Math.sin(a) * 12, life: 150, size: 6, color: '#0ff', bounces: 3, isLaser: true });
                 }
-                boss.phase += 0.3;
-                triggerScreenShake(15);
-                playSound('bossLaser');
+                boss.phase += 0.3; triggerScreenShake(15); playSound('bossLaser');
             }
             break;
-            
         case 'chaos':
             if (boss.attackTimer % 30 === 0) {
                 const pattern = Math.floor(boss.attackTimer / 30) % 4;
-                switch (pattern) {
-                    case 0:
-                        for (let i = 0; i < 12; i++) {
-                            const a = (Math.PI * 2 / 12) * i;
-                            enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 4, vy: Math.sin(a) * 4, life: 120, size: 6, color: '#f00' });
-                        }
-                        break;
-                    case 1:
-                        for (let i = 0; i < 3; i++) {
-                            enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(angle) * 3, vy: Math.sin(angle) * 3, life: 180, size: 8, color: '#a0f', homing: true });
-                        }
-                        break;
-                    case 2:
-                        for (let i = 0; i < 20; i++) {
-                            const a = Math.random() * Math.PI * 2;
-                            const speed = 2 + Math.random() * 4;
-                            enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, life: 100, size: 5, color: '#ff0' });
-                        }
-                        break;
-                    case 3:
-                        for (let i = 0; i < 8; i++) {
-                            const a1 = boss.timer * 0.1 + (Math.PI * 2 / 8) * i;
-                            enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a1) * 5, vy: Math.sin(a1) * 5, life: 100, size: 5, color: '#0f0' });
-                        }
-                        break;
-                }
+                if(pattern===0) for(let i=0;i<12;i++) { const a=(Math.PI*2/12)*i; enemyBullets.push({x:boss.x,y:boss.y,vx:Math.cos(a)*4,vy:Math.sin(a)*4,life:120,size:6,color:'#f00'}); }
+                else if(pattern===1) for(let i=0;i<3;i++) enemyBullets.push({x:boss.x,y:boss.y,vx:Math.cos(angle)*3,vy:Math.sin(angle)*3,life:180,size:8,color:'#a0f',homing:true});
+                else if(pattern===2) for(let i=0;i<20;i++) { const a=Math.random()*Math.PI*2; const s=2+Math.random()*4; enemyBullets.push({x:boss.x,y:boss.y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:100,size:5,color:'#ff0'}); }
+                else for(let i=0;i<8;i++) { const a1=boss.timer*0.1+(Math.PI*2/8)*i; enemyBullets.push({x:boss.x,y:boss.y,vx:Math.cos(a1)*5,vy:Math.sin(a1)*5,life:100,size:5,color:'#0f0'}); }
                 playSound('bossAttack');
             }
             break;
-            
         case 'all':
             if (boss.attackTimer % 20 === 0) {
                 const a = boss.timer * 0.12;
@@ -1591,8 +1339,7 @@ function bossAttack(boss) {
                     const a = (Math.PI * 2 / 24) * i;
                     enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5, life: 120, size: 6, color: '#f00' });
                 }
-                triggerScreenShake(20);
-                playSound('bossAttack');
+                triggerScreenShake(20); playSound('bossAttack');
             }
             if (boss.attackTimer % 120 === 0) {
                 for (let i = 0; i < 4; i++) {
@@ -1603,99 +1350,27 @@ function bossAttack(boss) {
                 }
             }
             break;
-            
         case 'mega1':
-            if (boss.attackTimer % 40 === 0) {
-                for (let i = 0; i < 32; i++) {
-                    const a = (Math.PI * 2 / 32) * i + boss.phase;
-                    enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 6, vy: Math.sin(a) * 6, life: 150, size: 7, color: '#f00' });
-                }
-                boss.phase += 0.1;
-            }
-            if (boss.attackTimer % 60 === 0) {
-                for (let i = 0; i < 6; i++) {
-                    enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(angle) * 2, vy: Math.sin(angle) * 2, life: 300, size: 10, color: '#f0f', homing: true });
-                }
-                playSound('bossLaser');
-            }
-            break;
-            
         case 'mega2':
-            if (boss.attackTimer % 5 === 0) {
-                const a = boss.timer * 0.2;
-                enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5, life: 120, size: 6, color: '#0ff' });
-                enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(-a) * 5, vy: Math.sin(-a) * 5, life: 120, size: 6, color: '#f0f' });
-            }
-            if (boss.attackTimer % 80 === 0) {
-                for (let i = 0; i < 8; i++) {
-                    const a = (Math.PI * 2 / 8) * i;
-                    enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 3, vy: Math.sin(a) * 3, life: 120, size: 12, color: '#ff0', splits: true, splitTimer: 40 });
-                }
-            }
-            break;
-            
         case 'mega3':
-            if (boss.attackTimer % 30 === 0) {
-                for (let i = 0; i < 20; i++) {
-                    const a = (Math.PI * 2 / 20) * i + boss.phase;
-                    enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5, life: 150, size: 6, color: '#f00' });
-                }
-                boss.phase += 0.15;
-            }
-            if (boss.attackTimer % 10 === 0) {
-                const a = boss.timer * 0.25;
-                enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 6, vy: Math.sin(a) * 6, life: 100, size: 5, color: '#ff0' });
-            }
-            if (boss.attackTimer % 50 === 0) {
-                for (let i = 0; i < 4; i++) {
-                    enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(angle + (i - 2) * 0.3) * 2, vy: Math.sin(angle + (i - 2) * 0.3) * 2, life: 250, size: 9, color: '#a0f', homing: true });
-                }
-            }
-            break;
-            
         case 'final':
-            if (boss.attackTimer % 15 === 0) {
-                for (let i = 0; i < 16; i++) {
-                    const a = (Math.PI * 2 / 16) * i + boss.phase;
-                    enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5, life: 180, size: 6, color: '#fff' });
+            // 簡易実装としてオールレンジ攻撃を混ぜる
+             if (boss.attackTimer % 20 === 0) {
+                for(let i=0;i<16;i++){
+                    const a=(Math.PI*2/16)*i + boss.phase;
+                    enemyBullets.push({x:boss.x,y:boss.y,vx:Math.cos(a)*6,vy:Math.sin(a)*6,life:150,size:7,color:'#f00'});
                 }
-                boss.phase += 0.08;
-            }
-            if (boss.attackTimer % 8 === 0) {
-                const a = boss.timer * 0.3;
-                enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(a) * 7, vy: Math.sin(a) * 7, life: 100, size: 5, color: '#0ff' });
-                enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(-a + Math.PI) * 7, vy: Math.sin(-a + Math.PI) * 7, life: 100, size: 5, color: '#f0f' });
-            }
-            if (boss.attackTimer % 90 === 0) {
-                for (let i = 0; i < 8; i++) {
-                    const types = Object.keys(ENEMY_TYPES);
-                    const type = types[Math.floor(Math.random() * types.length)];
-                    const a = (Math.PI * 2 / 8) * i;
-                    spawnEnemy(type, boss.x + Math.cos(a) * 150, boss.y + Math.sin(a) * 150);
-                }
-                triggerScreenShake(30);
-            }
-            if (boss.attackTimer % 120 === 0) {
-                for (let i = 0; i < 5; i++) {
-                    enemyBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(angle + (i - 2) * 0.3) * 2, vy: Math.sin(angle + (i - 2) * 0.3) * 2, life: 400, size: 12, color: '#f00', homing: true });
-                }
-                playSound('bossLaser');
+                boss.phase+=0.1;
             }
             break;
     }
 }
 
-// ========== ダメージ処理 ==========
 function damageEnemy(enemy, damage, weaponType) {
     if (enemy.hp <= 0) return;
-    
-    if (enemy.armor && weaponType !== 'THUNDER' && weaponType !== 'LASER') {
-        damage = Math.floor(damage / 2);
-    }
-    
+    if (enemy.armor && weaponType !== 'THUNDER' && weaponType !== 'LASER') damage = Math.floor(damage / 2);
     enemy.hp -= damage;
     createFloatingText(enemy.x, enemy.y - enemy.size, `-${damage}`, '#fff');
-    
     if (enemy.hp <= 0) defeatEnemy(enemy);
 }
 
@@ -1703,10 +1378,8 @@ function defeatEnemy(enemy) {
     createParticles(enemy.x, enemy.y, enemy.color, enemy.isBoss ? 50 : 15);
     playSound(enemy.isBoss ? 'bossDefeat' : 'enemyDefeat');
     addCombo();
-    
     score += Math.floor(enemy.score * combo.multiplier);
     ui.score.textContent = score;
-    
     dropItems(enemy.x, enemy.y, enemy.isBoss);
     
     if (enemy.divides && !enemy.isBoss) {
@@ -1717,48 +1390,19 @@ function defeatEnemy(enemy) {
     }
     
     if (enemy.isBoss) {
-        currentBoss = null;
-        ui.bossContainer.style.display = 'none';
-        showMessage('◆ PATHOGEN ELIMINATED ◆');
-        triggerScreenShake(40);
-        
-        enemies.forEach(e => {
-            if (!e.isBoss && e.hp > 0) {
-                e.hp = 0;
-                score += 50;
-            }
-        });
-        ui.score.textContent = score;
-        
-        setTimeout(() => {
-            if (gameState === 'playing') startWave();
-        }, 3000);
+        // ボス撃破時の処理（全ボス撃破判定は update() で行う）
     }
 }
 
-// ========== アイテム ==========
 function dropItems(x, y, isBoss) {
-    const itemColors = {
-        PLAZMER: '#fff',
-        HOMING: '#a0f',
-        LASER: '#0ff',
-        THUNDER: '#ff0',
-        ALLRANGE: '#0f0',
-        H: '#f06'
-    };
-    
+    const itemColors = { PLAZMER: '#fff', HOMING: '#a0f', LASER: '#0ff', THUNDER: '#ff0', ALLRANGE: '#0f0', H: '#f06' };
     if (isBoss) {
         const count = 5 + Math.floor(Math.random() * 3);
         const types = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER', 'ALLRANGE', 'H'];
         for (let i = 0; i < count; i++) {
             const a = (Math.PI * 2 / count) * i;
             const type = types[Math.floor(Math.random() * types.length)];
-            items.push({
-                x: x + Math.cos(a) * 60,
-                y: y + Math.sin(a) * 60,
-                type,
-                color: itemColors[type]
-            });
+            items.push({ x: x + Math.cos(a) * 60, y: y + Math.sin(a) * 60, type, color: itemColors[type] });
         }
     } else {
         if (Math.random() < 0.10) {
@@ -1766,12 +1410,8 @@ function dropItems(x, y, isBoss) {
             const type = types[Math.floor(Math.random() * types.length)];
             items.push({ x, y, type, color: itemColors[type] });
         }
-        if (Math.random() < 0.04) {
-            items.push({ x, y, type: 'H', color: '#f06' });
-        }
-        if (Math.random() < 0.03) {
-            items.push({ x, y, type: 'ALLRANGE', color: '#0f0' });
-        }
+        if (Math.random() < 0.04) items.push({ x, y, type: 'H', color: '#f06' });
+        if (Math.random() < 0.03) items.push({ x, y, type: 'ALLRANGE', color: '#0f0' });
     }
 }
 
@@ -1781,7 +1421,6 @@ function updateItems() {
             item.x += (player.x - item.x) * 0.1;
             item.y += (player.y - item.y) * 0.1;
         }
-        
         if (player && Math.hypot(player.x - item.x, player.y - item.y) < player.r + 12) {
             collectItem(item.type);
             createFloatingText(item.x, item.y, item.type + '!', item.color);
@@ -1793,9 +1432,8 @@ function updateItems() {
 }
 
 function collectItem(type) {
-    if (type === 'H') {
-        player.heal(30);
-    } else if (type === 'ALLRANGE') {
+    if (type === 'H') player.heal(30);
+    else if (type === 'ALLRANGE') {
         if (options.length < 6) options.push(new Option());
         weaponLevels.ALLRANGE++;
     } else {
@@ -1812,7 +1450,7 @@ function updateWeaponUI() {
     
     ui.weapons.homing.classList.toggle('locked', weaponLevels.HOMING <= 0);
     ui.weapons.homing.classList.toggle('active', weaponLevels.HOMING > 0);
-    const missileCount = Math.min(12, weaponLevels.HOMING);
+    const missileCount = 4 + weaponLevels.HOMING * 2;
     ui.weapons.homing.textContent = weaponLevels.HOMING > 0 ? `HOMING x${missileCount}` : 'HOMING';
     
     ui.weapons.laser.classList.toggle('locked', weaponLevels.LASER <= 0);
@@ -1835,44 +1473,51 @@ function updateWeaponUI() {
 function startWave() {
     wave++;
     walls = generateMazeWalls(wave);
-    
     if (player && checkWall(player.x, player.y)) {
         escapeFromWall(player);
         createParticles(player.x, player.y, '#fff', 10);
     }
-    
     ui.wave.textContent = wave;
     showMessage(`◆ WAVE ${wave} ◆`);
     
-    if (wave >= 100 && wave % 10 === 0) {
-        showMessage(`◆ MEGA BOSS INCOMING ◆`);
-    }
+    let bossCount = 1;
+    if (wave >= 50) bossCount = 3;
+    else if (wave >= 20) bossCount = 2;
+    if (wave % 10 === 0) bossCount += 1;
+
+    if (wave >= 100 && wave % 10 === 0) showMessage(`◆ MEGA BOSS INCOMING (x${bossCount}) ◆`);
     
     setTimeout(() => {
-        if (gameState === 'playing') spawnBoss();
+        if (gameState === 'playing') {
+            for(let i = 0; i < bossCount; i++) {
+                spawnBoss();
+            }
+        }
     }, 1500);
 }
 
 function spawnMobs() {
-    if (!currentBoss || currentBoss.hp <= 0) return;
+    const activeBosses = enemies.filter(e => e.isBoss && e.hp > 0);
+    if (activeBosses.length === 0) return;
     
+    const maxMobs = Math.min(150, 30 + wave * 2); 
     const mobCount = enemies.filter(e => !e.isBoss && e.hp > 0).length;
-    if (mobCount >= 25) return;
+    if (mobCount >= maxMobs) return;
     
-    const pos = findSafeSpawnPosition(250);
-    
-    const types = ['virus', 'bacteria'];
-    if (wave >= 2) types.push('infected', 'toxin');
-    if (wave >= 4) types.push('mutant', 'parasite');
-    if (wave >= 6) types.push('cancer');
-    if (wave >= 8) types.push('tumor', 'plague');
-    if (wave >= 10) types.push('necrosis');
-    
-    const type = types[Math.floor(Math.random() * types.length)];
-    spawnEnemy(type, pos.x, pos.y);
+    const batchSize = 1 + Math.floor(wave / 10); 
+    for(let i = 0; i < batchSize; i++) {
+        const pos = findSafeSpawnPosition(250);
+        const types = ['virus', 'bacteria'];
+        if (wave >= 2) types.push('infected', 'toxin');
+        if (wave >= 4) types.push('mutant', 'parasite');
+        if (wave >= 6) types.push('cancer');
+        if (wave >= 8) types.push('tumor', 'plague');
+        if (wave >= 10) types.push('necrosis');
+        const type = types[Math.floor(Math.random() * types.length)];
+        spawnEnemy(type, pos.x, pos.y);
+    }
 }
 
-// ========== 敵弾更新 ==========
 function updateEnemyBullets() {
     enemyBullets.forEach(b => {
         if (b.homing && player) {
@@ -1885,7 +1530,6 @@ function updateEnemyBullets() {
             b.vx = Math.cos(newAngle) * speed;
             b.vy = Math.sin(newAngle) * speed;
         }
-        
         if (b.bounces && b.bounces > 0) {
             const normal = getWallNormal(b.x + b.vx, b.y + b.vy);
             if (normal) {
@@ -1895,11 +1539,7 @@ function updateEnemyBullets() {
                 b.bounces--;
             }
         }
-        
-        b.x += b.vx;
-        b.y += b.vy;
-        b.life--;
-        
+        b.x += b.vx; b.y += b.vy; b.life--;
         if (b.splits && b.splitTimer) {
             b.splitTimer--;
             if (b.splitTimer <= 0) {
@@ -1910,19 +1550,15 @@ function updateEnemyBullets() {
                 b.dead = true;
             }
         }
-        
         if (b.life <= 0 || (checkWall(b.x, b.y) && !b.bounces)) b.dead = true;
-        
         if (player && Math.hypot(player.x - b.x, player.y - b.y) < player.r + b.size) {
             player.damage(8);
             b.dead = true;
         }
     });
-    
     enemyBullets = enemyBullets.filter(b => !b.dead);
 }
 
-// ========== フォーメーション切り替え ==========
 function cycleFormation() {
     currentFormation = (currentFormation + 1) % FORMATIONS.length;
     ui.formationDisplay.textContent = `FORMATION: ${FORMATIONS[currentFormation]}`;
@@ -1930,7 +1566,6 @@ function cycleFormation() {
     playSound('switch');
 }
 
-// ========== ユーティリティ ==========
 function distToSegment(px, py, x1, y1, x2, y2) {
     const A = px - x1, B = py - y1, C = x2 - x1, D = y2 - y1;
     const dot = A * C + B * D;
@@ -1941,141 +1576,82 @@ function distToSegment(px, py, x1, y1, x2, y2) {
 
 class Particle {
     constructor(x, y, color, size, life) {
-        this.x = x; this.y = y;
-        this.color = color;
-        this.size = size || 3;
-        this.life = life || 20;
-        this.maxLife = this.life;
-        this.vx = (Math.random() - 0.5) * 6;
-        this.vy = (Math.random() - 0.5) * 6;
+        this.x = x; this.y = y; this.color = color;
+        this.size = size || 3; this.life = life || 20; this.maxLife = this.life;
+        this.vx = (Math.random() - 0.5) * 6; this.vy = (Math.random() - 0.5) * 6;
     }
     update() {
-        this.x += this.vx;
-        this.y += this.vy;
-        this.vx *= 0.95;
-        this.vy *= 0.95;
-        this.life--;
+        this.x += this.vx; this.y += this.vy;
+        this.vx *= 0.95; this.vy *= 0.95; this.life--;
     }
     draw() {
         const alpha = this.life / this.maxLife;
-        ctx.fillStyle = this.color;
-        ctx.globalAlpha = alpha;
-        ctx.beginPath();
-        ctx.arc(this.x - camera.x, this.y - camera.y, this.size * alpha, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.fillStyle = this.color; ctx.globalAlpha = alpha;
+        ctx.beginPath(); ctx.arc(this.x - camera.x, this.y - camera.y, this.size * alpha, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 1;
     }
 }
 
-function createParticle(x, y, color) {
-    particles.push(new Particle(x, y, color, 4, 15));
-}
-
-function createParticles(x, y, color, count) {
-    for (let i = 0; i < count; i++) {
-        particles.push(new Particle(x, y, color, 3 + Math.random() * 4, 15 + Math.random() * 15));
-    }
-}
+function createParticle(x, y, color) { particles.push(new Particle(x, y, color, 4, 15)); }
+function createParticles(x, y, color, count) { for (let i = 0; i < count; i++) particles.push(new Particle(x, y, color, 3 + Math.random() * 4, 15 + Math.random() * 15)); }
 
 class FloatingText {
     constructor(x, y, text, color) {
-        this.x = x; this.y = y;
-        this.text = text;
-        this.color = color;
-        this.life = 40;
-        this.vy = -2;
+        this.x = x; this.y = y; this.text = text; this.color = color;
+        this.life = 40; this.vy = -2;
     }
-    update() {
-        this.y += this.vy;
-        this.vy *= 0.95;
-        this.life--;
-    }
+    update() { this.y += this.vy; this.vy *= 0.95; this.life--; }
     draw() {
         const alpha = this.life / 40;
-        ctx.fillStyle = this.color;
-        ctx.globalAlpha = alpha;
-        ctx.font = 'bold 14px Courier New';
-        ctx.textAlign = 'center';
+        ctx.fillStyle = this.color; ctx.globalAlpha = alpha;
+        ctx.font = 'bold 14px Courier New'; ctx.textAlign = 'center';
         ctx.fillText(this.text, this.x - camera.x, this.y - camera.y);
         ctx.globalAlpha = 1;
     }
 }
-
-function createFloatingText(x, y, text, color) {
-    texts.push(new FloatingText(x, y, text, color));
-}
+function createFloatingText(x, y, text, color) { texts.push(new FloatingText(x, y, text, color)); }
 
 function showMessage(text) {
     ui.message.textContent = text;
     ui.message.style.opacity = 1;
     setTimeout(() => ui.message.style.opacity = 0, 2000);
 }
-
-function triggerScreenShake(intensity) {
-    screenShake.intensity = Math.max(screenShake.intensity, intensity);
-}
-
+function triggerScreenShake(intensity) { screenShake.intensity = Math.max(screenShake.intensity, intensity); }
 function updateScreenShake() {
     if (screenShake.intensity > 0) {
         screenShake.x = (Math.random() - 0.5) * screenShake.intensity;
         screenShake.y = (Math.random() - 0.5) * screenShake.intensity;
         screenShake.intensity *= 0.9;
         if (screenShake.intensity < 0.5) screenShake.intensity = 0;
-    } else {
-        screenShake.x = 0;
-        screenShake.y = 0;
-    }
+    } else { screenShake.x = 0; screenShake.y = 0; }
 }
-
 function addCombo() {
-    combo.count++;
-    combo.timer = 120;
+    combo.count++; combo.timer = 120;
     combo.multiplier = 1 + Math.floor(combo.count / 5) * 0.5;
     if (combo.multiplier > 5) combo.multiplier = 5;
 }
-
 function updateCombo() {
     if (combo.timer > 0) {
         combo.timer--;
-        if (combo.timer === 0) {
-            combo.count = 0;
-            combo.multiplier = 1;
-        }
+        if (combo.timer === 0) { combo.count = 0; combo.multiplier = 1; }
     }
 }
-
-function triggerDash() {
-    if (player && gameState === 'playing') player.dash();
-}
-
+function triggerDash() { if (player && gameState === 'playing') player.dash(); }
 function triggerBomb() {
     if (!player || gameState !== 'playing' || player.bombs <= 0) return;
-    player.bombs--;
-    ui.bomb.textContent = player.bombs;
-    
+    player.bombs--; ui.bomb.textContent = player.bombs;
     enemies.forEach(e => {
-        if (e.hp > 0 && Math.hypot(e.x - player.x, e.y - player.y) < 600) {
-            damageEnemy(e, 80, 'BOMB');
-        }
+        if (e.hp > 0 && Math.hypot(e.x - player.x, e.y - player.y) < 600) damageEnemy(e, 80, 'BOMB');
     });
-    enemyBullets = [];
-    
-    playSound('bomb');
-    triggerScreenShake(30);
-    
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    enemyBullets = []; playSound('bomb'); triggerScreenShake(30);
+    ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
-
 function endGame() {
-    gameState = 'over';
-    stopBGM();
+    gameState = 'over'; stopBGM();
     ui.gameOver.style.display = 'flex';
     document.getElementById('final-score').textContent = `SCORE: ${score}`;
     playSound('gameOver');
 }
-
-// ========== カメラ ==========
 function updateCamera() {
     if (!player) return;
     camera.x = player.x - canvas.width / 2;
@@ -2083,606 +1659,206 @@ function updateCamera() {
     camera.x = Math.max(0, Math.min(WORLD_W - canvas.width, camera.x));
     camera.y = Math.max(0, Math.min(WORLD_H - canvas.height, camera.y));
 }
-
-// ========== 敵インジケーター ==========
 function drawEnemyIndicators() {
     const margin = 50;
-    
     enemies.forEach(e => {
         if (e.hp <= 0) return;
-        
-        const sx = e.x - camera.x;
-        const sy = e.y - camera.y;
-        
+        const sx = e.x - camera.x; const sy = e.y - camera.y;
         if (sx < -20 || sx > canvas.width + 20 || sy < -20 || sy > canvas.height + 20) {
             const angle = Math.atan2(e.y - player.y, e.x - player.x);
             const dist = Math.hypot(e.x - player.x, e.y - player.y);
-            
             let indicatorX = canvas.width / 2 + Math.cos(angle) * (canvas.width / 2 - margin);
             let indicatorY = canvas.height / 2 + Math.sin(angle) * (canvas.height / 2 - margin);
-            
             indicatorX = Math.max(margin, Math.min(canvas.width - margin, indicatorX));
             indicatorY = Math.max(margin, Math.min(canvas.height - margin, indicatorY));
-            
-            ctx.save();
-            ctx.translate(indicatorX, indicatorY);
-            ctx.rotate(angle);
-            
+            ctx.save(); ctx.translate(indicatorX, indicatorY); ctx.rotate(angle);
             ctx.fillStyle = e.isBoss ? '#ff0' : '#f00';
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = e.isBoss ? '#ff0' : '#f00';
-            
-            ctx.beginPath();
-            ctx.moveTo(15, 0);
-            ctx.lineTo(-8, 10);
-            ctx.lineTo(-3, 0);
-            ctx.lineTo(-8, -10);
-            ctx.fill();
-            
+            ctx.shadowBlur = 10; ctx.shadowColor = e.isBoss ? '#ff0' : '#f00';
+            ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(-8, 10); ctx.lineTo(-3, 0); ctx.lineTo(-8, -10); ctx.fill();
             ctx.restore();
-            
             if (e.isBoss) {
-                ctx.fillStyle = '#ff0';
-                ctx.font = 'bold 12px Courier New';
-                ctx.textAlign = 'center';
+                ctx.fillStyle = '#ff0'; ctx.font = 'bold 12px Courier New'; ctx.textAlign = 'center';
                 ctx.fillText('BOSS', indicatorX, indicatorY + 25);
                 ctx.fillText(Math.floor(dist) + 'm', indicatorX, indicatorY + 38);
             }
         }
     });
 }
-
-// ========== 描画 ==========
 function draw() {
-    ctx.fillStyle = '#000810';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // グリッド
-    ctx.strokeStyle = 'rgba(100,20,30,0.3)';
-    ctx.lineWidth = 1;
+    ctx.fillStyle = '#000810'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = 'rgba(100,20,30,0.3)'; ctx.lineWidth = 1;
     const gridSize = 80;
-    for (let x = -camera.x % gridSize; x < canvas.width; x += gridSize) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, canvas.height);
-        ctx.stroke();
-    }
-    for (let y = -camera.y % gridSize; y < canvas.height; y += gridSize) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(canvas.width, y);
-        ctx.stroke();
-    }
-    
-    // 壁
+    for (let x = -camera.x % gridSize; x < canvas.width; x += gridSize) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+    for (let y = -camera.y % gridSize; y < canvas.height; y += gridSize) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
     walls.forEach(w => {
-        const sx = w.x - camera.x + screenShake.x;
-        const sy = w.y - camera.y + screenShake.y;
-        
+        const sx = w.x - camera.x + screenShake.x; const sy = w.y - camera.y + screenShake.y;
         if (w.type === 'cell') {
-            ctx.fillStyle = 'rgba(150,30,50,0.8)';
-            ctx.strokeStyle = '#f66';
-            ctx.lineWidth = 3;
-            ctx.shadowBlur = 15;
-            ctx.shadowColor = '#f00';
-            ctx.beginPath();
-            ctx.arc(w.cx - camera.x + screenShake.x, w.cy - camera.y + screenShake.y, w.radius, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-            
-            ctx.fillStyle = 'rgba(100,20,30,0.5)';
-            ctx.beginPath();
-            ctx.arc(w.cx - camera.x + screenShake.x, w.cy - camera.y + screenShake.y, w.radius * 0.4, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.fillStyle = 'rgba(150,30,50,0.8)'; ctx.strokeStyle = '#f66'; ctx.lineWidth = 3;
+            ctx.shadowBlur = 15; ctx.shadowColor = '#f00';
+            ctx.beginPath(); ctx.arc(w.cx - camera.x + screenShake.x, w.cy - camera.y + screenShake.y, w.radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            ctx.fillStyle = 'rgba(100,20,30,0.5)'; ctx.beginPath(); ctx.arc(w.cx - camera.x + screenShake.x, w.cy - camera.y + screenShake.y, w.radius * 0.4, 0, Math.PI * 2); ctx.fill();
         } else {
-            ctx.fillStyle = 'rgba(100,30,50,0.9)';
-            ctx.strokeStyle = '#f88';
-            ctx.lineWidth = 3;
-            ctx.shadowBlur = 15;
-            ctx.shadowColor = '#f44';
-            ctx.fillRect(sx, sy, w.w, w.h);
-            ctx.strokeRect(sx, sy, w.w, w.h);
+            ctx.fillStyle = 'rgba(100,30,50,0.9)'; ctx.strokeStyle = '#f88'; ctx.lineWidth = 3;
+            ctx.shadowBlur = 15; ctx.shadowColor = '#f44';
+            ctx.fillRect(sx, sy, w.w, w.h); ctx.strokeRect(sx, sy, w.w, w.h);
         }
         ctx.shadowBlur = 0;
     });
-    
-    // アイテム
     items.forEach(item => {
-        const sx = item.x - camera.x + screenShake.x;
-        const sy = item.y - camera.y + screenShake.y;
-        
-        ctx.fillStyle = item.color;
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = item.color;
-        
+        const sx = item.x - camera.x + screenShake.x; const sy = item.y - camera.y + screenShake.y;
+        ctx.fillStyle = item.color; ctx.shadowBlur = 15; ctx.shadowColor = item.color;
         if (item.type === 'H') {
-            ctx.beginPath();
-            ctx.moveTo(sx, sy - 3);
-            ctx.bezierCurveTo(sx - 8, sy - 10, sx - 15, sy, sx, sy + 10);
-            ctx.bezierCurveTo(sx + 15, sy, sx + 8, sy - 10, sx, sy - 3);
-            ctx.fill();
+            ctx.beginPath(); ctx.moveTo(sx, sy - 3); ctx.bezierCurveTo(sx - 8, sy - 10, sx - 15, sy, sx, sy + 10); ctx.bezierCurveTo(sx + 15, sy, sx + 8, sy - 10, sx, sy - 3); ctx.fill();
         } else {
-            ctx.beginPath();
-            ctx.arc(sx, sy, 10 + Math.sin(frame * 0.1) * 2, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#000';
-            ctx.font = 'bold 9px Courier New';
-            ctx.textAlign = 'center';
-            ctx.fillText(item.type[0], sx, sy + 3);
+            ctx.beginPath(); ctx.arc(sx, sy, 10 + Math.sin(frame * 0.1) * 2, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#000'; ctx.font = 'bold 9px Courier New'; ctx.textAlign = 'center'; ctx.fillText(item.type[0], sx, sy + 3);
         }
         ctx.shadowBlur = 0;
     });
-    
-    // レーザー
     if (activeLaser) activeLaser.draw();
-    
-    // 敵
     enemies.forEach(e => {
         if (e.hp <= 0) return;
-        const sx = e.x - camera.x + screenShake.x;
-        const sy = e.y - camera.y + screenShake.y;
-        
-        if (e.isBoss) drawBoss(e, sx, sy);
-        else drawEnemy(e, sx, sy);
+        const sx = e.x - camera.x + screenShake.x; const sy = e.y - camera.y + screenShake.y;
+        if (e.isBoss) drawBoss(e, sx, sy); else drawEnemy(e, sx, sy);
     });
-    
-    // 敵弾
     enemyBullets.forEach(b => {
-        const sx = b.x - camera.x + screenShake.x;
-        const sy = b.y - camera.y + screenShake.y;
-        
-        ctx.fillStyle = b.color;
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = b.color;
-        ctx.beginPath();
-        ctx.arc(sx, sy, b.size, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
+        const sx = b.x - camera.x + screenShake.x; const sy = b.y - camera.y + screenShake.y;
+        ctx.fillStyle = b.color; ctx.shadowBlur = 10; ctx.shadowColor = b.color;
+        ctx.beginPath(); ctx.arc(sx, sy, b.size, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
     });
-    
-    // 弾
     bullets.forEach(b => { if (!b.dead) b.draw(); });
-    
-    // ミサイル
     missiles.forEach(m => { if (!m.dead) m.draw(); });
-    
-    // パーティクル
     particles.forEach(p => p.draw());
-    
-    // テキスト
     texts.forEach(t => t.draw());
-    
-    // プレイヤー
     if (player) player.draw();
-    
-    // 敵インジケーター
     drawEnemyIndicators();
-    
-    // コンボ表示
     if (combo.count > 0) {
         ctx.fillStyle = combo.multiplier >= 3 ? '#f00' : '#0ff';
-        ctx.font = 'bold 20px Courier New';
-        ctx.textAlign = 'right';
+        ctx.font = 'bold 20px Courier New'; ctx.textAlign = 'right';
         ctx.fillText(`${combo.count} CHAIN x${combo.multiplier.toFixed(1)}`, canvas.width - 20, canvas.height - 80);
     }
-    
-    // ミニマップ
     drawMinimap();
 }
-
 function drawEnemy(e, sx, sy) {
-    ctx.save();
-    ctx.translate(sx, sy);
-    
+    ctx.save(); ctx.translate(sx, sy);
     const pulse = Math.sin(frame * 0.1 + e.phase) * 2;
-    
-    ctx.fillStyle = e.color;
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = e.color;
-    
+    ctx.fillStyle = e.color; ctx.shadowBlur = 10; ctx.shadowColor = e.color;
     ctx.beginPath();
     for (let i = 0; i < 12; i++) {
-        const a = (Math.PI * 2 / 12) * i + frame * 0.02;
-        const r = e.size + (i % 2 === 0 ? 4 + pulse : 0);
-        const px = Math.cos(a) * r;
-        const py = Math.sin(a) * r;
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
+        const a = (Math.PI * 2 / 12) * i + frame * 0.02; const r = e.size + (i % 2 === 0 ? 4 + pulse : 0);
+        const px = Math.cos(a) * r; const py = Math.sin(a) * r;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
-    ctx.closePath();
-    ctx.fill();
-    
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.beginPath();
-    ctx.arc(0, 0, e.size * 0.3, 0, Math.PI * 2);
-    ctx.fill();
-    
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(0, 0, e.size * 0.3, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
-    
     const hpRatio = e.hp / e.maxHp;
-    ctx.fillStyle = '#300';
-    ctx.fillRect(sx - e.size, sy - e.size - 10, e.size * 2, 4);
+    ctx.fillStyle = '#300'; ctx.fillRect(sx - e.size, sy - e.size - 10, e.size * 2, 4);
     ctx.fillStyle = hpRatio > 0.5 ? '#0f0' : hpRatio > 0.25 ? '#ff0' : '#f00';
     ctx.fillRect(sx - e.size, sy - e.size - 10, e.size * 2 * hpRatio, 4);
-    
-    ctx.fillStyle = '#fff';
-    ctx.font = '10px Courier New';
-    ctx.textAlign = 'center';
-    ctx.fillText(e.hp, sx, sy - e.size - 14);
+    ctx.fillStyle = '#fff'; ctx.font = '10px Courier New'; ctx.textAlign = 'center'; ctx.fillText(e.hp, sx, sy - e.size - 14);
 }
-
 function drawBoss(boss, sx, sy) {
-    ctx.save();
-    ctx.translate(sx, sy);
-    
+    ctx.save(); ctx.translate(sx, sy);
     const pulse = Math.sin(frame * 0.05) * 5;
-    
-    ctx.strokeStyle = boss.color;
-    ctx.lineWidth = 3;
-    ctx.shadowBlur = 30;
-    ctx.shadowColor = boss.color;
-    ctx.globalAlpha = 0.5;
-    ctx.beginPath();
-    ctx.arc(0, 0, boss.size + 20 + pulse, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-    
-    ctx.rotate(frame * 0.02);
-    ctx.strokeStyle = boss.color;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
+    ctx.strokeStyle = boss.color; ctx.lineWidth = 3; ctx.shadowBlur = 30; ctx.shadowColor = boss.color;
+    ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(0, 0, boss.size + 20 + pulse, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.rotate(frame * 0.02); ctx.strokeStyle = boss.color; ctx.lineWidth = 2; ctx.beginPath();
     for (let i = 0; i < 6; i++) {
-        const a = (Math.PI * 2 / 6) * i;
-        const r = boss.size + 10;
-        if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
-        else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+        const a = (Math.PI * 2 / 6) * i; const r = boss.size + 10;
+        if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
     }
-    ctx.closePath();
-    ctx.stroke();
-    
-    ctx.rotate(-frame * 0.02);
-    ctx.fillStyle = boss.color;
-    ctx.shadowBlur = 20;
-    ctx.beginPath();
+    ctx.closePath(); ctx.stroke();
+    ctx.rotate(-frame * 0.02); ctx.fillStyle = boss.color; ctx.shadowBlur = 20; ctx.beginPath();
     for (let i = 0; i < 16; i++) {
-        const a = (Math.PI * 2 / 16) * i + frame * 0.01;
-        const r = boss.size + (i % 2 === 0 ? 8 + pulse : 0);
-        if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
-        else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+        const a = (Math.PI * 2 / 16) * i + frame * 0.01; const r = boss.size + (i % 2 === 0 ? 8 + pulse : 0);
+        if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
     }
-    ctx.closePath();
-    ctx.fill();
-    
-    ctx.fillStyle = '#000';
-    ctx.beginPath();
-    ctx.arc(0, 0, boss.size * 0.4, 0, Math.PI * 2);
-    ctx.fill();
-    
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(0, 0, boss.size * 0.15, 0, Math.PI * 2);
-    ctx.fill();
-    
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(0, 0, boss.size * 0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, boss.size * 0.15, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
 }
-
 function drawMinimap() {
     const mapW = 120, mapH = 120;
-    const mapX = canvas.width - mapW - 10;
-    const mapY = canvas.height - mapH - 10;
-    const scale = mapW / WORLD_W;
-    
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(mapX, mapY, mapW, mapH);
-    ctx.strokeStyle = '#0ff';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(mapX, mapY, mapW, mapH);
-    
+    const mapX = canvas.width - mapW - 10; const mapY = canvas.height - mapH - 10; const scale = mapW / WORLD_W;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(mapX, mapY, mapW, mapH);
+    ctx.strokeStyle = '#0ff'; ctx.lineWidth = 1; ctx.strokeRect(mapX, mapY, mapW, mapH);
     ctx.fillStyle = 'rgba(255,100,100,0.5)';
     walls.forEach(w => {
         if (w.type === 'cell') {
-            ctx.beginPath();
-            ctx.arc(mapX + w.cx * scale, mapY + w.cy * scale, w.radius * scale, 0, Math.PI * 2);
-            ctx.fill();
-        } else {
-            ctx.fillRect(mapX + w.x * scale, mapY + w.y * scale, w.w * scale, w.h * scale);
-        }
+            ctx.beginPath(); ctx.arc(mapX + w.cx * scale, mapY + w.cy * scale, w.radius * scale, 0, Math.PI * 2); ctx.fill();
+        } else { ctx.fillRect(mapX + w.x * scale, mapY + w.y * scale, w.w * scale, w.h * scale); }
     });
-    
     enemies.forEach(e => {
         if (e.hp <= 0) return;
         ctx.fillStyle = e.isBoss ? '#ff0' : e.color;
-        ctx.beginPath();
-        ctx.arc(mapX + e.x * scale, mapY + e.y * scale, e.isBoss ? 4 : 2, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(mapX + e.x * scale, mapY + e.y * scale, e.isBoss ? 4 : 2, 0, Math.PI * 2); ctx.fill();
     });
-    
     if (player) {
-        ctx.fillStyle = '#fff';
-        ctx.beginPath();
-        ctx.arc(mapX + player.x * scale, mapY + player.y * scale, 3, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(mapX + player.x * scale, mapY + player.y * scale, 3, 0, Math.PI * 2); ctx.fill();
     }
 }
-
-// ========== サウンド ==========
 let audioCtx = null;
 let bgmOsc = null;
 let bgmGain = null;
-
-function initAudio() {
-    if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-}
-
+function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
 function playBGM() {
     if (!audioCtx) return;
-    
-    bgmGain = audioCtx.createGain();
-    bgmGain.gain.setValueAtTime(0.05, audioCtx.currentTime);
-    bgmGain.connect(audioCtx.destination);
-    
-    bgmOsc = audioCtx.createOscillator();
-    bgmOsc.type = 'sine';
-    bgmOsc.frequency.setValueAtTime(55, audioCtx.currentTime);
-    bgmOsc.connect(bgmGain);
-    bgmOsc.start();
+    bgmGain = audioCtx.createGain(); bgmGain.gain.setValueAtTime(0.05, audioCtx.currentTime); bgmGain.connect(audioCtx.destination);
+    bgmOsc = audioCtx.createOscillator(); bgmOsc.type = 'sine'; bgmOsc.frequency.setValueAtTime(55, audioCtx.currentTime);
+    bgmOsc.connect(bgmGain); bgmOsc.start();
 }
-
-function stopBGM() {
-    if (bgmOsc) {
-        bgmOsc.stop();
-        bgmOsc = null;
-    }
-}
-
+function stopBGM() { if (bgmOsc) { bgmOsc.stop(); bgmOsc = null; } }
 function playSound(type) {
     if (!audioCtx) return;
-    
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    
+    const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
     switch (type) {
-        case 'shoot':
-            osc.frequency.setValueAtTime(800, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.08);
-            gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.08);
-            break;
-            
-        case 'laser':
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(200, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.3);
-            gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.5);
-            break;
-            
-        case 'missile':
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(300, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(150, audioCtx.currentTime + 0.15);
-            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.15);
-            break;
-            
-        case 'thunder':
-            osc.type = 'square';
-            osc.frequency.setValueAtTime(80, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.4);
-            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.4);
-            break;
-            
-        case 'explode':
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(200, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 0.2);
-            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.2);
-            break;
-            
-        case 'powerup':
-            osc.frequency.setValueAtTime(400, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.1);
-            osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.2);
-            gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.2);
-            break;
-            
-        case 'dash':
-            osc.frequency.setValueAtTime(600, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1);
-            gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.1);
-            break;
-            
-        case 'hit':
-            osc.type = 'square';
-            osc.frequency.setValueAtTime(200, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.15);
-            gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.15);
-            break;
-            
-        case 'heal':
-            osc.frequency.setValueAtTime(600, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(900, audioCtx.currentTime + 0.15);
-            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.15);
-            break;
-            
-        case 'bomb':
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(150, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(20, audioCtx.currentTime + 0.5);
-            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.5);
-            break;
-            
-        case 'switch':
-            osc.frequency.setValueAtTime(500, audioCtx.currentTime);
-            osc.frequency.setValueAtTime(700, audioCtx.currentTime + 0.05);
-            gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.1);
-            break;
-            
-        case 'enemyShoot':
-            osc.type = 'square';
-            osc.frequency.setValueAtTime(400, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.1);
-            gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.1);
-            break;
-            
-        case 'enemyDefeat':
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(300, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.15);
-            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.15);
-            break;
-            
-        case 'bossAppear':
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(80, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.5);
-            osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 1);
-            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1);
-            osc.start(); osc.stop(audioCtx.currentTime + 1);
-            break;
-            
-        case 'bossAttack':
-            osc.type = 'square';
-            osc.frequency.setValueAtTime(150, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.2);
-            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.2);
-            break;
-            
-        case 'bossLaser':
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(100, audioCtx.currentTime);
-            osc.frequency.setValueAtTime(1000, audioCtx.currentTime + 0.1);
-            osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.4);
-            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.4);
-            break;
-            
-        case 'bossDefeat':
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(200, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(20, audioCtx.currentTime + 0.8);
-            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.8);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.8);
-            break;
-            
-        case 'gameOver':
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(300, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 1.5);
-            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1.5);
-            osc.start(); osc.stop(audioCtx.currentTime + 1.5);
-            break;
+        case 'shoot': osc.frequency.setValueAtTime(800, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.08); gain.gain.setValueAtTime(0.08, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08); osc.start(); osc.stop(audioCtx.currentTime + 0.08); break;
+        case 'laser': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(200, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.3); gain.gain.setValueAtTime(0.12, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5); osc.start(); osc.stop(audioCtx.currentTime + 0.5); break;
+        case 'missile': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(300, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(150, audioCtx.currentTime + 0.15); gain.gain.setValueAtTime(0.1, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15); osc.start(); osc.stop(audioCtx.currentTime + 0.15); break;
+        case 'thunder': osc.type = 'square'; osc.frequency.setValueAtTime(80, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.4); gain.gain.setValueAtTime(0.2, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4); osc.start(); osc.stop(audioCtx.currentTime + 0.4); break;
+        case 'explode': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(200, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 0.2); gain.gain.setValueAtTime(0.15, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2); osc.start(); osc.stop(audioCtx.currentTime + 0.2); break;
+        case 'powerup': osc.frequency.setValueAtTime(400, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.1); osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.2); gain.gain.setValueAtTime(0.12, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2); osc.start(); osc.stop(audioCtx.currentTime + 0.2); break;
+        case 'dash': osc.frequency.setValueAtTime(600, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1); gain.gain.setValueAtTime(0.08, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1); osc.start(); osc.stop(audioCtx.currentTime + 0.1); break;
+        case 'hit': osc.type = 'square'; osc.frequency.setValueAtTime(200, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.15); gain.gain.setValueAtTime(0.12, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15); osc.start(); osc.stop(audioCtx.currentTime + 0.15); break;
+        case 'heal': osc.frequency.setValueAtTime(600, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(900, audioCtx.currentTime + 0.15); gain.gain.setValueAtTime(0.1, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15); osc.start(); osc.stop(audioCtx.currentTime + 0.15); break;
+        case 'bomb': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(20, audioCtx.currentTime + 0.5); gain.gain.setValueAtTime(0.2, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5); osc.start(); osc.stop(audioCtx.currentTime + 0.5); break;
+        case 'switch': osc.frequency.setValueAtTime(500, audioCtx.currentTime); osc.frequency.setValueAtTime(700, audioCtx.currentTime + 0.05); gain.gain.setValueAtTime(0.08, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1); osc.start(); osc.stop(audioCtx.currentTime + 0.1); break;
+        case 'enemyShoot': osc.type = 'square'; osc.frequency.setValueAtTime(400, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.1); gain.gain.setValueAtTime(0.05, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1); osc.start(); osc.stop(audioCtx.currentTime + 0.1); break;
+        case 'enemyDefeat': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(300, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.15); gain.gain.setValueAtTime(0.1, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15); osc.start(); osc.stop(audioCtx.currentTime + 0.15); break;
+        case 'bossAppear': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(80, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.5); osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 1); gain.gain.setValueAtTime(0.15, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1); osc.start(); osc.stop(audioCtx.currentTime + 1); break;
+        case 'bossAttack': osc.type = 'square'; osc.frequency.setValueAtTime(150, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.2); gain.gain.setValueAtTime(0.1, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2); osc.start(); osc.stop(audioCtx.currentTime + 0.2); break;
+        case 'bossLaser': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(100, audioCtx.currentTime); osc.frequency.setValueAtTime(1000, audioCtx.currentTime + 0.1); osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.4); gain.gain.setValueAtTime(0.15, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4); osc.start(); osc.stop(audioCtx.currentTime + 0.4); break;
+        case 'bossDefeat': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(200, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(20, audioCtx.currentTime + 0.8); gain.gain.setValueAtTime(0.2, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.8); osc.start(); osc.stop(audioCtx.currentTime + 0.8); break;
+        case 'gameOver': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(300, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 1.5); gain.gain.setValueAtTime(0.15, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1.5); osc.start(); osc.stop(audioCtx.currentTime + 1.5); break;
     }
 }
-
-// ========== モバイルコントロール ==========
 function initMobileControls() {
     const joystickZone = document.getElementById('joystick-zone');
     const stick = document.getElementById('joystick-stick');
-    
     let startX, startY;
-    
-    joystickZone.addEventListener('touchstart', e => {
-        e.preventDefault();
-        const touch = e.touches[0];
-        const rect = joystickZone.getBoundingClientRect();
-        startX = rect.left + rect.width / 2;
-        startY = rect.top + rect.height / 2;
-        joystick.active = true;
-    });
-    
-    joystickZone.addEventListener('touchmove', e => {
-        e.preventDefault();
-        if (!joystick.active) return;
-        const touch = e.touches[0];
-        const dx = touch.clientX - startX;
-        const dy = touch.clientY - startY;
-        const dist = Math.hypot(dx, dy);
-        const maxDist = 45;
-        
-        const clampedDist = Math.min(dist, maxDist);
-        const angle = Math.atan2(dy, dx);
-        
-        joystick.dx = (clampedDist / maxDist) * Math.cos(angle);
-        joystick.dy = (clampedDist / maxDist) * Math.sin(angle);
-        
-        stick.style.transform = `translate(calc(-50% + ${joystick.dx * maxDist}px), calc(-50% + ${joystick.dy * maxDist}px))`;
-    });
-    
-    joystickZone.addEventListener('touchend', () => {
-        joystick.active = false;
-        joystick.dx = 0;
-        joystick.dy = 0;
-        stick.style.transform = 'translate(-50%, -50%)';
-    });
-    
-    document.getElementById('btn-dash').addEventListener('touchstart', e => {
-        e.preventDefault();
-        triggerDash();
-    });
-    
-    document.getElementById('btn-bomb').addEventListener('touchstart', e => {
-        e.preventDefault();
-        triggerBomb();
-    });
-    
-    document.getElementById('btn-form').addEventListener('touchstart', e => {
-        e.preventDefault();
-        cycleFormation();
-    });
+    joystickZone.addEventListener('touchstart', e => { e.preventDefault(); const touch = e.touches[0]; const rect = joystickZone.getBoundingClientRect(); startX = rect.left + rect.width / 2; startY = rect.top + rect.height / 2; joystick.active = true; });
+    joystickZone.addEventListener('touchmove', e => { e.preventDefault(); if (!joystick.active) return; const touch = e.touches[0]; const dx = touch.clientX - startX; const dy = touch.clientY - startY; const dist = Math.hypot(dx, dy); const maxDist = 45; const clampedDist = Math.min(dist, maxDist); const angle = Math.atan2(dy, dx); joystick.dx = (clampedDist / maxDist) * Math.cos(angle); joystick.dy = (clampedDist / maxDist) * Math.sin(angle); stick.style.transform = `translate(calc(-50% + ${joystick.dx * maxDist}px), calc(-50% + ${joystick.dy * maxDist}px))`; });
+    joystickZone.addEventListener('touchend', () => { joystick.active = false; joystick.dx = 0; joystick.dy = 0; stick.style.transform = 'translate(-50%, -50%)'; });
+    document.getElementById('btn-dash').addEventListener('touchstart', e => { e.preventDefault(); triggerDash(); });
+    document.getElementById('btn-bomb').addEventListener('touchstart', e => { e.preventDefault(); triggerBomb(); });
+    document.getElementById('btn-form').addEventListener('touchstart', e => { e.preventDefault(); cycleFormation(); });
 }
 
-// ========== メインループ ==========
 function update() {
     if (gameState !== 'playing') return;
-    
     try {
         frame++;
-        
-        if (player) {
-            player.update();
-            updateCamera();
-        }
-        
-        soloWaveTimer++;
-        soloMobTimer++;
-        
+        if (player) { player.update(); updateCamera(); }
+        soloWaveTimer++; soloMobTimer++;
         if (wave === 0 && soloWaveTimer > 60) startWave();
         
-        if (currentBoss && currentBoss.hp > 0 && soloMobTimer >= 60) {
+        // アクティブなボスの有無をチェック
+        const activeBosses = enemies.filter(e => e.isBoss && e.hp > 0);
+        
+        if (activeBosses.length > 0 && soloMobTimer >= 60) {
             soloMobTimer = 0;
             spawnMobs();
         }
@@ -2690,26 +1866,39 @@ function update() {
         updateEnemies();
         enemies = enemies.filter(e => e.hp > 0);
         
-        if (currentBoss && currentBoss.hp > 0) {
-            ui.bossHp.style.width = (currentBoss.hp / currentBoss.maxHp * 100) + '%';
+        // ボス全撃破判定
+        const bossCheck = enemies.filter(e => e.isBoss && e.hp > 0);
+        
+        if (bossCheck.length > 0) {
+            ui.bossContainer.style.display = 'block';
+            let totalHp = 0, totalMaxHp = 0;
+            bossCheck.forEach(boss => { totalHp += boss.hp; totalMaxHp += boss.maxHp; });
+            ui.bossHp.style.width = (totalHp / totalMaxHp * 100) + '%';
+            ui.bossName.textContent = `BOSS DANGER x${bossCheck.length}`;
+        } else {
+            ui.bossContainer.style.display = 'none';
+            if (currentBoss && currentBoss.hp <= 0 && enemies.filter(e=>e.isBoss).length===0 && wave > 0) {
+                // ボスを全滅させた瞬間
+                currentBoss = null;
+                showMessage('◆ PATHOGEN ELIMINATED ◆');
+                triggerScreenShake(40);
+                enemies.forEach(e => { if (!e.isBoss && e.hp > 0) { e.hp = 0; score += 50; } });
+                ui.score.textContent = score;
+                setTimeout(() => { if (gameState === 'playing') startWave(); }, 3000);
+            }
         }
         
         bullets.forEach(b => { if (!b.dead) b.update(); });
         bullets = bullets.filter(b => !b.dead);
-        
         updateEnemyBullets();
         updateItems();
-        
         particles.forEach(p => p.update());
         particles = particles.filter(p => p.life > 0);
         texts.forEach(t => t.update());
         texts = texts.filter(t => t.life > 0);
-        
         updateCombo();
         updateScreenShake();
-        
         draw();
-        
         requestAnimationFrame(update);
     } catch (e) {
         console.error(e);
@@ -2717,7 +1906,6 @@ function update() {
     }
 }
 
-// ========== 開始 ==========
 init();
 </script>
 </body>
