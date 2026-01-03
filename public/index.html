@@ -48,11 +48,12 @@
         .name-input::placeholder { color: #088; }
         
         #hud { position: fixed; top: 10px; left: 10px; }
-        #hud-right { position: fixed; top: 10px; right: 10px; text-align: right; }
         .hud-label { font-size: 10px; color: #088; margin-bottom: 2px; }
         .hud-value { font-size: 20px; color: #0ff; margin-bottom: 10px; }
         #hp-bar { width: 150px; height: 8px; background: #001; border: 1px solid #0ff; margin-bottom: 10px; }
         #hp-fill { width: 100%; height: 100%; background: linear-gradient(90deg, #f00, #ff0, #0f0); transition: width 0.2s; }
+        
+        /* ボムUI削除 */
         
         #boss-container {
             position: fixed; top: 50px; left: 50%; transform: translateX(-50%);
@@ -144,11 +145,6 @@
         <div class="hud-value" id="score">0</div>
     </div>
     
-    <div id="hud-right" class="ui">
-        <div class="hud-label">BOMB</div>
-        <div class="hud-value" id="bomb">2</div>
-    </div>
-    
     <div id="boss-container">
         <div id="boss-name">BOSS</div>
         <div id="boss-bar"><div id="boss-hp"></div></div>
@@ -170,7 +166,6 @@
     </div>
     <div id="mobile-buttons">
         <div class="mobile-btn" id="btn-dash">DASH</div>
-        <div class="mobile-btn" id="btn-bomb">BOMB</div>
         <div class="mobile-btn" id="btn-form">FORM</div>
     </div>
     
@@ -205,7 +200,6 @@ let wave = 0;
 let score = 0;
 let frame = 0;
 let gameState = 'title';
-// currentBossは「最後に生成されたボス」を指すが、HP表示等は配列で管理する
 let currentBoss = null;
 
 // 武器レベル
@@ -244,7 +238,7 @@ const ui = {
     hp: document.getElementById('hp-fill'),
     wave: document.getElementById('wave'),
     score: document.getElementById('score'),
-    bomb: document.getElementById('bomb'),
+    // bomb: document.getElementById('bomb'), // 削除
     bossContainer: document.getElementById('boss-container'),
     bossName: document.getElementById('boss-name'),
     bossHp: document.getElementById('boss-hp'),
@@ -272,7 +266,7 @@ function init() {
     canvas.addEventListener('mouseup', () => input.active = false);
     document.addEventListener('keydown', e => {
         if (e.code === 'Space') triggerDash();
-        if (e.code === 'KeyB') triggerBomb();
+        // ボムキー削除
         if (e.code === 'KeyF') cycleFormation();
     });
     
@@ -326,7 +320,6 @@ function generateMazeWalls(waveNum) {
     const w = [];
     const thickness = 50;
     
-    // 外壁
     w.push({ x: 0, y: 0, w: WORLD_W, h: thickness, type: 'border' });
     w.push({ x: 0, y: WORLD_H - thickness, w: WORLD_W, h: thickness, type: 'border' });
     w.push({ x: 0, y: 0, w: thickness, h: WORLD_H, type: 'border' });
@@ -435,7 +428,7 @@ class Player {
         this.maxHp = 100;
         this.hp = 100;
         this.speed = 6;
-        this.bombs = 2;
+        // ボム所持数削除
         this.angle = 0;
         this.weaponTimer = 0;
         this.dashing = false;
@@ -449,7 +442,6 @@ class Player {
         if (this.invincible > 0) this.invincible--;
         this.pulsePhase += 0.1;
         
-        // 壁から脱出
         if (checkWall(this.x, this.y) && !this.dashing) {
             if (escapeFromWall(this)) {
                 createParticles(this.x, this.y, '#fff', 10);
@@ -461,19 +453,14 @@ class Player {
             this.dashTimer--;
             const vx = Math.cos(this.angle) * 28;
             const vy = Math.sin(this.angle) * 28;
-            
-            // 壁判定を無視して移動
             this.x += vx;
             this.y += vy;
-            
-            // エリア外に出ないように制限
             this.x = Math.max(60, Math.min(WORLD_W - 60, this.x));
             this.y = Math.max(60, Math.min(WORLD_H - 60, this.y));
 
             if (frame % 2 === 0) particles.push(new Particle(this.x, this.y, '#fff', 5, 5));
             if (this.dashTimer <= 0) this.dashing = false;
         } else {
-            // 通常移動
             if (joystick.active && (Math.abs(joystick.dx) > 0.1 || Math.abs(joystick.dy) > 0.1)) {
                 this.angle = Math.atan2(joystick.dy, joystick.dx);
                 const mag = Math.min(1, Math.hypot(joystick.dx, joystick.dy));
@@ -500,14 +487,12 @@ class Player {
         this.x = Math.max(60, Math.min(WORLD_W - 60, this.x));
         this.y = Math.max(60, Math.min(WORLD_H - 60, this.y));
         
-        // 武器発射
         this.weaponTimer++;
         if (this.weaponTimer >= 15) {
             this.fireWeapons();
             this.weaponTimer = 0;
         }
         
-        // サンダーエネルギー蓄積
         if (weaponLevels.THUNDER > 0) {
             thunderEnergy++;
             if (thunderEnergy >= THUNDER_MAX_ENERGY) {
@@ -516,17 +501,14 @@ class Player {
             }
         }
         
-        // レーザー更新
         if (activeLaser) {
             activeLaser.update();
             if (activeLaser.dead) activeLaser = null;
         }
         
-        // ミサイル更新
         missiles.forEach(m => m.update());
         missiles = missiles.filter(m => !m.dead);
         
-        // オプション更新
         options.forEach((opt, i) => opt.update(i, options.length));
     }
     
@@ -595,7 +577,6 @@ class Player {
     
     fireLaser() {
         const lv = weaponLevels.LASER;
-        // 初期値を細くし、レベルで太くする
         const width = Math.min(60, 3 + lv * 3); 
         const damageBonus = Math.max(0, lv - 8) * 2;
         
@@ -661,7 +642,6 @@ class Player {
         const sx = this.x - camera.x + screenShake.x;
         const sy = this.y - camera.y + screenShake.y;
         
-        // サンダーエネルギーゲージ
         if (weaponLevels.THUNDER > 0) {
             const gaugeWidth = 40;
             const gaugeHeight = 6;
@@ -766,7 +746,6 @@ class Option {
                 break;
             case 'HUNT':
                 this.attackTimer++;
-                // 索敵範囲拡大＆頻度アップ
                 if (!this.target || this.target.hp <= 0 || frame % 60 === 0) {
                     let minDist = 800;
                     this.target = null;
@@ -781,7 +760,6 @@ class Option {
                 if (this.target && this.target.hp > 0) {
                     const toTarget = Math.atan2(this.target.y - this.y, this.target.x - this.x);
                     const dist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
-                    // 猛スピードで接近
                     if (dist > 60) {
                         const vx = Math.cos(toTarget) * 25;
                         const vy = Math.sin(toTarget) * 25;
@@ -790,7 +768,6 @@ class Option {
                         }
                     }
                     this.angle = toTarget;
-                    // 攻撃頻度アップ
                     if (this.attackTimer >= 10) { 
                         this.attackTimer = 0;
                         bullets.push(new PlazmerBullet({
@@ -1142,15 +1119,21 @@ const MEGA_BOSS_TYPES = [
     { name: 'GENESIS-∞', color: '#fff', baseHp: 20000, size: 150, pattern: 'final' }
 ];
 
-// ========== 敵生成 ==========
+// ========== 敵生成 (難易度調整) ==========
 function spawnEnemy(type, x, y) {
     const template = ENEMY_TYPES[type];
     if (!template) return null;
     
     let waveScale = 1 + wave * 0.1;
-    if (wave >= 30) {
-        const hardModeFactor = 1 + Math.pow((wave - 30) * 0.05, 2);
+    let speedMult = 1;
+
+    // WAVE 20以降: 急激な難易度上昇
+    if (wave > 20) {
+        // HP倍率: (wave-20)の二乗で増加
+        const hardModeFactor = 1 + Math.pow((wave - 20) * 0.1, 2);
         waveScale *= hardModeFactor;
+        // スピード倍率
+        speedMult = 1.3 + Math.min(0.5, (wave - 20) * 0.02);
     }
     
     const enemy = {
@@ -1158,7 +1141,7 @@ function spawnEnemy(type, x, y) {
         type, x, y,
         hp: Math.floor(template.hp * waveScale),
         maxHp: Math.floor(template.hp * waveScale),
-        speed: Math.min(template.speed * 2.5, template.speed + wave * 0.05),
+        speed: Math.min(template.speed * 2.5 * speedMult, (template.speed + wave * 0.05) * speedMult),
         size: template.size,
         color: template.color,
         score: template.score,
@@ -1185,7 +1168,10 @@ function spawnBoss() {
     }
     
     let waveScale = 1 + Math.floor(wave / 5) * 0.5;
-    if (wave >= 30) waveScale *= (1 + (wave - 30) * 0.2); 
+    // WAVE 20以降のボス強化
+    if (wave > 20) {
+        waveScale *= (1 + (wave - 20) * 0.3); 
+    }
     
     const pos = findSafeSpawnPosition(500);
     
@@ -1456,7 +1442,8 @@ function updateWeaponUI() {
     ui.weapons.laser.classList.toggle('locked', weaponLevels.LASER <= 0);
     ui.weapons.laser.classList.toggle('active', weaponLevels.LASER > 0);
     const laserWidth = Math.min(8, weaponLevels.LASER);
-    ui.weapons.laser.textContent = weaponLevels.LASER > 0 ? (laserWidth >= 8 ? `KAMEHAMEHA Lv${weaponLevels.LASER}` : `LASER W${laserWidth}`) : 'LASER';
+    // 名称変更: KAMEHAMEHA -> LASER (MAX)
+    ui.weapons.laser.textContent = weaponLevels.LASER > 0 ? (laserWidth >= 8 ? `LASER (MAX)` : `LASER W${laserWidth}`) : 'LASER';
     
     ui.weapons.thunder.classList.toggle('locked', weaponLevels.THUNDER <= 0);
     ui.weapons.thunder.classList.toggle('active', weaponLevels.THUNDER > 0);
@@ -1637,15 +1624,7 @@ function updateCombo() {
     }
 }
 function triggerDash() { if (player && gameState === 'playing') player.dash(); }
-function triggerBomb() {
-    if (!player || gameState !== 'playing' || player.bombs <= 0) return;
-    player.bombs--; ui.bomb.textContent = player.bombs;
-    enemies.forEach(e => {
-        if (e.hp > 0 && Math.hypot(e.x - player.x, e.y - player.y) < 600) damageEnemy(e, 80, 'BOMB');
-    });
-    enemyBullets = []; playSound('bomb'); triggerScreenShake(30);
-    ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-}
+
 function endGame() {
     gameState = 'over'; stopBGM();
     ui.gameOver.style.display = 'flex';
@@ -1824,7 +1803,6 @@ function playSound(type) {
         case 'dash': osc.frequency.setValueAtTime(600, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1); gain.gain.setValueAtTime(0.08, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1); osc.start(); osc.stop(audioCtx.currentTime + 0.1); break;
         case 'hit': osc.type = 'square'; osc.frequency.setValueAtTime(200, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.15); gain.gain.setValueAtTime(0.12, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15); osc.start(); osc.stop(audioCtx.currentTime + 0.15); break;
         case 'heal': osc.frequency.setValueAtTime(600, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(900, audioCtx.currentTime + 0.15); gain.gain.setValueAtTime(0.1, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15); osc.start(); osc.stop(audioCtx.currentTime + 0.15); break;
-        case 'bomb': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(20, audioCtx.currentTime + 0.5); gain.gain.setValueAtTime(0.2, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5); osc.start(); osc.stop(audioCtx.currentTime + 0.5); break;
         case 'switch': osc.frequency.setValueAtTime(500, audioCtx.currentTime); osc.frequency.setValueAtTime(700, audioCtx.currentTime + 0.05); gain.gain.setValueAtTime(0.08, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1); osc.start(); osc.stop(audioCtx.currentTime + 0.1); break;
         case 'enemyShoot': osc.type = 'square'; osc.frequency.setValueAtTime(400, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.1); gain.gain.setValueAtTime(0.05, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1); osc.start(); osc.stop(audioCtx.currentTime + 0.1); break;
         case 'enemyDefeat': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(300, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.15); gain.gain.setValueAtTime(0.1, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15); osc.start(); osc.stop(audioCtx.currentTime + 0.15); break;
@@ -1843,7 +1821,7 @@ function initMobileControls() {
     joystickZone.addEventListener('touchmove', e => { e.preventDefault(); if (!joystick.active) return; const touch = e.touches[0]; const dx = touch.clientX - startX; const dy = touch.clientY - startY; const dist = Math.hypot(dx, dy); const maxDist = 45; const clampedDist = Math.min(dist, maxDist); const angle = Math.atan2(dy, dx); joystick.dx = (clampedDist / maxDist) * Math.cos(angle); joystick.dy = (clampedDist / maxDist) * Math.sin(angle); stick.style.transform = `translate(calc(-50% + ${joystick.dx * maxDist}px), calc(-50% + ${joystick.dy * maxDist}px))`; });
     joystickZone.addEventListener('touchend', () => { joystick.active = false; joystick.dx = 0; joystick.dy = 0; stick.style.transform = 'translate(-50%, -50%)'; });
     document.getElementById('btn-dash').addEventListener('touchstart', e => { e.preventDefault(); triggerDash(); });
-    document.getElementById('btn-bomb').addEventListener('touchstart', e => { e.preventDefault(); triggerBomb(); });
+    // ボムボタンのタッチイベントも削除
     document.getElementById('btn-form').addEventListener('touchstart', e => { e.preventDefault(); cycleFormation(); });
 }
 
@@ -1855,9 +1833,7 @@ function update() {
         soloWaveTimer++; soloMobTimer++;
         if (wave === 0 && soloWaveTimer > 60) startWave();
         
-        // アクティブなボスの有無をチェック
         const activeBosses = enemies.filter(e => e.isBoss && e.hp > 0);
-        
         if (activeBosses.length > 0 && soloMobTimer >= 60) {
             soloMobTimer = 0;
             spawnMobs();
@@ -1866,9 +1842,7 @@ function update() {
         updateEnemies();
         enemies = enemies.filter(e => e.hp > 0);
         
-        // ボス全撃破判定
         const bossCheck = enemies.filter(e => e.isBoss && e.hp > 0);
-        
         if (bossCheck.length > 0) {
             ui.bossContainer.style.display = 'block';
             let totalHp = 0, totalMaxHp = 0;
@@ -1878,7 +1852,6 @@ function update() {
         } else {
             ui.bossContainer.style.display = 'none';
             if (currentBoss && currentBoss.hp <= 0 && enemies.filter(e=>e.isBoss).length===0 && wave > 0) {
-                // ボスを全滅させた瞬間
                 currentBoss = null;
                 showMessage('◆ PATHOGEN ELIMINATED ◆');
                 triggerScreenShake(40);
