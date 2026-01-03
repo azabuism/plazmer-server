@@ -390,14 +390,21 @@ function updateCamera() {
     camera.y = Math.max(0, Math.min(WORLD_H - canvas.height, camera.y));
 }
 
-function triggerScreenShake(intensity) { screenShake.intensity = intensity; }
+function triggerScreenShake(intensity) { 
+    // 揺れを軽減し、最大値を制限
+    screenShake.intensity = Math.min(screenShake.intensity + intensity * 0.2, 8); 
+}
 
 function updateScreenShake() {
-    if (screenShake.intensity > 0) {
+    if (screenShake.intensity > 0.1) {
         screenShake.x = (Math.random() - 0.5) * screenShake.intensity;
         screenShake.y = (Math.random() - 0.5) * screenShake.intensity;
-        screenShake.intensity *= 0.9;
-    } else { screenShake.x = 0; screenShake.y = 0; }
+        screenShake.intensity *= 0.85; // より速く減衰
+    } else { 
+        screenShake.x = 0; 
+        screenShake.y = 0; 
+        screenShake.intensity = 0;
+    }
 }
 
 function updateWeaponUI() {
@@ -510,6 +517,7 @@ function connectToServer() {
     socket.on('hosted', (data) => {
         myPlayerId = data.playerId;
         myPlayer = data.player;
+        myPlayer.alive = true; // 確実にtrueに設定
         walls = data.walls;
         document.getElementById('menu-buttons').style.display = 'none';
         document.getElementById('host-info').style.display = 'block';
@@ -548,6 +556,7 @@ function connectToServer() {
     socket.on('joined', (data) => {
         myPlayerId = data.playerId;
         myPlayer = data.player;
+        myPlayer.alive = true; // 確実にtrueに設定
         walls = data.walls;
         if (data.isGuest && data.state === 'waiting') {
             document.getElementById('menu-buttons').style.display = 'none';
@@ -759,8 +768,11 @@ function cycleFormation() {
 
 // ========== 武器処理 ==========
 function fireWeapons() {
-    if (!myPlayer || !myPlayer.alive || !gameState) return;
-    if (!myPlayer.weaponLevels) return;
+    if (!myPlayer || !myPlayer.alive) return;
+    // weaponLevelsがない場合はデフォルト値を設定
+    if (!myPlayer.weaponLevels) {
+        myPlayer.weaponLevels = { PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0, ALLRANGE: 0 };
+    }
     const hits = []; 
     socket.emit('fire', { type: 'PLAZMER', angle: myPlayer.angle, options: myPlayer.options ? myPlayer.options.length : 0 });
     firePlazmer(hits);
@@ -1156,6 +1168,9 @@ function drawMinimap() {
 let weaponTimer = 0;
 function gameLoop() {
     frame++;
+    // aliveのデフォルト値を確保
+    if (myPlayer && myPlayer.alive === undefined) myPlayer.alive = true;
+    
     if (myPlayer && myPlayer.alive) updateInput();
     updateCamera();
     weaponTimer++;
