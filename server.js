@@ -18,27 +18,27 @@ const TICK_INTERVAL = 1000 / TICK_RATE;
 
 // ========== 敵テンプレート ==========
 const ENEMY_TYPES = {
-    virus: { hp: 5, speed: 2, size: 10, color: '#0f0', score: 50 },
-    bacteria: { hp: 8, speed: 1.5, size: 14, color: '#0a0', score: 60 },
-    infected: { hp: 15, speed: 1.8, size: 18, color: '#ff0', score: 100, shoots: true },
-    mutant: { hp: 25, speed: 2.2, size: 16, color: '#f80', score: 150 },
-    toxin: { hp: 12, speed: 2.5, size: 12, color: '#f0f', score: 120 },
-    parasite: { hp: 35, speed: 1.2, size: 22, color: '#88f', score: 200, armor: true },
-    cancer: { hp: 50, speed: 1, size: 30, color: '#800', score: 300, divides: true },
-    tumor: { hp: 80, speed: 0.5, size: 40, color: '#400', score: 400 },
-    plague: { hp: 60, speed: 2, size: 25, color: '#0ff', score: 350, shoots: true },
-    necrosis: { hp: 100, speed: 0.8, size: 35, color: '#444', score: 500, armor: true }
+    virus: { hp: 3, speed: 1.8, size: 10, color: '#0f0', score: 50 },
+    bacteria: { hp: 5, speed: 1.3, size: 14, color: '#0a0', score: 60 },
+    infected: { hp: 10, speed: 1.5, size: 18, color: '#ff0', score: 100, shoots: true },
+    mutant: { hp: 18, speed: 2, size: 16, color: '#f80', score: 150 },
+    toxin: { hp: 8, speed: 2.2, size: 12, color: '#f0f', score: 120 },
+    parasite: { hp: 25, speed: 1, size: 22, color: '#88f', score: 200, armor: true },
+    cancer: { hp: 35, speed: 0.8, size: 30, color: '#800', score: 300, divides: true },
+    tumor: { hp: 60, speed: 0.4, size: 40, color: '#400', score: 400 },
+    plague: { hp: 45, speed: 1.8, size: 25, color: '#0ff', score: 350, shoots: true },
+    necrosis: { hp: 80, speed: 0.6, size: 35, color: '#444', score: 500, armor: true }
 };
 
 const BOSS_TYPES = [
-    { name: 'VIRUS-α', color: '#0f0', baseHp: 300, size: 50, pattern: 'radial' },
-    { name: 'BACTERIA-β', color: '#08f', baseHp: 450, size: 55, pattern: 'spiral' },
-    { name: 'INFECTION-γ', color: '#f80', baseHp: 600, size: 60, pattern: 'burst' },
-    { name: 'CANCER-δ', color: '#f00', baseHp: 800, size: 70, pattern: 'divide' },
-    { name: 'PLAGUE-ε', color: '#f0f', baseHp: 1000, size: 75, pattern: 'swarm' },
-    { name: 'NECROSIS-ζ', color: '#888', baseHp: 1200, size: 80, pattern: 'laser' },
-    { name: 'PANDEMIC-η', color: '#ff0', baseHp: 1500, size: 85, pattern: 'chaos' },
-    { name: 'OMEGA-CELL', color: '#fff', baseHp: 2000, size: 100, pattern: 'all' }
+    { name: 'VIRUS-α', color: '#0f0', baseHp: 150, size: 50, pattern: 'radial' },
+    { name: 'BACTERIA-β', color: '#08f', baseHp: 300, size: 55, pattern: 'spiral' },
+    { name: 'INFECTION-γ', color: '#f80', baseHp: 450, size: 60, pattern: 'burst' },
+    { name: 'CANCER-δ', color: '#f00', baseHp: 600, size: 70, pattern: 'divide' },
+    { name: 'PLAGUE-ε', color: '#f0f', baseHp: 800, size: 75, pattern: 'swarm' },
+    { name: 'NECROSIS-ζ', color: '#888', baseHp: 1000, size: 80, pattern: 'laser' },
+    { name: 'PANDEMIC-η', color: '#ff0', baseHp: 1200, size: 85, pattern: 'chaos' },
+    { name: 'OMEGA-CELL', color: '#fff', baseHp: 1500, size: 100, pattern: 'all' }
 ];
 
 // ========== ルーム管理 ==========
@@ -455,16 +455,22 @@ class GameRoom {
             this.escapeFromWall(player);
         }
         
-        // ダッシュ処理
+        // ダッシュ処理（壁抜け可能）
         if (player.dashing) {
             player.dashTimer--;
-            const vx = Math.cos(player.angle) * 28;
-            const vy = Math.sin(player.angle) * 28;
+            const vx = Math.cos(player.angle) * 35; // 速度アップ
+            const vy = Math.sin(player.angle) * 35;
             player.x += vx;
             player.y += vy;
             player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
             player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
-            if (player.dashTimer <= 0) player.dashing = false;
+            if (player.dashTimer <= 0) {
+                player.dashing = false;
+                // ダッシュ終了時に壁の中にいたら脱出
+                if (this.checkWall(player.x, player.y)) {
+                    this.escapeFromWall(player);
+                }
+            }
         } else {
             // 入力による移動
             const input = player.lastInput;
@@ -674,17 +680,35 @@ class GameRoom {
     
     updateItems() {
         this.items.forEach(item => {
+            // 壁の中のアイテムを自動的に移動
+            if (this.checkWall(item.x, item.y)) {
+                for (let dist = 20; dist < 200; dist += 20) {
+                    for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) {
+                        const testX = item.x + Math.cos(a) * dist;
+                        const testY = item.y + Math.sin(a) * dist;
+                        if (!this.checkWall(testX, testY)) {
+                            item.x = testX;
+                            item.y = testY;
+                            break;
+                        }
+                    }
+                    if (!this.checkWall(item.x, item.y)) break;
+                }
+            }
+            
             this.players.forEach(player => {
                 if (!player.alive) return;
                 
-                // アイテム吸引
-                if (Math.hypot(player.x - item.x, player.y - item.y) < 150) {
-                    item.x += (player.x - item.x) * 0.1;
-                    item.y += (player.y - item.y) * 0.1;
+                // アイテム吸引（範囲拡大）
+                const dist = Math.hypot(player.x - item.x, player.y - item.y);
+                if (dist < 200) {
+                    const pullStrength = 0.15;
+                    item.x += (player.x - item.x) * pullStrength;
+                    item.y += (player.y - item.y) * pullStrength;
                 }
                 
-                // アイテム取得
-                if (Math.hypot(player.x - item.x, player.y - item.y) < 20) {
+                // アイテム取得（範囲拡大）
+                if (dist < 35) {
                     this.collectItem(player, item);
                     item.collected = true;
                 }
@@ -773,16 +797,35 @@ class GameRoom {
     dropItems(x, y, isBoss) {
         const itemColors = { PLAZMER: '#fff', HOMING: '#a0f', LASER: '#0ff', THUNDER: '#ff0', ALLRANGE: '#0f0', H: '#f06' };
         
+        // 安全なアイテム位置を見つける関数
+        const findSafeItemPos = (baseX, baseY) => {
+            if (!this.checkWall(baseX, baseY)) return { x: baseX, y: baseY };
+            // 壁の中なら周囲を探す
+            for (let dist = 20; dist < 150; dist += 20) {
+                for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) {
+                    const testX = baseX + Math.cos(a) * dist;
+                    const testY = baseY + Math.sin(a) * dist;
+                    if (!this.checkWall(testX, testY) && 
+                        testX > 60 && testX < WORLD_W - 60 && 
+                        testY > 60 && testY < WORLD_H - 60) {
+                        return { x: testX, y: testY };
+                    }
+                }
+            }
+            return { x: baseX, y: baseY }; // 見つからなければ元の位置
+        };
+        
         if (isBoss) {
             const count = 5 + Math.floor(Math.random() * 3);
             const types = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER', 'ALLRANGE', 'H'];
             for (let i = 0; i < count; i++) {
                 const a = (Math.PI * 2 / count) * i;
                 const type = types[Math.floor(Math.random() * types.length)];
+                const pos = findSafeItemPos(x + Math.cos(a) * 60, y + Math.sin(a) * 60);
                 this.items.push({
                     id: 'item_' + this.enemyIdCounter++,
-                    x: x + Math.cos(a) * 60,
-                    y: y + Math.sin(a) * 60,
+                    x: pos.x,
+                    y: pos.y,
                     type,
                     color: itemColors[type]
                 });
@@ -791,21 +834,24 @@ class GameRoom {
             if (Math.random() < 0.10) {
                 const types = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'];
                 const type = types[Math.floor(Math.random() * types.length)];
+                const pos = findSafeItemPos(x, y);
                 this.items.push({
                     id: 'item_' + this.enemyIdCounter++,
-                    x, y, type, color: itemColors[type]
+                    x: pos.x, y: pos.y, type, color: itemColors[type]
                 });
             }
             if (Math.random() < 0.04) {
+                const pos = findSafeItemPos(x, y);
                 this.items.push({
                     id: 'item_' + this.enemyIdCounter++,
-                    x, y, type: 'H', color: '#f06'
+                    x: pos.x, y: pos.y, type: 'H', color: '#f06'
                 });
             }
             if (Math.random() < 0.03) {
+                const pos = findSafeItemPos(x, y);
                 this.items.push({
                     id: 'item_' + this.enemyIdCounter++,
-                    x, y, type: 'ALLRANGE', color: '#0f0'
+                    x: pos.x, y: pos.y, type: 'ALLRANGE', color: '#0f0'
                 });
             }
         }
