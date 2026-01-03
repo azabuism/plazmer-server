@@ -868,8 +868,16 @@ function updateInput() {
         if (Math.hypot(mx - myPlayer.x, my - myPlayer.y) > 20) moving = true;
     }
     
-    // クライアント予測移動
-    if (moving && !myPlayer.dashing) {
+    // クライアント予測移動（ダッシュ時は壁抜け）
+    if (myPlayer.dashing) {
+        const dashSpeed = 35;
+        const vx = Math.cos(myPlayer.angle) * dashSpeed;
+        const vy = Math.sin(myPlayer.angle) * dashSpeed;
+        myPlayer.x += vx;
+        myPlayer.y += vy;
+        myPlayer.x = Math.max(60, Math.min(WORLD_W - 60, myPlayer.x));
+        myPlayer.y = Math.max(60, Math.min(WORLD_H - 60, myPlayer.y));
+    } else if (moving) {
         const speed = myPlayer.speed || 6;
         const vx = Math.cos(angle) * speed; const vy = Math.sin(angle) * speed;
         if (!checkWall(myPlayer.x + vx, myPlayer.y, walls)) myPlayer.x += vx;
@@ -1146,9 +1154,22 @@ class ThunderBolt {
         this.generatePath();
     }
     generatePath() {
-        const segments = 15; const perpAngle = Math.atan2(this.targetY - this.y, this.targetX - this.x) + Math.PI / 2;
+        const segments = 15; 
+        const perpAngle = Math.atan2(this.targetY - this.y, this.targetX - this.x) + Math.PI / 2;
+        let hitWall = false;
         for (let i = 1; i <= segments; i++) {
-            const progress = i / segments; const baseX = this.x + (this.targetX - this.x) * progress; const baseY = this.y + (this.targetY - this.y) * progress;
+            if (hitWall) break;
+            const progress = i / segments; 
+            const baseX = this.x + (this.targetX - this.x) * progress; 
+            const baseY = this.y + (this.targetY - this.y) * progress;
+            // 壁チェック
+            if (checkWall(baseX, baseY, walls)) {
+                hitWall = true;
+                // 壁にぶつかったポイントを追加してパーティクル生成
+                this.points.push({ x: baseX, y: baseY });
+                createParticles(baseX, baseY, '#ff0', 10);
+                break;
+            }
             const zigzag = (i % 2 === 0 ? 1 : -1) * (40 + Math.random() * 30);
             this.points.push({ x: baseX + Math.cos(perpAngle) * zigzag, y: baseY + Math.sin(perpAngle) * zigzag });
         }
