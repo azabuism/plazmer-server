@@ -8,14 +8,14 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
             background: #000810; 
-            overflow: hidden; /* スクロール禁止 */
+            overflow: hidden; 
             font-family: 'Courier New', monospace;
-            touch-action: none; /* ブラウザのタッチアクションを無効化 */
+            touch-action: none;
             -webkit-touch-callout: none;
             -webkit-user-select: none;
             user-select: none;
             cursor: crosshair;
-            position: fixed; /* iPhoneでのバウンススクロール防止 */
+            position: fixed;
             width: 100%;
             height: 100%;
         }
@@ -42,7 +42,7 @@
             padding: 15px 50px; margin: 10px; font-size: 18px; cursor: pointer;
             font-family: 'Courier New', monospace; letter-spacing: 3px;
             transition: all 0.3s; text-shadow: 0 0 10px #0ff;
-            pointer-events: auto; /* ボタンは押せるように */
+            pointer-events: auto;
         }
         .menu-btn:hover { background: #0ff; color: #000; box-shadow: 0 0 30px #0ff; }
         .name-input {
@@ -250,7 +250,7 @@ let ui = {};
 // ========== 初期化 ==========
 function init() {
     canvas = document.getElementById('canvas');
-    if(!canvas) return; // エラー回避
+    if(!canvas) return; 
     ctx = canvas.getContext('2d');
 
     // UI要素の取得
@@ -278,13 +278,21 @@ function init() {
     resize();
     window.addEventListener('resize', resize);
     
-    // PC用入力
+    // PC用入力 (マウス移動だけで反応)
     canvas.addEventListener('mousemove', e => {
         input.x = e.clientX;
         input.y = e.clientY;
     });
-    canvas.addEventListener('mousedown', () => input.active = true);
-    canvas.addEventListener('mouseup', () => input.active = false);
+    
+    // クリックでフォーメーション変更
+    canvas.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        // 左クリックのみ反応
+        if(e.button === 0 && gameState === 'playing') {
+            cycleFormation();
+        }
+    });
+
     document.addEventListener('keydown', e => {
         if (e.code === 'Space') triggerDash();
         if (e.code === 'KeyB') triggerBomb();
@@ -306,43 +314,32 @@ function initMobileControls() {
     const joyZone = document.getElementById('joystick-zone');
     const stick = document.getElementById('joystick-stick');
     
-    // UIがない場合は何もしない
     if (!joyZone || !stick) return;
 
-    // --- 1. iPhoneのスクロール/ズームを強制停止 ---
     document.addEventListener('touchmove', function(e) {
-        // キャンバス外のスクロールを防ぐ
         if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
             e.preventDefault(); 
         }
     }, { passive: false });
     
     document.addEventListener('gesturestart', function(e) {
-        e.preventDefault(); // 2本指ズーム禁止
+        e.preventDefault(); 
     }, { passive: false });
 
-    // --- 2. ジョイスティックの操作ロジック ---
     const maxRadius = 40; 
     let startX = 0, startY = 0;
 
-    // タッチ開始
     joyZone.addEventListener('touchstart', (e) => {
-        e.preventDefault(); // ★重要: これがないとスクロール判定になる
+        e.preventDefault();
         const touch = e.changedTouches[0];
-        // ゾーンの中心ではなく、タッチした場所を基準にする（操作しやすい）
-        const rect = joyZone.getBoundingClientRect();
-        const centerX = rect.left + rect.width / 2;
-        const centerY = rect.top + rect.height / 2;
-        
         startX = touch.clientX;
         startY = touch.clientY;
         joystick.active = true;
         stick.style.transition = 'none';
-    }, { passive: false }); // ★重要: passive: false
+    }, { passive: false });
 
-    // タッチ移動
     joyZone.addEventListener('touchmove', (e) => {
-        e.preventDefault(); // ★重要
+        e.preventDefault();
         if (!joystick.active) return;
         
         const touch = e.changedTouches[0];
@@ -351,17 +348,14 @@ function initMobileControls() {
         const distance = Math.min(Math.hypot(dx, dy), maxRadius);
         const angle = Math.atan2(dy, dx);
 
-        // 画面上のスティックを動かす
         const moveX = Math.cos(angle) * distance;
         const moveY = Math.sin(angle) * distance;
         stick.style.transform = `translate(calc(-50% + ${moveX}px), calc(-50% + ${moveY}px))`;
 
-        // ゲーム内の入力値を更新 (正規化)
         joystick.dx = Math.cos(angle) * (distance / maxRadius);
         joystick.dy = Math.sin(angle) * (distance / maxRadius);
     }, { passive: false });
 
-    // タッチ終了
     const endJoystick = (e) => {
         e.preventDefault();
         joystick.active = false;
@@ -374,7 +368,6 @@ function initMobileControls() {
     joyZone.addEventListener('touchend', endJoystick, { passive: false });
     joyZone.addEventListener('touchcancel', endJoystick, { passive: false });
 
-    // --- 3. ボタン操作 ---
     const setupButton = (id, action) => {
         const btn = document.getElementById(id);
         if(btn) {
@@ -437,7 +430,6 @@ function generateMazeWalls(waveNum) {
     const w = [];
     const thickness = 50;
     
-    // 外壁
     w.push({ x: 0, y: 0, w: WORLD_W, h: thickness, type: 'border' });
     w.push({ x: 0, y: WORLD_H - thickness, w: WORLD_W, h: thickness, type: 'border' });
     w.push({ x: 0, y: 0, w: thickness, h: WORLD_H, type: 'border' });
@@ -560,31 +552,28 @@ class Player {
         if (this.invincible > 0) this.invincible--;
         this.pulsePhase += 0.1;
         
-        // 壁から脱出
         if (checkWall(this.x, this.y) && !this.dashing) {
             if (escapeFromWall(this)) {
                 createParticles(this.x, this.y, '#fff', 10);
             }
         }
         
-        // ダッシュ (壁抜け実装)
+        // ダッシュ
         if (this.dashing) {
             this.dashTimer--;
             const vx = Math.cos(this.angle) * 28;
             const vy = Math.sin(this.angle) * 28;
             
-            // 壁判定を無視して移動
             this.x += vx;
             this.y += vy;
             
-            // エリア外に出ないように制限
             this.x = Math.max(60, Math.min(WORLD_W - 60, this.x));
             this.y = Math.max(60, Math.min(WORLD_H - 60, this.y));
 
             if (frame % 2 === 0) particles.push(new Particle(this.x, this.y, '#fff', 5, 5));
             if (this.dashTimer <= 0) this.dashing = false;
         } else {
-            // 通常移動
+            // 通常移動 (PC: マウス追従, Mobile: ジョイスティック)
             if (joystick.active && (Math.abs(joystick.dx) > 0.1 || Math.abs(joystick.dy) > 0.1)) {
                 this.angle = Math.atan2(joystick.dy, joystick.dx);
                 const mag = Math.min(1, Math.hypot(joystick.dx, joystick.dy));
@@ -592,7 +581,8 @@ class Player {
                 const vy = joystick.dy * this.speed * mag;
                 if (!checkWall(this.x + vx, this.y)) this.x += vx;
                 if (!checkWall(this.x, this.y + vy)) this.y += vy;
-            } else if (input.active) {
+            } else {
+                // PC: 常にマウスに向かって移動
                 const mx = input.x + camera.x;
                 const my = input.y + camera.y;
                 this.angle = Math.atan2(my - this.y, mx - this.x);
@@ -618,7 +608,7 @@ class Player {
             this.weaponTimer = 0;
         }
         
-        // サンダーエネルギー蓄積
+        // サンダー
         if (weaponLevels.THUNDER > 0) {
             thunderEnergy++;
             if (thunderEnergy >= THUNDER_MAX_ENERGY) {
@@ -627,17 +617,14 @@ class Player {
             }
         }
         
-        // レーザー更新
         if (activeLaser) {
             activeLaser.update();
             if (activeLaser.dead) activeLaser = null;
         }
         
-        // ミサイル更新
         missiles.forEach(m => m.update());
         missiles = missiles.filter(m => !m.dead);
         
-        // オプション更新
         options.forEach((opt, i) => opt.update(i, options.length));
     }
     
@@ -706,7 +693,6 @@ class Player {
     
     fireLaser() {
         const lv = weaponLevels.LASER;
-        // 初期値を細くし、レベルで太くする
         const width = Math.min(60, 3 + lv * 3); 
         const damageBonus = Math.max(0, lv - 8) * 2;
         
@@ -773,7 +759,6 @@ class Player {
         const sx = this.x - camera.x + screenShake.x;
         const sy = this.y - camera.y + screenShake.y;
         
-        // サンダーエネルギーゲージ
         if (weaponLevels.THUNDER > 0) {
             const gaugeWidth = 40;
             const gaugeHeight = 6;
@@ -878,7 +863,6 @@ class Option {
                 break;
             case 'HUNT':
                 this.attackTimer++;
-                // 索敵範囲拡大＆頻度アップ
                 if (!this.target || this.target.hp <= 0 || frame % 60 === 0) {
                     let minDist = 800;
                     this.target = null;
@@ -893,7 +877,6 @@ class Option {
                 if (this.target && this.target.hp > 0) {
                     const toTarget = Math.atan2(this.target.y - this.y, this.target.x - this.x);
                     const dist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
-                    // 猛スピードで接近
                     if (dist > 60) {
                         const vx = Math.cos(toTarget) * 25;
                         const vy = Math.sin(toTarget) * 25;
@@ -902,7 +885,6 @@ class Option {
                         }
                     }
                     this.angle = toTarget;
-                    // 攻撃頻度アップ
                     if (this.attackTimer >= 10) { 
                         this.attackTimer = 0;
                         bullets.push(new PlazmerBullet({
