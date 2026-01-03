@@ -12,9 +12,8 @@
             overflow: hidden; 
             font-family: 'Courier New', monospace;
             touch-action: none;
-            -webkit-touch-callout: none;
-            -webkit-user-select: none;
             user-select: none;
+            -webkit-user-select: none;
             cursor: crosshair;
             position: fixed; width: 100%; height: 100%;
         }
@@ -33,7 +32,7 @@
             letter-spacing: 15px; margin-bottom: 10px;
         }
         #start-screen .subtitle {
-            font-size: 16px; color: #f08; margin-bottom: 30px;
+            font-size: 16px; color: #f08; margin-bottom: 40px;
             text-shadow: 0 0 10px #f08; letter-spacing: 5px;
         }
         .menu-btn {
@@ -44,7 +43,8 @@
             pointer-events: auto;
         }
         .menu-btn:hover { background: #0ff; color: #000; box-shadow: 0 0 30px #0ff; }
-        
+        .menu-btn:disabled { border-color: #444; color: #444; cursor: not-allowed; box-shadow: none; }
+
         .name-input, .room-input {
             background: transparent; border: 2px solid #0ff; color: #0ff;
             padding: 10px 20px; font-size: 16px; text-align: center;
@@ -53,7 +53,7 @@
         }
         .name-input::placeholder { color: #088; }
         
-        /* オンライン用UI */
+        /* オンラインロビー用 */
         #join-form, #host-info, #guest-waiting { display: none; flex-direction: column; align-items: center; }
         .room-code-display {
             font-size: 32px; color: #ff0; margin: 20px 0;
@@ -66,7 +66,7 @@
             margin: 15px 0; min-width: 250px; border-radius: 5px;
         }
         .lobby-player { padding: 5px; margin: 2px; border-bottom: 1px solid #044; color: #0ff; text-align: left; }
-        
+
         #hud { position: fixed; top: 10px; left: 10px; }
         #hud-right { position: fixed; top: 10px; right: 10px; text-align: right; }
         .hud-label { font-size: 10px; color: #088; margin-bottom: 2px; }
@@ -140,6 +140,7 @@
             font-size: 32px; color: #0ff; text-shadow: 0 0 20px #0ff;
             opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 150; width: 100%; text-align: center;
         }
+        #status-msg { margin-top: 10px; color: #0ff; font-size: 12px; height: 20px; }
         
         @media (max-width: 768px) {
             #start-screen h1 { font-size: 36px; letter-spacing: 8px; }
@@ -169,8 +170,10 @@
 
         <div id="host-info">
             <div class="room-code-display">CODE: <span id="generated-code">----</span></div>
+            <div class="hud-label">PLAYERS IN LOBBY</div>
             <div id="lobby-players"></div>
-            <button class="menu-btn" onclick="tryStartGame()">START BATTLE</button>
+            <div style="font-size: 10px; color: #888; margin: 5px;">(START ALONE = SOLO MODE)</div>
+            <button class="menu-btn" onclick="tryStartGame()">START MISSION</button>
             <button class="menu-btn back-btn" onclick="location.reload()">CANCEL</button>
         </div>
 
@@ -180,6 +183,8 @@
             <button class="menu-btn" id="ready-btn" onclick="sendReady()">READY</button>
             <button class="menu-btn back-btn" onclick="location.reload()">LEAVE</button>
         </div>
+        
+        <div id="status-msg"></div>
     </div>
     
     <div id="hud" class="ui" style="display:none;">
@@ -222,7 +227,7 @@
     </div>
     
     <div id="game-over">
-        <h2>GAME OVER</h2>
+        <h2>INFECTION SPREAD</h2>
         <div id="final-score">SCORE: 0</div>
         <button class="menu-btn" onclick="location.reload()">RETRY</button>
     </div>
@@ -230,7 +235,7 @@
     <div id="message"></div>
 
 <script>
-// ========== 定数・変数 ==========
+// ========== 共通変数 ==========
 const WORLD_W = 3000, WORLD_H = 3000;
 let canvas, ctx;
 let socket = null;
@@ -246,19 +251,14 @@ let items = [];
 let options = [];
 let walls = [];
 let activeLaser = null;
-let missiles = []; 
+let missiles = [];
 
 let wave = 0;
 let score = 0;
 let frame = 0;
 let gameState = 'title'; // 'title', 'playing_solo', 'playing_online', 'over'
 let currentBoss = null;
-let myPlayerId = null;
-let lobbyPlayerCount = 0; // ロビーの人数
-
-// 入力
-let input = { x: 0, y: 0, active: false };
-let joystick = { active: false, dx: 0, dy: 0 };
+let lobbyPlayerCount = 0;
 
 // 設定
 let weaponLevels = { PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0, ALLRANGE: 0 };
@@ -273,7 +273,11 @@ let soloWaveTimer = 0;
 let soloMobTimer = 0;
 let enemyIdCounter = 0;
 
-// UI要素
+// 入力
+let input = { x: 0, y: 0, active: false };
+let joystick = { active: false, dx: 0, dy: 0 };
+
+// UI参照
 let ui = {};
 
 // ========== 初期化 ==========
@@ -282,7 +286,7 @@ function init() {
     if(!canvas) return;
     ctx = canvas.getContext('2d');
 
-    // UI要素取得
+    // UI要素の取得
     ui = {
         startScreen: document.getElementById('start-screen'),
         gameOver: document.getElementById('game-over'),
@@ -295,6 +299,7 @@ function init() {
         bossHp: document.getElementById('boss-hp'),
         message: document.getElementById('message'),
         formationDisplay: document.getElementById('formation-display'),
+        statusMsg: document.getElementById('status-msg'),
         weapons: {
             plazmer: document.getElementById('w-plazmer'),
             homing: document.getElementById('w-homing'),
@@ -310,34 +315,27 @@ function init() {
     resize();
     window.addEventListener('resize', resize);
     
-    // PC入力
-    canvas.addEventListener('mousemove', e => {
-        input.x = e.clientX;
-        input.y = e.clientY;
-    });
-    
-    canvas.addEventListener('mousedown', (e) => {
-        if(e.button === 0 && (gameState === 'playing_solo' || gameState === 'playing_online')) {
-            cycleFormation(); // 左クリック：フォーメーション
-        }
-        if(e.button === 2 && (gameState === 'playing_solo' || gameState === 'playing_online')) {
-            triggerBomb(); // 右クリック：ボム
-        }
+    // PC入力設定
+    canvas.addEventListener('mousemove', e => { input.x = e.clientX; input.y = e.clientY; });
+    canvas.addEventListener('mousedown', e => {
+        e.preventDefault();
+        if(e.button === 0 && (gameState === 'playing_solo' || gameState === 'playing_online')) cycleFormation();
+        if(e.button === 2 && (gameState === 'playing_solo' || gameState === 'playing_online')) triggerBomb();
     });
     canvas.addEventListener('contextmenu', e => e.preventDefault());
-
+    
     document.addEventListener('keydown', e => {
         if (e.code === 'Space') triggerDash();
         if (e.code === 'KeyB') triggerBomb();
         if (e.code === 'KeyF') cycleFormation();
     });
-    
+
     // Socket.io初期化
     if(typeof io !== 'undefined') {
         socket = io();
         setupSocketListeners();
     } else {
-        console.warn("Socket.io not found. Online mode unavailable.");
+        setStatus("OFFLINE MODE: Socket.io not loaded");
     }
 
     initMobileControls();
@@ -345,23 +343,25 @@ function init() {
 }
 
 function resize() {
-    if(canvas) {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-    }
+    if(canvas) { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
 }
 
-// ========== オンライン接続関連 ==========
+function setStatus(msg) {
+    if(ui.statusMsg) ui.statusMsg.textContent = msg;
+}
+
+// ========== オンライン制御 ==========
 function setupSocketListeners() {
-    socket.on('connect', () => console.log("Connected to server"));
+    socket.on('connect', () => { setStatus("CONNECTED TO SERVER"); });
+    socket.on('disconnect', () => { setStatus("DISCONNECTED"); });
     
     socket.on('hosted', (data) => {
         document.getElementById('menu-buttons').style.display = 'none';
         document.getElementById('host-info').style.display = 'flex';
         document.getElementById('generated-code').textContent = data.roomId;
-        myPlayerId = data.playerId;
         lobbyPlayerCount = data.players.length;
         updateLobby(data.players, 'lobby-players');
+        setStatus("ROOM CREATED");
     });
 
     socket.on('joined', (data) => {
@@ -369,8 +369,8 @@ function setupSocketListeners() {
         document.getElementById('join-form').style.display = 'none';
         document.getElementById('guest-waiting').style.display = 'flex';
         document.getElementById('joined-room-code').textContent = data.roomId;
-        myPlayerId = data.playerId;
         updateLobby(data.players, 'guest-lobby-players');
+        setStatus("JOINED ROOM");
     });
 
     socket.on('playerJoined', (data) => {
@@ -380,35 +380,56 @@ function setupSocketListeners() {
     });
 
     socket.on('gameStarted', (data) => {
+        // オンラインゲーム開始
         startOnlineGameClient(data);
     });
     
     socket.on('gameState', (state) => {
-        if(gameState === 'playing_online') syncGameState(state);
+        // オンライン同期（簡易）
     });
 }
 
 function hostGame() {
+    if(!socket || !socket.connected) {
+        alert("Server not connected. Reload or check connection.");
+        return;
+    }
     const name = document.getElementById('player-name').value || "Host";
+    setStatus("Creating Room...");
     socket.emit('hostRoom', { name });
+}
+
+function joinGame() {
+    if(!socket || !socket.connected) return;
+    const name = document.getElementById('player-name').value || "Guest";
+    const roomId = document.getElementById('room-id').value;
+    if(roomId.length === 4) socket.emit('joinRoom', { name, roomId });
+}
+
+function tryStartGame() {
+    if (lobbyPlayerCount <= 1) {
+        // 1人ならソロモード開始（ローカル）
+        startSoloGame();
+    } else {
+        // 2人以上ならサーバーへ開始指示
+        socket.emit('startGame');
+    }
+}
+
+function sendReady() {
+    socket.emit('playerReady');
+    document.getElementById('ready-btn').textContent = "READY!";
+    document.getElementById('ready-btn').disabled = true;
 }
 
 function showJoinForm() {
     document.getElementById('menu-buttons').style.display = 'none';
     document.getElementById('join-form').style.display = 'flex';
 }
-
 function showMainMenu() {
     document.getElementById('menu-buttons').style.display = 'block';
     document.getElementById('join-form').style.display = 'none';
 }
-
-function joinGame() {
-    const name = document.getElementById('player-name').value || "Guest";
-    const roomId = document.getElementById('room-id').value;
-    if(roomId.length === 4) socket.emit('joinRoom', { name, roomId });
-}
-
 function updateLobby(players, elementId) {
     const el = document.getElementById(elementId);
     if(!el) return;
@@ -422,53 +443,14 @@ function updateLobby(players, elementId) {
     });
 }
 
-// HostがSTARTボタンを押したときの処理
-function tryStartGame() {
-    if (lobbyPlayerCount <= 1) {
-        // 1人ならソロモード（ローカル処理）開始
-        startSoloGame();
-    } else {
-        // 2人以上ならサーバーに開始信号を送る
-        socket.emit('startGame');
-    }
-}
-
-function sendReady() {
-    socket.emit('playerReady');
-    document.getElementById('ready-btn').textContent = "READY!";
-    document.getElementById('ready-btn').disabled = true;
-}
-
-// ========== ゲーム開始処理 ==========
-
-function startSoloGame() {
-    gameState = 'playing_solo';
+// ========== ゲーム開始処理 (ソロ/オンライン共通初期化) ==========
+function setupGameCommon() {
     ui.startScreen.style.display = 'none';
-    showGameUI(true);
-    resetGameData();
-    player = new Player(); // プレイヤー生成
-    walls = generateMazeWalls(0);
-    playBGM();
-}
-
-function startOnlineGameClient(data) {
-    gameState = 'playing_online';
-    ui.startScreen.style.display = 'none';
-    showGameUI(true);
-    resetGameData();
-    // オンライン時はサーバーからのデータでプレイヤー位置が決まる
-    playBGM();
-}
-
-function showGameUI(show) {
-    const d = show ? 'block' : 'none';
-    ui.hud.style.display = d;
-    ui.hudRight.style.display = d;
+    ui.hud.style.display = 'block';
+    ui.hudRight.style.display = 'block';
     ui.weaponsDiv.style.display = 'flex';
-    ui.formationDisplay.style.display = d;
-}
-
-function resetGameData() {
+    ui.formationDisplay.style.display = 'block';
+    
     enemies = []; bullets = []; enemyBullets = []; particles = []; texts = [];
     items = []; options = []; missiles = [];
     weaponLevels = { PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0, ALLRANGE: 0 };
@@ -476,7 +458,25 @@ function resetGameData() {
     wave = 0; score = 0; frame = 0;
     soloWaveTimer = 0; soloMobTimer = 0; enemyIdCounter = 0;
     combo = { count: 0, timer: 0, multiplier: 1 };
+    
     updateWeaponUI();
+    playBGM();
+}
+
+function startSoloGame() {
+    gameState = 'playing_solo';
+    setupGameCommon();
+    player = new Player();
+    walls = generateMazeWalls(0);
+}
+
+function startOnlineGameClient(data) {
+    gameState = 'playing_online';
+    setupGameCommon();
+    // オンラインはサーバーからの同期でプレイヤー位置が決まるが、
+    // ここでは簡易的にローカル生成
+    player = new Player(); 
+    walls = generateMazeWalls(0); // 本来はサーバー同期が必要
 }
 
 // ========== メインループ ==========
@@ -489,7 +489,7 @@ function update() {
         updateOnline();
     }
     
-    draw(); // 描画
+    draw();
     requestAnimationFrame(update);
 }
 
@@ -540,29 +540,25 @@ function updateSolo() {
 }
 
 function updateOnline() {
-    // オンライン同期ロジック（簡易版）
-    if(player && joystick.active) {
+    // オンラインモード：基本はソロと同じ動きをするが、入力のみ送信する
+    // (完全なオンライン同期にはサーバー側の実装が必要なため、今回は「ソロの動き+入力送信」とする)
+    if(player) {
+        player.update(); 
+        updateCamera();
         // 入力送信
-        let inputData = { angle: player.angle, dashing: player.dashing, formation: currentFormation };
-        socket.emit('input', inputData);
+        if (socket && joystick.active) {
+            socket.emit('input', { x: player.x, y: player.y, angle: player.angle, dashing: player.dashing });
+        }
     }
-    // エフェクトのみクライアントで動かす
-    particles.forEach(p => p.update());
-    particles = particles.filter(p => p.life > 0);
-    updateScreenShake();
-    if(player) updateCamera();
+    // 以下、敵や弾の処理は本来サーバー同期だが、動くようにローカル処理を入れる
+    updateSolo(); 
 }
 
-function syncGameState(state) {
-    // サーバーからの情報同期（必要に応じて実装）
-}
-
-// ========== 描画関数 (座標計算修正済み) ==========
+// ========== 描画処理 (修正済) ==========
 function draw() {
     if(!ctx) return;
     ctx.fillStyle = '#000810'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // カメラ適用
     ctx.save();
     ctx.translate(-camera.x + screenShake.x, -camera.y + screenShake.y);
 
@@ -578,6 +574,7 @@ function draw() {
             ctx.fillStyle = 'rgba(150,30,50,0.8)'; ctx.strokeStyle = '#f66'; ctx.lineWidth = 3;
             ctx.shadowBlur = 15; ctx.shadowColor = '#f00';
             ctx.beginPath(); ctx.arc(w.cx, w.cy, w.radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            ctx.fillStyle = 'rgba(100,20,30,0.5)'; ctx.beginPath(); ctx.arc(w.cx, w.cy, w.radius * 0.4, 0, Math.PI * 2); ctx.fill();
         } else {
             ctx.fillStyle = 'rgba(100,30,50,0.9)'; ctx.strokeStyle = '#f88'; ctx.lineWidth = 3;
             ctx.shadowBlur = 15; ctx.shadowColor = '#f44';
@@ -586,22 +583,19 @@ function draw() {
         ctx.shadowBlur = 0;
     });
 
-    // アイテム
     items.forEach(item => {
         ctx.fillStyle = item.color; ctx.shadowBlur = 15; ctx.shadowColor = item.color;
         ctx.beginPath(); ctx.arc(item.x, item.y, 10, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
     });
 
-    // プレイヤー（座標そのまま）
+    // プレイヤー描画（ここが以前バグっていた箇所。修正済み）
     if (player) player.draw();
 
-    // 敵
     enemies.forEach(e => {
         if (e.isBoss) drawBoss(e); else drawEnemy(e);
     });
 
-    // 弾
     bullets.forEach(b => b.draw());
     enemyBullets.forEach(b => {
         ctx.fillStyle = b.color; ctx.shadowBlur = 10; ctx.shadowColor = b.color;
@@ -611,14 +605,15 @@ function draw() {
     particles.forEach(p => p.draw());
     texts.forEach(t => t.draw());
 
-    ctx.restore(); // カメラ解除
+    if(activeLaser) activeLaser.draw();
 
-    // HUD類
+    ctx.restore();
+
     drawEnemyIndicators();
     drawMinimap();
 }
 
-// ========== プレイヤー (描画修正) ==========
+// ========== プレイヤー (座標計算修正) ==========
 class Player {
     constructor() {
         this.x = WORLD_W / 2; this.y = WORLD_H / 2;
@@ -690,13 +685,13 @@ class Player {
     
     damage(val) {
         if (this.invincible > 0 || this.dashing) return;
-        this.hp -= val; ui.hp.style.width = (this.hp / this.maxHp) * 100) + '%';
+        this.hp -= val; ui.hp.style.width = (this.hp / this.maxHp * 100) + '%';
         this.invincible = 30; triggerScreenShake(10);
         if (this.hp <= 0) { gameState = 'over'; ui.gameOver.style.display = 'flex'; }
     }
     
     draw() {
-        // ★修正：カメラ座標を引かずに、ctx.translate で一括処理
+        // ★修正：カメラ座標は ctx.translate で処理済みなので、ここでは this.x, this.y を直接使う
         if (this.invincible % 4 < 2) {
             ctx.save();
             ctx.translate(this.x, this.y); 
@@ -711,7 +706,7 @@ class Player {
     heal(val) { this.hp = Math.min(this.maxHp, this.hp + val); }
 }
 
-// その他のクラス (省略形)
+// ========== ユーティリティ ==========
 class PlazmerBullet {
     constructor(d) { this.x=d.x; this.y=d.y; this.angle=d.angle; this.vx=Math.cos(d.angle)*14; this.vy=Math.sin(d.angle)*14; this.life=60; this.size=4; this.color=d.color||'#fff'; }
     update() { this.x+=this.vx; this.y+=this.vy; this.life--; if(this.life<=0||checkWall(this.x,this.y)) this.dead=true; this.checkHit(); }
@@ -733,7 +728,6 @@ class FloatingText {
 }
 function createFloatingText(x, y, text, color) { texts.push(new FloatingText(x, y, text, color)); }
 
-// オプションも修正（座標そのまま）
 class Option {
     constructor() { this.x=player.x; this.y=player.y; this.angle=0; }
     update(i, t) { 
@@ -755,7 +749,6 @@ function updateCamera() {
     camera.y = Math.max(0, Math.min(WORLD_H - canvas.height, camera.y));
 }
 
-// 敵描画も修正（座標そのまま）
 function drawEnemy(e) {
     ctx.fillStyle = e.color; 
     ctx.beginPath(); ctx.arc(e.x, e.y, e.size, 0, Math.PI*2); ctx.fill();
@@ -765,12 +758,10 @@ function drawBoss(e) {
     ctx.beginPath(); ctx.arc(e.x, e.y, e.size, 0, Math.PI*2); ctx.stroke();
 }
 
-function drawEnemyIndicators() {
-    // 画面外の敵の矢印を表示（ここは画面座標計算が必要）
-}
-function drawMinimap() {}
+function drawEnemyIndicators() {} // 簡略化
+function drawMinimap() {} // 簡略化
 
-// コントローラー（再掲・変更なし）
+// コントローラー
 function initMobileControls() {
     const joyZone = document.getElementById('joystick-zone');
     const stick = document.getElementById('joystick-stick');
@@ -781,28 +772,26 @@ function initMobileControls() {
     joyZone.addEventListener('touchstart', e => { e.preventDefault(); const touch = e.changedTouches[0]; startX = touch.clientX; startY = touch.clientY; joystick.active = true; stick.style.transition = 'none'; }, { passive: false });
     joyZone.addEventListener('touchmove', e => { e.preventDefault(); if (!joystick.active) return; const touch = e.changedTouches[0]; const dx = touch.clientX - startX; const dy = touch.clientY - startY; const distance = Math.min(Math.hypot(dx, dy), maxRadius); const angle = Math.atan2(dy, dx); const moveX = Math.cos(angle) * distance; const moveY = Math.sin(angle) * distance; stick.style.transform = `translate(calc(-50% + ${moveX}px), calc(-50% + ${moveY}px))`; joystick.dx = Math.cos(angle) * (distance / maxRadius); joystick.dy = Math.sin(angle) * (distance / maxRadius); }, { passive: false });
     joyZone.addEventListener('touchend', e => { e.preventDefault(); joystick.active = false; joystick.dx = 0; joystick.dy = 0; stick.style.transition = '0.2s'; stick.style.transform = `translate(-50%, -50%)`; }, { passive: false });
-    
-    // ボタン
-    const setupButton = (id, action) => {
-        const btn = document.getElementById(id);
-        if(btn) {
-            btn.addEventListener('touchstart', (e) => { e.preventDefault(); action(); btn.style.background = "rgba(0,255,255,0.5)"; }, { passive: false });
-            btn.addEventListener('touchend', (e) => { e.preventDefault(); btn.style.background = "rgba(0,255,255,0.2)"; }, { passive: false });
-        }
-    };
+    const setupButton = (id, action) => { const btn = document.getElementById(id); if(btn) { btn.addEventListener('touchstart', (e) => { e.preventDefault(); action(); btn.style.background = "rgba(0,255,255,0.5)"; }, { passive: false }); btn.addEventListener('touchend', (e) => { e.preventDefault(); btn.style.background = "rgba(0,255,255,0.2)"; }, { passive: false }); } };
     setupButton('btn-dash', triggerDash); setupButton('btn-bomb', triggerBomb); setupButton('btn-form', cycleFormation);
 }
 
-// ユーティリティ
+// その他の関数
 function playSound(name) {} 
 function cycleFormation() { currentFormation = (currentFormation + 1) % FORMATIONS.length; showMessage(FORMATIONS[currentFormation]); }
 function triggerDash() { if(player) player.dash(); }
 function triggerBomb() { if(player && player.bombs>0) { player.bombs--; enemies.forEach(e=>damageEnemy(e,50)); } }
 function showMessage(msg) { ui.message.textContent = msg; ui.message.style.opacity = 1; setTimeout(()=>ui.message.style.opacity=0, 2000); }
 function damageEnemy(e, val) { e.hp-=val; if(e.hp<=0) { score+=e.score; createParticle(e.x, e.y, e.color); } }
-function checkWall(x, y) { return x<0 || x>WORLD_W || y<0 || y>WORLD_H; } // 簡易判定
+function checkWall(x, y) { return x<0 || x>WORLD_W || y<0 || y>WORLD_H; } 
 function escapeFromWall(p) { p.x = Math.max(60, Math.min(WORLD_W-60, p.x)); p.y = Math.max(60, Math.min(WORLD_H-60, p.y)); }
 function getWallNormal() { return null; }
+function findSafeSpawnPosition() { return {x: 500, y: 500}; } // 簡易
+function generateMazeWalls(n) { return [{x:0,y:0,w:WORLD_W,h:50},{x:0,y:WORLD_H-50,w:WORLD_W,h:50},{x:0,y:0,w:50,h:WORLD_H},{x:WORLD_W-50,y:0,w:50,h:WORLD_H}]; } // 簡易枠
+function spawnMobs() { if(enemies.length < 50) spawnEnemy('virus', Math.random()*WORLD_W, Math.random()*WORLD_H); }
+function spawnEnemy(type, x, y) { enemies.push({x,y,hp:10,maxHp:10,color:'#f00',size:15,speed:2}); }
+function updateEnemyBullets() {} // 簡略化
+function updateItems() {}
 
 window.addEventListener('load', init);
 </script>
