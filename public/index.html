@@ -43,9 +43,7 @@
             pointer-events: auto;
         }
         .menu-btn:hover { background: #0ff; color: #000; box-shadow: 0 0 30px #0ff; }
-        .menu-btn:active { background: #0aa; transform: scale(0.95); }
-        .menu-btn:disabled { border-color: #444; color: #444; cursor: wait; box-shadow: none; }
-
+        
         .name-input, .room-input {
             background: transparent; border: 2px solid #0ff; color: #0ff;
             padding: 10px 20px; font-size: 16px; text-align: center;
@@ -54,7 +52,7 @@
         }
         .name-input::placeholder { color: #088; }
         
-        /* オンラインロビー用 */
+        /* ロビー画面 */
         #join-form, #host-info, #guest-waiting { display: none; flex-direction: column; align-items: center; }
         .room-code-display {
             font-size: 32px; color: #ff0; margin: 20px 0;
@@ -67,9 +65,8 @@
             margin: 15px 0; min-width: 250px; border-radius: 5px;
         }
         .lobby-player { padding: 5px; margin: 2px; border-bottom: 1px solid #044; color: #0ff; text-align: left; }
-
+        
         #hud { position: fixed; top: 10px; left: 10px; }
-        #hud-right { position: fixed; top: 10px; right: 10px; text-align: right; }
         .hud-label { font-size: 10px; color: #088; margin-bottom: 2px; }
         .hud-value { font-size: 20px; color: #0ff; margin-bottom: 10px; }
         #hp-bar { width: 150px; height: 8px; background: #001; border: 1px solid #0ff; margin-bottom: 10px; }
@@ -190,17 +187,12 @@
     </div>
     
     <div id="hud" class="ui" style="display:none;">
-        <div class="hud-label">HP</div>
+        <div class="hud-label">IMMUNE CELL HP</div>
         <div id="hp-bar"><div id="hp-fill"></div></div>
         <div class="hud-label">WAVE</div>
         <div class="hud-value" id="wave">0</div>
         <div class="hud-label">SCORE</div>
         <div class="hud-value" id="score">0</div>
-    </div>
-    
-    <div id="hud-right" class="ui" style="display:none;">
-        <div class="hud-label">BOMB</div>
-        <div class="hud-value" id="bomb">2</div>
     </div>
     
     <div id="boss-container">
@@ -224,12 +216,11 @@
     </div>
     <div id="mobile-buttons">
         <div class="mobile-btn" id="btn-dash">DASH</div>
-        <div class="mobile-btn" id="btn-bomb">BOMB</div>
         <div class="mobile-btn" id="btn-form">FORM</div>
     </div>
     
     <div id="game-over">
-        <h2>GAME OVER</h2>
+        <h2>INFECTION SPREAD</h2>
         <div id="final-score">SCORE: 0</div>
         <button class="menu-btn" onclick="location.reload()">RETRY</button>
     </div>
@@ -242,7 +233,6 @@ const WORLD_W = 3000, WORLD_H = 3000;
 let canvas, ctx;
 let socket = null;
 
-// ゲーム状態
 let player = null;
 let enemies = [];
 let bullets = [];
@@ -258,11 +248,10 @@ let missiles = [];
 let wave = 0;
 let score = 0;
 let frame = 0;
-let gameState = 'title'; // 'title', 'playing_solo', 'playing_online', 'over'
+let gameState = 'title'; 
 let currentBoss = null;
 let lobbyPlayerCount = 0;
 
-// 設定
 let weaponLevels = { PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0, ALLRANGE: 0 };
 let thunderEnergy = 0;
 const THUNDER_MAX_ENERGY = 180;
@@ -275,11 +264,9 @@ let soloWaveTimer = 0;
 let soloMobTimer = 0;
 let enemyIdCounter = 0;
 
-// 入力
 let input = { x: 0, y: 0, active: false };
 let joystick = { active: false, dx: 0, dy: 0 };
 
-// UI参照
 let ui = {};
 
 // ========== 初期化 ==========
@@ -288,14 +275,12 @@ function init() {
     if(!canvas) return;
     ctx = canvas.getContext('2d');
 
-    // UI要素の取得
     ui = {
         startScreen: document.getElementById('start-screen'),
         gameOver: document.getElementById('game-over'),
         hp: document.getElementById('hp-fill'),
         wave: document.getElementById('wave'),
         score: document.getElementById('score'),
-        bomb: document.getElementById('bomb'),
         bossContainer: document.getElementById('boss-container'),
         bossName: document.getElementById('boss-name'),
         bossHp: document.getElementById('boss-hp'),
@@ -310,29 +295,24 @@ function init() {
             allrange: document.getElementById('w-allrange')
         },
         hud: document.getElementById('hud'),
-        hudRight: document.getElementById('hud-right'),
         weaponsDiv: document.getElementById('weapons')
     };
 
     resize();
     window.addEventListener('resize', resize);
     
-    // PC入力設定
     canvas.addEventListener('mousemove', e => { input.x = e.clientX; input.y = e.clientY; });
     canvas.addEventListener('mousedown', e => {
         e.preventDefault();
-        if(e.button === 0 && (gameState.startsWith('playing'))) cycleFormation();
-        if(e.button === 2 && (gameState.startsWith('playing'))) triggerBomb();
+        if(e.button === 0 && gameState.startsWith('playing')) cycleFormation();
     });
     canvas.addEventListener('contextmenu', e => e.preventDefault());
     
     document.addEventListener('keydown', e => {
         if (e.code === 'Space') triggerDash();
-        if (e.code === 'KeyB') triggerBomb();
         if (e.code === 'KeyF') cycleFormation();
     });
 
-    // Socket.io初期化
     if(typeof io !== 'undefined') {
         socket = io();
         setupSocketListeners();
@@ -365,6 +345,10 @@ function setupSocketListeners() {
         lobbyPlayerCount = data.players.length;
         updateLobby(data.players, 'lobby-players');
         setStatus("");
+        // ボタン復活
+        const btn = document.getElementById('btn-host');
+        btn.disabled = false;
+        btn.textContent = "HOST GAME";
     });
 
     socket.on('joined', (data) => {
@@ -385,12 +369,6 @@ function setupSocketListeners() {
     socket.on('gameStarted', (data) => {
         startOnlineGameClient(data);
     });
-    
-    socket.on('gameState', (state) => {
-        if(gameState === 'playing_online') {
-            // 同期処理（今回は簡易実装のため省略）
-        }
-    });
 }
 
 function hostGame() {
@@ -402,14 +380,14 @@ function hostGame() {
     const btn = document.getElementById('btn-host');
     btn.disabled = true;
     btn.textContent = "CREATING...";
-    setStatus("Creating Room...");
+    setStatus("Requesting Room...");
     
-    // サーバー応答がない場合のタイムアウト
+    // タイムアウト設定
     setTimeout(() => {
         if(btn.disabled) {
             btn.disabled = false;
             btn.textContent = "HOST GAME";
-            setStatus("Connection timed out. Try again.");
+            setStatus("Connection timed out.");
         }
     }, 5000);
 
@@ -465,7 +443,6 @@ function updateLobby(players, elementId) {
 function setupGameCommon() {
     ui.startScreen.style.display = 'none';
     ui.hud.style.display = 'block';
-    ui.hudRight.style.display = 'block';
     ui.weaponsDiv.style.display = 'flex';
     ui.formationDisplay.style.display = 'block';
     
@@ -486,7 +463,7 @@ function startSoloGame() {
     setupGameCommon();
     player = new Player();
     walls = generateMazeWalls(0);
-    // カメラの初期位置をプレイヤーに合わせる（重要）
+    // カメラの初期化（重要）
     camera.x = player.x - canvas.width/2;
     camera.y = player.y - canvas.height/2;
 }
@@ -513,20 +490,16 @@ function update() {
 }
 
 function updateGameLogic() {
-    // プレイヤー更新
     if (player) { 
         player.update(); 
-        // カメラ追従 (スムーズ)
         camera.x += (player.x - canvas.width / 2 - camera.x) * 0.1;
         camera.y += (player.y - canvas.height / 2 - camera.y) * 0.1;
         
-        // オンラインなら入力送信
         if (gameState === 'playing_online' && socket && joystick.active) {
             socket.emit('input', { x: player.x, y: player.y, angle: player.angle, dashing: player.dashing });
         }
     }
     
-    // WAVE進行
     soloWaveTimer++; soloMobTimer++;
     if (wave === 0 && soloWaveTimer > 60) startWave();
     
@@ -538,7 +511,6 @@ function updateGameLogic() {
     updateEnemies();
     enemies = enemies.filter(e => e.hp > 0);
     
-    // ボスUI判定
     const bossCheck = enemies.filter(e => e.isBoss && e.hp > 0);
     if (bossCheck.length > 0) {
         ui.bossContainer.style.display = 'block';
@@ -570,23 +542,20 @@ function updateGameLogic() {
     updateScreenShake();
 }
 
-// ========== 描画処理 (座標計算修正済) ==========
+// ========== 描画処理 ==========
 function draw() {
     if(!ctx) return;
     ctx.fillStyle = '#000810'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // カメラ座標計算（整数化してチラつき防止）
     const camX = Math.floor(camera.x - screenShake.x);
     const camY = Math.floor(camera.y - screenShake.y);
 
     ctx.save();
-    // 全体をカメラ分ずらす（これが基本）
-    ctx.translate(-camX, -camY);
+    ctx.translate(-camX, -camY); // カメラ適用
 
     // グリッド
     ctx.strokeStyle = 'rgba(100,20,30,0.3)'; ctx.lineWidth = 1;
     const gridSize = 80;
-    // グリッドはカメラ位置に合わせてループさせる
     const startX = Math.floor(camX / gridSize) * gridSize;
     const startY = Math.floor(camY / gridSize) * gridSize;
     for (let x = startX; x < startX + canvas.width + gridSize; x += gridSize) { 
@@ -596,7 +565,6 @@ function draw() {
         ctx.beginPath(); ctx.moveTo(camX, y); ctx.lineTo(camX + canvas.width, y); ctx.stroke(); 
     }
 
-    // 壁（すでにワールド座標なのでそのまま描画）
     walls.forEach(w => {
         if (w.type === 'cell') {
             ctx.fillStyle = 'rgba(150,30,50,0.8)'; ctx.strokeStyle = '#f66'; ctx.lineWidth = 3;
@@ -617,15 +585,11 @@ function draw() {
         ctx.shadowBlur = 0;
     });
 
-    // プレイヤー（ワールド座標）
+    // プレイヤー描画
     if (player) player.draw();
 
-    // 敵
-    enemies.forEach(e => {
-        if (e.isBoss) drawBoss(e); else drawEnemy(e);
-    });
+    enemies.forEach(e => { if (e.isBoss) drawBoss(e); else drawEnemy(e); });
 
-    // 弾
     bullets.forEach(b => b.draw());
     enemyBullets.forEach(b => {
         ctx.fillStyle = b.color; ctx.shadowBlur = 10; ctx.shadowColor = b.color;
@@ -634,12 +598,10 @@ function draw() {
 
     particles.forEach(p => p.draw());
     texts.forEach(t => t.draw());
-
     if(activeLaser) activeLaser.draw();
 
     ctx.restore(); // カメラ解除
 
-    // HUD類 (画面固定)
     drawEnemyIndicators();
     drawMinimap();
 }
@@ -649,7 +611,7 @@ class Player {
     constructor() {
         this.x = WORLD_W / 2; this.y = WORLD_H / 2;
         this.r = 8; this.color = '#fff'; this.maxHp = 100; this.hp = 100;
-        this.speed = 6; this.bombs = 2; this.angle = 0;
+        this.speed = 6; this.angle = 0;
         this.weaponTimer = 0; this.dashing = false; this.dashTimer = 0;
         this.invincible = 60; this.pulsePhase = 0; this.history = [];
     }
@@ -674,7 +636,6 @@ class Player {
                 if (!checkWall(this.x + vx, this.y)) this.x += vx;
                 if (!checkWall(this.x, this.y + vy)) this.y += vy;
             } else {
-                // マウス追従
                 const mx = input.x + camera.x;
                 const my = input.y + camera.y;
                 this.angle = Math.atan2(my - this.y, mx - this.x);
@@ -723,7 +684,6 @@ class Player {
     }
     
     draw() {
-        // ワールド座標で描画 (cameraはdraw側でtranslate済み)
         if (this.invincible % 4 < 2) {
             ctx.save();
             ctx.translate(this.x, this.y); 
@@ -793,14 +753,11 @@ function drawEnemyIndicators() {
     const cx = canvas.width/2; const cy = canvas.height/2;
     enemies.forEach(e => {
         if (e.hp <= 0) return;
-        // 画面内にあるかチェック
         const sx = e.x - camera.x; const sy = e.y - camera.y;
         if (sx > 0 && sx < canvas.width && sy > 0 && sy < canvas.height) return;
-
         const angle = Math.atan2(e.y - player.y, e.x - player.x);
         let ix = cx + Math.cos(angle) * (cx - margin);
         let iy = cy + Math.sin(angle) * (cy - margin);
-        
         ctx.save(); ctx.translate(ix, iy); ctx.rotate(angle);
         ctx.fillStyle = e.isBoss ? '#ff0' : '#f00';
         ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-10, 6); ctx.lineTo(-10, -6); ctx.fill();
@@ -820,7 +777,6 @@ function drawMinimap() {
     });
 }
 
-// コントローラー
 function initMobileControls() {
     const joyZone = document.getElementById('joystick-zone');
     const stick = document.getElementById('joystick-stick');
@@ -831,23 +787,13 @@ function initMobileControls() {
     joyZone.addEventListener('touchstart', e => { e.preventDefault(); const touch = e.changedTouches[0]; startX = touch.clientX; startY = touch.clientY; joystick.active = true; stick.style.transition = 'none'; }, { passive: false });
     joyZone.addEventListener('touchmove', e => { e.preventDefault(); if (!joystick.active) return; const touch = e.changedTouches[0]; const dx = touch.clientX - startX; const dy = touch.clientY - startY; const distance = Math.min(Math.hypot(dx, dy), maxRadius); const angle = Math.atan2(dy, dx); const moveX = Math.cos(angle) * distance; const moveY = Math.sin(angle) * distance; stick.style.transform = `translate(calc(-50% + ${moveX}px), calc(-50% + ${moveY}px))`; joystick.dx = Math.cos(angle) * (distance / maxRadius); joystick.dy = Math.sin(angle) * (distance / maxRadius); }, { passive: false });
     joyZone.addEventListener('touchend', e => { e.preventDefault(); joystick.active = false; joystick.dx = 0; joystick.dy = 0; stick.style.transition = '0.2s'; stick.style.transform = `translate(-50%, -50%)`; }, { passive: false });
-    
-    // ボタン
-    const setupButton = (id, action) => {
-        const btn = document.getElementById(id);
-        if(btn) {
-            btn.addEventListener('touchstart', (e) => { e.preventDefault(); action(); btn.style.background = "rgba(0,255,255,0.5)"; }, { passive: false });
-            btn.addEventListener('touchend', (e) => { e.preventDefault(); btn.style.background = "rgba(0,255,255,0.2)"; }, { passive: false });
-        }
-    };
-    setupButton('btn-dash', triggerDash); setupButton('btn-bomb', triggerBomb); setupButton('btn-form', cycleFormation);
+    const setupButton = (id, action) => { const btn = document.getElementById(id); if(btn) { btn.addEventListener('touchstart', (e) => { e.preventDefault(); action(); btn.style.background = "rgba(0,255,255,0.5)"; }, { passive: false }); btn.addEventListener('touchend', (e) => { e.preventDefault(); btn.style.background = "rgba(0,255,255,0.2)"; }, { passive: false }); } };
+    setupButton('btn-dash', triggerDash); setupButton('btn-form', cycleFormation);
 }
 
-// ユーティリティ
 function playSound(name) {} 
 function cycleFormation() { currentFormation = (currentFormation + 1) % FORMATIONS.length; showMessage(FORMATIONS[currentFormation]); }
 function triggerDash() { if(player) player.dash(); }
-function triggerBomb() { if(player && player.bombs>0) { player.bombs--; enemies.forEach(e=>damageEnemy(e,50)); } }
 function showMessage(msg) { ui.message.textContent = msg; ui.message.style.opacity = 1; setTimeout(()=>ui.message.style.opacity=0, 2000); }
 function damageEnemy(e, val) { e.hp-=val; if(e.hp<=0) { score+=e.score; createParticle(e.x, e.y, e.color); } }
 function checkWall(x, y) { return x<0 || x>WORLD_W || y<0 || y>WORLD_H; } 
