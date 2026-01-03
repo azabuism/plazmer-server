@@ -432,8 +432,8 @@ class GameRoom {
             }, 3000);
         }
         
-        // 状態送信（20fps に削減）
-        if (this.frame % 3 === 0) {
+        // 状態送信（30fps）
+        if (this.frame % 2 === 0) {
             this.broadcastState();
         }
     }
@@ -1057,6 +1057,18 @@ io.on('connection', (socket) => {
     socket.on('shoot', (data) => {
         if (currentRoom) {
             currentRoom.handlePlayerShoot(socket.id, data);
+        }
+    });
+    
+    socket.on('hit', (data) => {
+        if (currentRoom) {
+            const remainingHp = currentRoom.damageEnemy(data.enemyId, data.damage, data.weaponType, socket.id);
+            // ダメージを全員に通知
+            io.to(currentRoom.id).emit('enemyHit', {
+                enemyId: data.enemyId,
+                damage: data.damage,
+                remainingHp: remainingHp
+            });
         }
     });
     
