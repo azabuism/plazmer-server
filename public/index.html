@@ -1267,35 +1267,89 @@ function draw() {
     
     // プレイヤー（補間された位置を使用）
     // 自分自身を描画
-    if (myPlayer && myPlayer.alive) {
+    if (myPlayer) {
         const sx = myPlayer.x - camera.x + screenShake.x, sy = myPlayer.y - camera.y + screenShake.y;
         const playerColor = myPlayer.color || '#fff', glowColor = myPlayer.glowColor || '#0ff';
         
-        if (myPlayer.weaponLevels && myPlayer.weaponLevels.THUNDER > 0) {
-            const gaugeWidth = 40, gaugeHeight = 6, gaugeX = sx - gaugeWidth / 2, gaugeY = sy + 23;
-            const fillRatio = (myPlayer.thunderEnergy || 0) / 180;
-            ctx.fillStyle = '#220'; ctx.fillRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
-            const gradient = ctx.createLinearGradient(gaugeX, gaugeY, gaugeX + gaugeWidth * fillRatio, gaugeY);
-            gradient.addColorStop(0, '#880'); gradient.addColorStop(1, '#ff0');
-            ctx.fillStyle = gradient; ctx.fillRect(gaugeX, gaugeY, gaugeWidth * fillRatio, gaugeHeight);
-            ctx.strokeStyle = fillRatio >= 1 ? '#ff0' : '#880'; ctx.lineWidth = 1; ctx.strokeRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+        // 死亡時のリスポーン表示
+        if (!myPlayer.alive) {
+            const respawnTime = Math.ceil((180 - (myPlayer.respawnTimer || 0)) / 60);
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.fillRect(sx - 60, sy - 40, 120, 80);
+            ctx.strokeStyle = '#f00';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(sx - 60, sy - 40, 120, 80);
+            ctx.fillStyle = '#f00';
+            ctx.font = 'bold 16px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('YOU DIED', sx, sy - 15);
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 24px Courier New';
+            ctx.fillText(respawnTime, sx, sy + 15);
+            ctx.font = 'bold 10px Courier New';
+            ctx.fillText('RESPAWN IN', sx, sy + 30);
+        } else {
+            // ダッシュ中の残像エフェクト
+            if (myPlayer.dashing) {
+                for (let i = 1; i <= 5; i++) {
+                    const trailX = sx - Math.cos(myPlayer.angle) * i * 12;
+                    const trailY = sy - Math.sin(myPlayer.angle) * i * 12;
+                    ctx.globalAlpha = 0.3 - i * 0.05;
+                    ctx.fillStyle = glowColor;
+                    ctx.beginPath();
+                    ctx.arc(trailX, trailY, 8 - i, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1;
+                // ダッシュ時のスピードライン
+                ctx.strokeStyle = glowColor;
+                ctx.lineWidth = 2;
+                for (let i = 0; i < 8; i++) {
+                    const lineAngle = myPlayer.angle + Math.PI + (Math.random() - 0.5) * 0.5;
+                    const startDist = 15 + Math.random() * 10;
+                    const endDist = startDist + 20 + Math.random() * 30;
+                    ctx.globalAlpha = 0.5 + Math.random() * 0.3;
+                    ctx.beginPath();
+                    ctx.moveTo(sx + Math.cos(lineAngle) * startDist, sy + Math.sin(lineAngle) * startDist);
+                    ctx.lineTo(sx + Math.cos(lineAngle) * endDist, sy + Math.sin(lineAngle) * endDist);
+                    ctx.stroke();
+                }
+                ctx.globalAlpha = 1;
+            }
+            
+            if (myPlayer.weaponLevels && myPlayer.weaponLevels.THUNDER > 0) {
+                const gaugeWidth = 40, gaugeHeight = 6, gaugeX = sx - gaugeWidth / 2, gaugeY = sy + 23;
+                const fillRatio = (myPlayer.thunderEnergy || 0) / 180;
+                ctx.fillStyle = '#220'; ctx.fillRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+                const gradient = ctx.createLinearGradient(gaugeX, gaugeY, gaugeX + gaugeWidth * fillRatio, gaugeY);
+                gradient.addColorStop(0, '#880'); gradient.addColorStop(1, '#ff0');
+                ctx.fillStyle = gradient; ctx.fillRect(gaugeX, gaugeY, gaugeWidth * fillRatio, gaugeHeight);
+                ctx.strokeStyle = fillRatio >= 1 ? '#ff0' : '#880'; ctx.lineWidth = 1; ctx.strokeRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+            }
+            
+            if ((myPlayer.invincible || 0) % 4 < 2) {
+                ctx.save(); ctx.translate(sx, sy);
+                ctx.shadowBlur = myPlayer.dashing ? 50 : 15; 
+                ctx.shadowColor = myPlayer.dashing ? '#fff' : glowColor;
+                ctx.fillStyle = myPlayer.dashing ? '#fff' : playerColor;
+                ctx.beginPath();
+                const baseSize = myPlayer.dashing ? 10 : 8;
+                for (let i = 0; i < 8; i++) { 
+                    const a = (Math.PI * 2 / 8) * i + frame * 0.03;
+                    const r = baseSize + Math.sin(a * 3 + frame * 0.1) * 2; 
+                    if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); 
+                    else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); 
+                }
+                ctx.closePath(); ctx.fill();
+                ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(0, 0, 3.2, 0, Math.PI * 2); ctx.fill();
+                ctx.rotate(myPlayer.angle); ctx.fillStyle = glowColor;
+                ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(8, -3); ctx.lineTo(8, 3); ctx.fill();
+                ctx.restore();
+            }
+            
+            ctx.fillStyle = playerColor; ctx.font = 'bold 10px Courier New'; ctx.textAlign = 'center';
+            ctx.shadowBlur = 5; ctx.shadowColor = glowColor; ctx.fillText(myPlayer.name || 'Player', sx, sy - 20); ctx.shadowBlur = 0;
         }
-        
-        if ((myPlayer.invincible || 0) % 4 < 2) {
-            ctx.save(); ctx.translate(sx, sy);
-            ctx.shadowBlur = myPlayer.dashing ? 30 : 15; ctx.shadowColor = glowColor;
-            ctx.fillStyle = myPlayer.dashing ? '#fff' : playerColor;
-            ctx.beginPath();
-            for (let i = 0; i < 8; i++) { const a = (Math.PI * 2 / 8) * i + frame * 0.03, r = 8 + Math.sin(a * 3 + frame * 0.1) * 2; if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
-            ctx.closePath(); ctx.fill();
-            ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(0, 0, 3.2, 0, Math.PI * 2); ctx.fill();
-            ctx.rotate(myPlayer.angle); ctx.fillStyle = glowColor;
-            ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(8, -3); ctx.lineTo(8, 3); ctx.fill();
-            ctx.restore();
-        }
-        
-        ctx.fillStyle = playerColor; ctx.font = 'bold 10px Courier New'; ctx.textAlign = 'center';
-        ctx.shadowBlur = 5; ctx.shadowColor = glowColor; ctx.fillText(myPlayer.name || 'Player', sx, sy - 20); ctx.shadowBlur = 0;
     }
     
     // 他プレイヤーを描画（補間された位置を使用）
@@ -1308,19 +1362,41 @@ function draw() {
         if (!p.alive) {
             const respawnTime = Math.ceil((180 - (p.respawnTimer || 0)) / 60);
             ctx.fillStyle = p.color || '#888'; ctx.globalAlpha = 0.5;
-            ctx.font = 'bold 16px Courier New'; ctx.textAlign = 'center';
-            ctx.fillText(p.name, sx, sy - 10); ctx.fillText(`RESPAWN: ${respawnTime}`, sx, sy + 10);
+            ctx.font = 'bold 14px Courier New'; ctx.textAlign = 'center';
+            ctx.fillText(p.name, sx, sy - 10); 
+            ctx.fillText(`RESPAWN: ${respawnTime}`, sx, sy + 10);
             ctx.globalAlpha = 1; return;
         }
         
         const playerColor = p.color || '#fff', glowColor = p.glowColor || '#0ff';
         
+        // ダッシュ中の残像エフェクト
+        if (p.dashing) {
+            for (let i = 1; i <= 4; i++) {
+                const trailX = sx - Math.cos(rp.angle) * i * 10;
+                const trailY = sy - Math.sin(rp.angle) * i * 10;
+                ctx.globalAlpha = 0.25 - i * 0.05;
+                ctx.fillStyle = glowColor;
+                ctx.beginPath();
+                ctx.arc(trailX, trailY, 7 - i, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+        
         if ((p.invincible || 0) % 4 < 2) {
             ctx.save(); ctx.translate(sx, sy);
-            ctx.shadowBlur = p.dashing ? 30 : 15; ctx.shadowColor = glowColor;
+            ctx.shadowBlur = p.dashing ? 40 : 15; 
+            ctx.shadowColor = p.dashing ? '#fff' : glowColor;
             ctx.fillStyle = p.dashing ? '#fff' : playerColor;
             ctx.beginPath();
-            for (let i = 0; i < 8; i++) { const a = (Math.PI * 2 / 8) * i + frame * 0.03, r = 8 + Math.sin(a * 3 + frame * 0.1) * 2; if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+            const baseSize = p.dashing ? 10 : 8;
+            for (let i = 0; i < 8; i++) { 
+                const a = (Math.PI * 2 / 8) * i + frame * 0.03;
+                const r = baseSize + Math.sin(a * 3 + frame * 0.1) * 2; 
+                if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); 
+                else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); 
+            }
             ctx.closePath(); ctx.fill();
             ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(0, 0, 3.2, 0, Math.PI * 2); ctx.fill();
             ctx.rotate(rp.angle); ctx.fillStyle = glowColor;
