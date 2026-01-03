@@ -292,6 +292,7 @@ let frame = 0;
 // 補間用データ
 let remotePlayers = new Map(); // 他プレイヤーの補間データ
 let remoteEnemies = new Map(); // 敵の補間データ
+let damageTexts = []; // ダメージ数字表示用
 
 // 入力
 let input = { x: 0, y: 0, angle: 0, moving: false, dash: false, hasMoved: false };
@@ -413,7 +414,7 @@ function updateScreenShake() {
 
 // 補間更新（滑らかな動き）
 function updateInterpolation() {
-    const lerpFactor = 0.25; // 補間速度
+    const lerpFactor = 0.35; // 補間速度（上げてラグ軽減）
     
     // 他プレイヤーの補間
     remotePlayers.forEach(rp => {
@@ -430,6 +431,26 @@ function updateInterpolation() {
     remoteEnemies.forEach(re => {
         re.x += (re.targetX - re.x) * lerpFactor;
         re.y += (re.targetY - re.y) * lerpFactor;
+    });
+    
+    // ダメージテキスト更新
+    damageTexts.forEach(dt => {
+        dt.y -= 1.5;
+        dt.life--;
+        dt.alpha = dt.life / 40;
+    });
+    damageTexts = damageTexts.filter(dt => dt.life > 0);
+}
+
+// ダメージテキスト生成
+function spawnDamageText(x, y, damage, color) {
+    damageTexts.push({
+        x: x + (Math.random() - 0.5) * 20,
+        y: y - 10,
+        damage: damage,
+        color: color || '#ff0',
+        life: 40,
+        alpha: 1
     });
 }
 
@@ -734,6 +755,22 @@ function connectToServer() {
     socket.on('remoteFire', (data) => {
         if(data.playerId !== myPlayerId) spawnRemoteBullets(data);
     });
+    
+    socket.on('enemyHit', (data) => {
+        // ダメージテキスト表示
+        const re = remoteEnemies.get(data.enemyId);
+        if (re) {
+            spawnDamageText(re.x, re.y, data.damage, '#ff0');
+        }
+    });
+    
+    socket.on('enemyDefeated', (data) => {
+        // 敵撃破時のエフェクト
+        const re = remoteEnemies.get(data.enemyId);
+        if (re) {
+            createParticles(re.x, re.y, '#f80', 15);
+        }
+    });
 }
 
 function spawnRemoteBullets(data) {
@@ -919,8 +956,12 @@ function fireThunder(hits) {
     if (gameState) {
         gameState.enemies.forEach(e => {
             if (e.hp > 0) {
-                const d = Math.hypot(e.x - myPlayer.x, e.y - myPlayer.y);
-                if (d < minDist) { minDist = d; target = e; }
+                // 補間された位置を使用
+                const re = remoteEnemies.get(e.id);
+                const ex = re ? re.x : e.x;
+                const ey = re ? re.y : e.y;
+                const d = Math.hypot(ex - myPlayer.x, ey - myPlayer.y);
+                if (d < minDist) { minDist = d; target = { x: ex, y: ey }; }
             }
         });
     }
@@ -943,8 +984,14 @@ class PlazmerBullet {
     checkHit() {
         if (!gameState || this.damage <= 0) return;
         for (const e of gameState.enemies) {
-            if (e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < e.size + this.size) {
+            if (e.hp <= 0) continue;
+            // 補間された位置を使用
+            const re = remoteEnemies.get(e.id);
+            const ex = re ? re.x : e.x;
+            const ey = re ? re.y : e.y;
+            if (Math.hypot(ex - this.x, ey - this.y) < e.size + this.size) {
                 socket.emit('hit', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                spawnDamageText(ex, ey, this.damage, '#ff0');
                 this.dead = true; createParticle(this.x, this.y, this.color); break;
             }
         }
@@ -972,8 +1019,12 @@ class MacrossMissile {
             if (gameState) {
                 gameState.enemies.forEach(e => {
                     if (e.hp > 0) {
-                        const d = Math.hypot(e.x - this.x, e.y - this.y);
-                        if (d < minDist) { minDist = d; target = e; }
+                        // 補間された位置を使用
+                        const re = remoteEnemies.get(e.id);
+                        const ex = re ? re.x : e.x;
+                        const ey = re ? re.y : e.y;
+                        const d = Math.hypot(ex - this.x, ey - this.y);
+                        if (d < minDist) { minDist = d; target = { x: ex, y: ey, id: e.id }; }
                     }
                 });
             }
@@ -993,8 +1044,14 @@ class MacrossMissile {
         if (checkWall(this.x, this.y, walls)) { this.dead = true; createParticles(this.x, this.y, '#f80', 5); }
         if (gameState && this.damage > 0) {
             for (const e of gameState.enemies) {
-                if (e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < e.size + 10) {
+                if (e.hp <= 0) continue;
+                // 補間された位置を使用
+                const re = remoteEnemies.get(e.id);
+                const ex = re ? re.x : e.x;
+                const ey = re ? re.y : e.y;
+                if (Math.hypot(ex - this.x, ey - this.y) < e.size + 10) {
                     socket.emit('hit', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                    spawnDamageText(ex, ey, this.damage, '#a0f');
                     this.dead = true; createParticles(this.x, this.y, '#a0f', 8); break;
                 }
             }
@@ -1046,19 +1103,23 @@ class KamehamehaLaser {
         this.life--; if (this.life <= 0) this.dead = true;
         this.updatePath(); this.damageTimer++;
         if (this.damageTimer >= 10 && gameState) {
-            this.damageTimer = 0; const hits = [];
+            this.damageTimer = 0;
             for (let i = 0; i < this.segments.length - 1; i++) {
                 const s1 = this.segments[i], s2 = this.segments[i + 1];
                 gameState.enemies.forEach(e => {
                     if (e.hp > 0 && !this.hitEnemies.has(e.id)) {
-                        if (distToSegment(e.x, e.y, s1.x, s1.y, s2.x, s2.y) < e.size + this.width / 2) {
-                            hits.push({ enemyId: e.id, damage: this.damage, weaponType: this.type });
+                        // 補間された位置を使用
+                        const re = remoteEnemies.get(e.id);
+                        const ex = re ? re.x : e.x;
+                        const ey = re ? re.y : e.y;
+                        if (distToSegment(ex, ey, s1.x, s1.y, s2.x, s2.y) < e.size + this.width / 2) {
+                            socket.emit('hit', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                            spawnDamageText(ex, ey, this.damage, '#0ff');
                             this.hitEnemies.add(e.id);
                         }
                     }
                 });
             }
-            if (hits.length > 0) socket.emit('shoot', { hits });
             if (this.life % 20 === 0) this.hitEnemies.clear();
         }
     }
@@ -1102,10 +1163,14 @@ class ThunderBolt {
                 const p1 = this.points[i], p2 = this.points[i + 1];
                 gameState.enemies.forEach(e => {
                     if (e.hp > 0 && !this.hitEnemies.has(e.id)) {
-                        if (distToSegment(e.x, e.y, p1.x, p1.y, p2.x, p2.y) < e.size + 25) {
-                            if (this.hits) { this.hits.push({ enemyId: e.id, damage: this.damage, weaponType: this.type }); }
+                        // 補間された位置を使用
+                        const re = remoteEnemies.get(e.id);
+                        const ex = re ? re.x : e.x;
+                        const ey = re ? re.y : e.y;
+                        if (distToSegment(ex, ey, p1.x, p1.y, p2.x, p2.y) < e.size + 25) {
                             socket.emit('hit', { enemyId: e.id, damage: this.damage, weaponType: this.type });
-                            this.hitEnemies.add(e.id); createParticles(e.x, e.y, '#ff0', 15);
+                            spawnDamageText(ex, ey, this.damage, '#ff0');
+                            this.hitEnemies.add(e.id); createParticles(ex, ey, '#ff0', 15);
                         }
                     }
                 });
@@ -1171,7 +1236,23 @@ function draw() {
             ctx.beginPath(); ctx.arc(sx, sy, e.size, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(sx, sy, e.size * 0.4, 0, Math.PI * 2); ctx.fill();
             ctx.shadowBlur = 0;
-            if (e.isBoss) { ctx.fillStyle = '#300'; ctx.fillRect(sx - 30, sy - e.size - 15, 60, 6); ctx.fillStyle = '#f00'; ctx.fillRect(sx - 30, sy - e.size - 15, 60 * (e.hp / e.maxHp), 6); }
+            
+            // HPゲージと数字（全ての敵に表示）
+            const barWidth = Math.max(30, e.size * 1.5);
+            const hpRatio = e.hp / e.maxHp;
+            ctx.fillStyle = '#300'; 
+            ctx.fillRect(sx - barWidth/2, sy - e.size - 12, barWidth, 5);
+            ctx.fillStyle = hpRatio > 0.5 ? '#0f0' : hpRatio > 0.25 ? '#ff0' : '#f00';
+            ctx.fillRect(sx - barWidth/2, sy - e.size - 12, barWidth * hpRatio, 5);
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 0.5;
+            ctx.strokeRect(sx - barWidth/2, sy - e.size - 12, barWidth, 5);
+            
+            // HP数字
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 9px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText(`${e.hp}/${e.maxHp}`, sx, sy - e.size - 16);
         });
     }
     
@@ -1265,6 +1346,19 @@ function draw() {
         const sx = p.x - camera.x + screenShake.x, sy = p.y - camera.y + screenShake.y;
         ctx.fillStyle = p.color; ctx.globalAlpha = p.life / 30;
         ctx.beginPath(); ctx.arc(sx, sy, p.size, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+    });
+    
+    // ダメージテキスト描画
+    damageTexts.forEach(dt => {
+        const sx = dt.x - camera.x + screenShake.x, sy = dt.y - camera.y + screenShake.y;
+        ctx.globalAlpha = dt.alpha;
+        ctx.font = 'bold 14px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#000';
+        ctx.fillText(dt.damage, sx + 1, sy + 1);
+        ctx.fillStyle = dt.color;
+        ctx.fillText(dt.damage, sx, sy);
         ctx.globalAlpha = 1;
     });
     
