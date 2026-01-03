@@ -168,7 +168,10 @@ class GameRoom {
         return false;
     }
     
-    addPlayer(socket, name) {
+    addPlayer(socket, name, isHost = false) {
+        const playerIndex = this.players.size;
+        const colorData = PLAYER_COLORS[Math.min(playerIndex, PLAYER_COLORS.length - 1)];
+        
         const player = {
             id: socket.id,
             name: name || 'Player',
@@ -187,7 +190,15 @@ class GameRoom {
             formation: 0,
             score: 0,
             alive: true,
-            lastInput: { x: 0, y: 0, angle: 0, dash: false }
+            lastInput: { x: 0, y: 0, angle: 0, dash: false },
+            // 新規追加
+            isHost: isHost,
+            playerIndex: playerIndex,
+            color: colorData.main,
+            glowColor: colorData.glow,
+            colorName: colorData.name,
+            ready: isHost, // ホストは常にready
+            respawnTimer: 0
         };
         
         this.players.set(socket.id, player);
@@ -417,18 +428,20 @@ class GameRoom {
             }, 3000);
         }
         
-        // ゲームオーバーチェック
-        const alivePlayers = Array.from(this.players.values()).filter(p => p.alive);
-        if (alivePlayers.length === 0 && this.players.size > 0) {
-            this.state = 'gameover';
-            io.to(this.id).emit('gameOver', { score: this.score, wave: this.wave });
-        }
-        
-        // 状態送信
+        // 状態送信（高頻度）
         this.broadcastState();
     }
     
     updatePlayer(player) {
+        // リスポーン処理
+        if (!player.alive) {
+            player.respawnTimer++;
+            if (player.respawnTimer >= 180) { // 3秒でリスポーン
+                this.respawnPlayer(player);
+            }
+            return;
+        }
+        
         if (player.invincible > 0) player.invincible--;
         
         // 壁脱出
@@ -474,6 +487,29 @@ class GameRoom {
                     this.damagePlayer(player, enemy.isBoss ? 20 : 10);
                 }
             }
+        });
+    }
+    
+    respawnPlayer(player) {
+        const pos = this.findSafeSpawnPosition(300);
+        player.x = pos.x;
+        player.y = pos.y;
+        player.hp = player.maxHp;
+        player.alive = true;
+        player.invincible = 180; // 3秒無敵
+        player.respawnTimer = 0;
+        player.dashing = false;
+        player.dashTimer = 0;
+        
+        io.to(player.id).emit('respawned', {
+            x: player.x,
+            y: player.y,
+            hp: player.hp
+        });
+        
+        io.to(this.id).emit('playerRespawned', {
+            playerId: player.id,
+            name: player.name
         });
     }
     
@@ -775,6 +811,16 @@ class GameRoom {
         
         player.lastInput = input;
         
+        // クライアントからの位置情報を考慮（ある程度の誤差は許容）
+        if (input.x !== undefined && input.y !== undefined) {
+            const dist = Math.hypot(input.x - player.x, input.y - player.y);
+            // 1フレームで移動できる最大距離の3倍以内なら許容
+            if (dist < player.speed * 3) {
+                player.x = input.x;
+                player.y = input.y;
+            }
+        }
+        
         if (input.dash && !player.dashing) {
             player.dashing = true;
             player.dashTimer = 10;
@@ -810,7 +856,15 @@ class GameRoom {
             thunderEnergy: player.thunderEnergy,
             options: player.options,
             formation: player.formation,
-            score: player.score
+            score: player.score,
+            // 新規追加
+            isHost: player.isHost,
+            playerIndex: player.playerIndex,
+            color: player.color,
+            glowColor: player.glowColor,
+            colorName: player.colorName,
+            ready: player.ready,
+            respawnTimer: player.respawnTimer
         };
     }
     
@@ -857,6 +911,14 @@ function generateRoomCode() {
     return code;
 }
 
+// ========== プレイヤー色定義 ==========
+const PLAYER_COLORS = [
+    { main: '#ffffff', glow: '#0ff', name: 'WHITE' },   // HOST
+    { main: '#ff4444', glow: '#f00', name: 'RED' },     // Guest 1
+    { main: '#aa44ff', glow: '#a0f', name: 'PURPLE' },  // Guest 2
+    { main: '#4488ff', glow: '#08f', name: 'BLUE' }     // Guest 3
+];
+
 // ========== Socket.io 接続処理 ==========
 io.on('connection', (socket) => {
     console.log('Player connected:', socket.id);
@@ -870,12 +932,13 @@ io.on('connection', (socket) => {
         
         // 新しいルームを作成
         const room = new GameRoom(roomId);
+        room.hostId = socket.id;
         rooms.set(roomId, room);
         
         currentRoom = room;
         socket.join(roomId);
         
-        const player = currentRoom.addPlayer(socket, playerName);
+        const player = currentRoom.addPlayer(socket, playerName, true); // isHost = true
         
         socket.emit('hosted', {
             playerId: socket.id,
@@ -901,46 +964,24 @@ io.on('connection', (socket) => {
             return;
         }
         
-        currentRoom = rooms.get(roomId);
-        socket.join(roomId);
+        const room = rooms.get(roomId);
         
-        const player = currentRoom.addPlayer(socket, playerName);
+        // 最大4人まで
+        if (room.players.size >= 4) {
+            socket.emit('joinError', { message: 'Room is full! (Max 4 players)' });
+            return;
+        }
         
-        socket.emit('joined', {
-            playerId: socket.id,
-            roomId: roomId,
-            player: currentRoom.sanitizePlayer(player),
-            walls: currentRoom.walls,
-            state: currentRoom.state,
-            wave: currentRoom.wave,
-            players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p))
-        });
-        
-        // 他のプレイヤーに通知（プレイヤー数も含む）
-        socket.to(roomId).emit('playerJoined', {
-            player: currentRoom.sanitizePlayer(player),
-            playerCount: currentRoom.players.size
-        });
-        
-        console.log(`Player ${playerName} joined room ${roomId}`);
-    });
-    
-    // ソロプレイ
-    socket.on('soloPlay', (data) => {
-        const playerName = data.name || 'Solo';
-        const roomId = 'solo_' + socket.id;
-        
-        const room = new GameRoom(roomId);
-        room.isSolo = true;
-        rooms.set(roomId, room);
+        // ゲーム中は参加不可
+        if (room.state === 'playing') {
+            socket.emit('joinError', { message: 'Game already in progress!' });
+            return;
+        }
         
         currentRoom = room;
         socket.join(roomId);
         
-        const player = currentRoom.addPlayer(socket, playerName);
-        
-        // ソロモードは即座にゲーム開始
-        currentRoom.startGame();
+        const player = currentRoom.addPlayer(socket, playerName, false); // isHost = false
         
         socket.emit('joined', {
             playerId: socket.id,
@@ -950,19 +991,46 @@ io.on('connection', (socket) => {
             state: currentRoom.state,
             wave: currentRoom.wave,
             players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p)),
-            isSolo: true
+            isGuest: true
         });
         
-        console.log(`Player ${playerName} started solo game`);
+        // ホストと他のプレイヤーに通知
+        socket.to(roomId).emit('playerJoined', {
+            player: currentRoom.sanitizePlayer(player),
+            players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p))
+        });
+        
+        console.log(`Player ${playerName} joined room ${roomId} as Guest ${player.playerIndex}`);
+    });
+    
+    // ゲストがREADY
+    socket.on('playerReady', () => {
+        if (!currentRoom) return;
+        const player = currentRoom.players.get(socket.id);
+        if (player && !player.isHost) {
+            player.ready = true;
+            
+            // 全員に通知
+            io.to(currentRoom.id).emit('playerReadyUpdate', {
+                playerId: socket.id,
+                players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p))
+            });
+            
+            console.log(`Player ${player.name} is READY in room ${currentRoom.id}`);
+        }
     });
     
     // ホストがゲーム開始
     socket.on('startGame', () => {
-        if (currentRoom && currentRoom.state === 'waiting') {
-            currentRoom.startGame();
-            io.to(currentRoom.id).emit('gameStarted');
-            console.log(`Game started in room ${currentRoom.id}`);
-        }
+        if (!currentRoom) return;
+        if (currentRoom.hostId !== socket.id) return; // ホストのみ開始可能
+        if (currentRoom.state !== 'waiting') return;
+        
+        currentRoom.startGame();
+        io.to(currentRoom.id).emit('gameStarted', {
+            players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p))
+        });
+        console.log(`Game started in room ${currentRoom.id}`);
     });
     
     // ホストがキャンセル
