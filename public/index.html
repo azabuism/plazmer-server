@@ -53,10 +53,13 @@
         }
         .name-input::placeholder, .room-input::placeholder { color: #088; }
         .room-input { margin-bottom: 20px; }
-        .solo-btn { border-color: #0f0; color: #0f0; text-shadow: 0 0 10px #0f0; }
-        .solo-btn:hover { background: #0f0; color: #000; box-shadow: 0 0 30px #0f0; }
         .back-btn { border-color: #888; color: #888; text-shadow: 0 0 10px #888; padding: 10px 30px; font-size: 14px; }
         .back-btn:hover { background: #888; color: #000; }
+        .start-btn { border-color: #0f0; color: #0f0; text-shadow: 0 0 10px #0f0; }
+        .start-btn:hover { background: #0f0; color: #000; box-shadow: 0 0 30px #0f0; }
+        .ready-btn { border-color: #0f0; color: #0f0; text-shadow: 0 0 10px #0f0; }
+        .ready-btn:hover { background: #0f0; color: #000; box-shadow: 0 0 30px #0f0; }
+        .ready-btn.ready-sent { border-color: #888; color: #888; pointer-events: none; }
         .room-code-display {
             font-size: 32px; color: #ff0; margin: 20px 0;
             text-shadow: 0 0 20px #ff0; letter-spacing: 8px;
@@ -66,7 +69,26 @@
         .room-code-display span { font-weight: bold; }
         .waiting-text { color: #0ff; font-size: 14px; margin: 10px 0; animation: blink 1s infinite; }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-        #player-count { color: #0f0; font-size: 16px; margin: 10px 0; }
+        
+        #lobby-players, #guest-lobby-players {
+            background: rgba(0,0,0,0.5); border: 1px solid #0ff; padding: 15px;
+            margin: 15px 0; min-width: 250px; border-radius: 5px;
+        }
+        .lobby-player {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 10px; margin: 5px 0; border-radius: 3px;
+            background: rgba(0,255,255,0.1);
+        }
+        .lobby-player .player-color {
+            width: 12px; height: 12px; border-radius: 50%; margin-right: 10px;
+            box-shadow: 0 0 10px currentColor;
+        }
+        .lobby-player .player-name { flex: 1; text-align: left; }
+        .lobby-player .player-status { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
+        .lobby-player .player-status.host { color: #ff0; border: 1px solid #ff0; }
+        .lobby-player .player-status.ready { color: #0f0; border: 1px solid #0f0; }
+        .lobby-player .player-status.waiting { color: #888; border: 1px solid #888; }
+        
         #connection-status {
             font-size: 12px; color: #888; margin-top: 20px;
         }
@@ -85,9 +107,9 @@
             font-size: 12px; max-width: 200px;
         }
         #players-list h3 { color: #0ff; margin-bottom: 5px; font-size: 12px; }
-        .player-entry { margin: 3px 0; }
-        .player-entry.me { color: #0f0; }
-        .player-entry.dead { color: #f00; text-decoration: line-through; }
+        .player-entry { margin: 3px 0; display: flex; align-items: center; }
+        .player-entry.me { font-weight: bold; }
+        .player-entry.dead { opacity: 0.5; text-decoration: line-through; }
         
         #boss-container {
             position: fixed; top: 50px; left: 50%; transform: translateX(-50%);
@@ -173,7 +195,6 @@
         <div id="menu-buttons">
             <button class="menu-btn" onclick="hostGame()">HOST GAME</button>
             <button class="menu-btn" onclick="showJoinForm()">JOIN GAME</button>
-            <button class="menu-btn solo-btn" onclick="soloPlay()">SOLO PLAY</button>
         </div>
         
         <div id="join-form" style="display:none;">
@@ -184,10 +205,18 @@
         
         <div id="host-info" style="display:none;">
             <div class="room-code-display">ROOM CODE: <span id="generated-code">----</span></div>
-            <div class="waiting-text">Waiting for players...</div>
-            <div id="player-count">Players: 1</div>
-            <button class="menu-btn" onclick="startHostedGame()">START GAME</button>
+            <div class="waiting-text">Share this code with friends!</div>
+            <div id="lobby-players"></div>
+            <button class="menu-btn start-btn" onclick="startHostedGame()">START GAME</button>
             <button class="menu-btn back-btn" onclick="cancelHost()">CANCEL</button>
+        </div>
+        
+        <div id="guest-waiting" style="display:none;">
+            <div class="room-code-display">ROOM: <span id="joined-room-code">----</span></div>
+            <div id="guest-lobby-players"></div>
+            <button class="menu-btn ready-btn" id="ready-btn" onclick="sendReady()">READY</button>
+            <div id="waiting-for-host" class="waiting-text" style="display:none;">Waiting for host to start...</div>
+            <button class="menu-btn back-btn" onclick="leaveRoom()">LEAVE</button>
         </div>
         
         <div id="connection-status">Connecting to server...</div>
@@ -360,7 +389,7 @@ function connectToServer() {
         document.getElementById('menu-buttons').style.display = 'none';
         document.getElementById('host-info').style.display = 'block';
         document.getElementById('generated-code').textContent = data.roomId;
-        document.getElementById('player-count').textContent = `Players: ${data.players.length}`;
+        updateLobbyPlayers(data.players, 'lobby-players');
         
         ui.connectionStatus.textContent = 'Room created! Share the code with friends.';
         ui.connectionStatus.className = 'connected';
@@ -372,25 +401,45 @@ function connectToServer() {
     
     socket.on('playerJoined', (data) => {
         showMessage(`${data.player.name} JOINED!`);
-        // ホスト画面の場合、プレイヤー数を更新
-        if (document.getElementById('host-info').style.display === 'block' && data.playerCount) {
-            document.getElementById('player-count').textContent = `Players: ${data.playerCount}`;
+        // ロビー画面の場合、プレイヤーリストを更新
+        if (document.getElementById('host-info').style.display === 'block') {
+            updateLobbyPlayers(data.players, 'lobby-players');
+        }
+        if (document.getElementById('guest-waiting').style.display === 'block') {
+            updateLobbyPlayers(data.players, 'guest-lobby-players');
         }
     });
     
-    socket.on('gameStarted', () => {
+    socket.on('playerReadyUpdate', (data) => {
+        // プレイヤーリストを更新
+        if (document.getElementById('host-info').style.display === 'block') {
+            updateLobbyPlayers(data.players, 'lobby-players');
+        }
+        if (document.getElementById('guest-waiting').style.display === 'block') {
+            updateLobbyPlayers(data.players, 'guest-lobby-players');
+        }
+    });
+    
+    socket.on('gameStarted', (data) => {
         // ゲーム画面に切り替え
         ui.startScreen.style.display = 'none';
         ui.hud.style.display = 'block';
         ui.playersList.style.display = 'block';
         ui.weapons.style.display = 'flex';
         ui.formationDisplay.style.display = 'block';
+        
+        // プレイヤー情報を更新
+        if (data.players) {
+            const me = data.players.find(p => p.id === myPlayerId);
+            if (me) myPlayer = me;
+        }
+        
         updateWeaponUI();
         showMessage('◆ GAME START ◆');
     });
     
     socket.on('gameStart', (data) => {
-        // WAVEシステム開始（ソロ or ゲーム開始後）
+        // WAVEシステム開始
         showMessage('◆ GET READY ◆');
     });
     
@@ -400,16 +449,19 @@ function connectToServer() {
         myPlayer = data.player;
         walls = data.walls;
         
-        // ゲームがまだ待機中で、自分がホストでない場合は待機画面
-        if (data.state === 'waiting' && !data.isSolo) {
+        // ゲストとして参加した場合
+        if (data.isGuest && data.state === 'waiting') {
             document.getElementById('menu-buttons').style.display = 'none';
             document.getElementById('join-form').style.display = 'none';
-            ui.connectionStatus.textContent = `Joined room ${data.roomId}. Waiting for host to start...`;
+            document.getElementById('guest-waiting').style.display = 'block';
+            document.getElementById('joined-room-code').textContent = data.roomId;
+            updateLobbyPlayers(data.players, 'guest-lobby-players');
+            ui.connectionStatus.textContent = 'Joined! Press READY when you\'re set.';
             ui.connectionStatus.className = 'connected';
             return;
         }
         
-        // ゲーム画面に切り替え
+        // ゲーム画面に切り替え（ゲームが既に進行中の場合）
         ui.startScreen.style.display = 'none';
         ui.hud.style.display = 'block';
         ui.playersList.style.display = 'block';
@@ -420,9 +472,29 @@ function connectToServer() {
         
         if (data.state === 'playing') {
             showMessage('JOIN THE BATTLE!');
-        } else if (data.isSolo) {
-            showMessage('◆ SOLO MODE ◆');
         }
+    });
+    
+    socket.on('respawned', (data) => {
+        if (myPlayer) {
+            myPlayer.x = data.x;
+            myPlayer.y = data.y;
+            myPlayer.hp = data.hp;
+            myPlayer.alive = true;
+            ui.hp.style.width = '100%';
+        }
+        showMessage('RESPAWN!');
+    });
+    
+    socket.on('playerRespawned', (data) => {
+        if (data.playerId !== myPlayerId) {
+            showMessage(`${data.name} RESPAWNED`);
+        }
+    });
+    
+    socket.on('hostCancelled', () => {
+        alert('Host cancelled the game.');
+        location.reload();
     });
     
     socket.on('playerLeft', (data) => {
@@ -535,11 +607,6 @@ function hostGame() {
     socket.emit('hostRoom', { name });
 }
 
-function soloPlay() {
-    const name = document.getElementById('player-name').value || 'Solo';
-    socket.emit('soloPlay', { name });
-}
-
 function showJoinForm() {
     document.getElementById('menu-buttons').style.display = 'none';
     document.getElementById('join-form').style.display = 'block';
@@ -549,6 +616,7 @@ function showMainMenu() {
     document.getElementById('menu-buttons').style.display = 'block';
     document.getElementById('join-form').style.display = 'none';
     document.getElementById('host-info').style.display = 'none';
+    document.getElementById('guest-waiting').style.display = 'none';
 }
 
 function cancelHost() {
@@ -556,11 +624,64 @@ function cancelHost() {
     location.reload();
 }
 
+function leaveRoom() {
+    location.reload();
+}
+
 function startHostedGame() {
     socket.emit('startGame');
 }
 
+function sendReady() {
+    socket.emit('playerReady');
+    document.getElementById('ready-btn').textContent = 'READY!';
+    document.getElementById('ready-btn').classList.add('ready-sent');
+    document.getElementById('waiting-for-host').style.display = 'block';
+}
+
+function updateLobbyPlayers(players, containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    
+    container.innerHTML = '';
+    players.forEach(p => {
+        const div = document.createElement('div');
+        div.className = 'lobby-player';
+        div.style.color = p.color;
+        
+        const colorDot = document.createElement('div');
+        colorDot.className = 'player-color';
+        colorDot.style.backgroundColor = p.color;
+        colorDot.style.color = p.color;
+        
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'player-name';
+        nameSpan.textContent = p.name;
+        
+        const statusSpan = document.createElement('span');
+        statusSpan.className = 'player-status';
+        if (p.isHost) {
+            statusSpan.classList.add('host');
+            statusSpan.textContent = 'HOST';
+        } else if (p.ready) {
+            statusSpan.classList.add('ready');
+            statusSpan.textContent = 'READY';
+        } else {
+            statusSpan.classList.add('waiting');
+            statusSpan.textContent = 'WAITING';
+        }
+        
+        div.appendChild(colorDot);
+        div.appendChild(nameSpan);
+        div.appendChild(statusSpan);
+        container.appendChild(div);
+    });
+}
+
 // ========== 入力処理 ==========
+let lastInputTime = 0;
+const INPUT_RATE = 1000 / 30; // 30fps で入力送信
+
 function updateInput() {
     if (!myPlayer || !myPlayer.alive) return;
     
@@ -579,11 +700,30 @@ function updateInput() {
         }
     }
     
-    socket.emit('input', {
-        angle: angle,
-        moving: moving,
-        dash: input.dash
-    });
+    // クライアント側予測：即座にローカルで移動を反映
+    if (moving && !myPlayer.dashing) {
+        const speed = myPlayer.speed || 6;
+        const vx = Math.cos(angle) * speed;
+        const vy = Math.sin(angle) * speed;
+        if (!checkWall(myPlayer.x + vx, myPlayer.y)) myPlayer.x += vx;
+        if (!checkWall(myPlayer.x, myPlayer.y + vy)) myPlayer.y += vy;
+        myPlayer.x = Math.max(60, Math.min(WORLD_W - 60, myPlayer.x));
+        myPlayer.y = Math.max(60, Math.min(WORLD_H - 60, myPlayer.y));
+    }
+    myPlayer.angle = angle;
+    
+    // サーバーに送信（レート制限）
+    const now = Date.now();
+    if (now - lastInputTime >= INPUT_RATE) {
+        socket.emit('input', {
+            angle: angle,
+            moving: moving,
+            dash: input.dash,
+            x: myPlayer.x,
+            y: myPlayer.y
+        });
+        lastInputTime = now;
+    }
     
     input.dash = false;
 }
@@ -1140,9 +1280,12 @@ function updatePlayersList(players) {
     players.forEach(p => {
         const div = document.createElement('div');
         div.className = 'player-entry';
+        div.style.color = p.color || '#fff';
         if (p.id === myPlayerId) div.classList.add('me');
         if (!p.alive) div.classList.add('dead');
-        div.textContent = `${p.name}: ${p.score}`;
+        
+        const colorDot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:5px;box-shadow:0 0 5px ${p.color}"></span>`;
+        div.innerHTML = `${colorDot}${p.name}: ${p.score}`;
         container.appendChild(div);
     });
 }
@@ -1218,10 +1361,26 @@ function draw() {
     // プレイヤー
     if (gameState) {
         gameState.players.forEach(p => {
-            if (!p.alive) return;
+            if (!p.alive) {
+                // 死んでいるプレイヤーはリスポーンカウントダウン表示
+                const sx = p.x - camera.x + screenShake.x;
+                const sy = p.y - camera.y + screenShake.y;
+                const respawnTime = Math.ceil((180 - p.respawnTimer) / 60);
+                ctx.fillStyle = p.color || '#888';
+                ctx.globalAlpha = 0.5;
+                ctx.font = 'bold 16px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText(`${p.name}`, sx, sy - 10);
+                ctx.fillText(`RESPAWN: ${respawnTime}`, sx, sy + 10);
+                ctx.globalAlpha = 1;
+                return;
+            }
+            
             const sx = p.x - camera.x + screenShake.x;
             const sy = p.y - camera.y + screenShake.y;
             const isMe = p.id === myPlayerId;
+            const playerColor = p.color || '#fff';
+            const glowColor = p.glowColor || '#0ff';
             
             // サンダーゲージ（自分のみ）
             if (isMe && p.weaponLevels.THUNDER > 0) {
@@ -1250,8 +1409,8 @@ function draw() {
                 ctx.save();
                 ctx.translate(sx, sy);
                 ctx.shadowBlur = p.dashing ? 30 : 15;
-                ctx.shadowColor = isMe ? '#0ff' : '#0f0';
-                ctx.fillStyle = p.dashing ? '#fff' : (isMe ? 'rgba(200,240,255,0.9)' : 'rgba(100,255,150,0.9)');
+                ctx.shadowColor = glowColor;
+                ctx.fillStyle = p.dashing ? '#fff' : playerColor;
                 ctx.beginPath();
                 for (let i = 0; i < 8; i++) {
                     const a = (Math.PI * 2 / 8) * i + frame * 0.03;
@@ -1264,13 +1423,15 @@ function draw() {
                 ctx.closePath();
                 ctx.fill();
                 
-                ctx.fillStyle = isMe ? 'rgba(100,150,200,0.8)' : 'rgba(50,150,100,0.8)';
+                // 中心
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
                 ctx.beginPath();
                 ctx.arc(0, 0, 8 * 0.4, 0, Math.PI * 2);
                 ctx.fill();
                 
+                // 方向インジケーター
                 ctx.rotate(p.angle);
-                ctx.fillStyle = isMe ? '#0ff' : '#0f0';
+                ctx.fillStyle = glowColor;
                 ctx.beginPath();
                 ctx.moveTo(8 + 5, 0);
                 ctx.lineTo(8, -3);
@@ -1279,11 +1440,24 @@ function draw() {
                 ctx.restore();
             }
             
-            // 名前
-            ctx.fillStyle = isMe ? '#0ff' : '#0f0';
+            // 名前とHPバー
+            ctx.fillStyle = playerColor;
             ctx.font = 'bold 10px Courier New';
             ctx.textAlign = 'center';
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = glowColor;
             ctx.fillText(p.name, sx, sy - 20);
+            ctx.shadowBlur = 0;
+            
+            // HPバー（他プレイヤー用）
+            if (!isMe) {
+                const hpRatio = p.hp / p.maxHp;
+                const barWidth = 30;
+                ctx.fillStyle = '#300';
+                ctx.fillRect(sx - barWidth/2, sy - 30, barWidth, 3);
+                ctx.fillStyle = hpRatio > 0.5 ? '#0f0' : hpRatio > 0.25 ? '#ff0' : '#f00';
+                ctx.fillRect(sx - barWidth/2, sy - 30, barWidth * hpRatio, 3);
+            }
         });
     }
     
@@ -1385,7 +1559,7 @@ function drawMinimap() {
         
         gameState.players.forEach(p => {
             if (!p.alive) return;
-            ctx.fillStyle = p.id === myPlayerId ? '#fff' : '#0f0';
+            ctx.fillStyle = p.color || '#fff';
             ctx.beginPath(); ctx.arc(mapX + p.x * scale, mapY + p.y * scale, 3, 0, Math.PI * 2); ctx.fill();
         });
     }
