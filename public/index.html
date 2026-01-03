@@ -348,7 +348,7 @@ function init() {
         if (e.code === 'KeyF') cycleFormation();
     });
     
-    initMobileControls();
+    initMobileControls(); // ★ ここでエラーになっていた部分
     connectToServer();
     requestAnimationFrame(gameLoop);
 }
@@ -899,8 +899,196 @@ function gameLoop() {
     requestAnimationFrame(gameLoop);
 }
 
+// ========== 以下、不足していた関数を追加 ==========
+
+function initMobileControls() {
+    // モバイル操作の初期化（空実装でエラー回避）
+    const joyZone = document.getElementById('joystick-zone');
+    const stick = document.getElementById('joystick-stick');
+    // 必要であればここにタッチイベントを追加
+    document.getElementById('btn-dash').addEventListener('touchstart', (e) => {
+        e.preventDefault(); triggerDash();
+    });
+    document.getElementById('btn-form').addEventListener('touchstart', (e) => {
+        e.preventDefault(); cycleFormation();
+    });
+}
+
+function updateCamera() {
+    if (myPlayer) {
+        // プレイヤーを中心にカメラを追従させる
+        camera.x = myPlayer.x - canvas.width / 2;
+        camera.y = myPlayer.y - canvas.height / 2;
+    }
+}
+
+function updateScreenShake() {
+    if (screenShake.intensity > 0) {
+        screenShake.x = (Math.random() - 0.5) * screenShake.intensity;
+        screenShake.y = (Math.random() - 0.5) * screenShake.intensity;
+        screenShake.intensity *= 0.9; // 徐々に減衰
+        if (screenShake.intensity < 0.5) screenShake.intensity = 0;
+    } else {
+        screenShake.x = 0;
+        screenShake.y = 0;
+    }
+}
+
+function triggerScreenShake(amount) {
+    screenShake.intensity = amount;
+}
+
+function draw() {
+    // 画面クリア
+    ctx.fillStyle = '#000810';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    ctx.save();
+    // カメラとシェイクの適用
+    ctx.translate(-camera.x + screenShake.x, -camera.y + screenShake.y);
+
+    // 壁の描画（背景）
+    ctx.strokeStyle = '#004455';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
+    if (walls) {
+        ctx.fillStyle = '#001122';
+        walls.forEach(w => {
+            ctx.fillRect(w.x, w.y, w.w, w.h);
+            ctx.strokeRect(w.x, w.y, w.w, w.h);
+        });
+    }
+
+    // プレイヤーの描画
+    if (gameState && gameState.players) {
+        gameState.players.forEach(p => {
+            if (!p.alive) return;
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(p.angle);
+            ctx.fillStyle = p.color || '#0ff';
+            // 三角形を描画
+            ctx.beginPath();
+            ctx.moveTo(15, 0);
+            ctx.lineTo(-10, -10);
+            ctx.lineTo(-10, 10);
+            ctx.fill();
+            ctx.restore();
+            
+            // 名前表示
+            ctx.fillStyle = '#fff';
+            ctx.font = '12px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText(p.name, p.x, p.y - 25);
+        });
+    }
+
+    // 敵の描画
+    if (gameState && gameState.enemies) {
+        gameState.enemies.forEach(e => {
+            if (e.hp <= 0) return;
+            ctx.fillStyle = e.isBoss ? '#f00' : '#f0f';
+            ctx.beginPath();
+            ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
+
+    // 弾丸の描画
+    localBullets.forEach(b => b.draw());
+    localMissiles.forEach(m => m.draw());
+    if (activeLaser) activeLaser.draw();
+
+    ctx.restore();
+}
+
+function checkWall(x, y, walls) {
+    // 簡易的な壁判定（ワールド外に出ないように）
+    if (x < 0 || x > WORLD_W || y < 0 || y > WORLD_H) return true;
+    // 障害物判定（もしあれば）
+    if (walls) {
+        for (let w of walls) {
+            if (x > w.x && x < w.x + w.w && y > w.y && y < w.y + w.h) return true;
+        }
+    }
+    return false;
+}
+
+function createParticle(x, y, color) {
+    // 簡易パーティクル（今回は空実装でも動く）
+}
+
+function createParticles(x, y, color, count) {
+    // 簡易パーティクル（今回は空実装でも動く）
+}
+
+function getWallNormal(x, y) {
+    // レーザー反射用（簡易的にnullを返す）
+    return null; 
+}
+
+function distToSegment(x, y, x1, y1, x2, y2) {
+    const A = x - x1;
+    const B = y - y1;
+    const C = x2 - x1;
+    const D = y2 - y1;
+    const dot = A * C + B * D;
+    const len_sq = C * C + D * D;
+    let param = -1;
+    if (len_sq !== 0) param = dot / len_sq;
+    let xx, yy;
+    if (param < 0) { xx = x1; yy = y1; }
+    else if (param > 1) { xx = x2; yy = y2; }
+    else { xx = x1 + param * C; yy = y1 + param * D; }
+    const dx = x - xx;
+    const dy = y - yy;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+function playSound(name) {
+    // 音声再生（エラー回避用）
+    // console.log("Play sound: " + name);
+}
+
+function showMessage(msg) {
+    const el = document.getElementById('message');
+    el.textContent = msg;
+    el.style.opacity = 1;
+    setTimeout(() => { el.style.opacity = 0; }, 2000);
+}
+
+function updateWeaponUI() {
+    // 武器スロットの表示更新（簡易版）
+    if (!myPlayer) return;
+    for (let key in ui.weaponSlots) {
+        // キーを大文字にしてレベル確認
+        let level = myPlayer.weaponLevels ? myPlayer.weaponLevels[key.toUpperCase()] : 0;
+        let el = ui.weaponSlots[key];
+        if (el) {
+            if (level > 0) {
+                el.classList.remove('locked');
+                el.textContent = key.toUpperCase() + " Lv." + level;
+            }
+        }
+    }
+}
+
+function updatePlayersList(players) {
+    const list = document.getElementById('player-entries');
+    list.innerHTML = '';
+    players.forEach(p => {
+        const div = document.createElement('div');
+        div.className = 'player-entry';
+        if (p.id === myPlayerId) div.classList.add('me');
+        if (!p.alive) div.classList.add('dead');
+        div.style.color = p.color;
+        div.textContent = p.name + (p.alive ? '' : ' (DEAD)');
+        list.appendChild(div);
+    });
+}
+
 // ========== 開始 ==========
 init();
-    </script>
+</script>
 </body>
 </html>
