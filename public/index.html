@@ -1,7 +1,279 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>PLAZMERS - ONLINE MULTIPLAYER</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: #000810; /* ここで背景を黒くしています */
+            overflow: hidden; 
+            font-family: 'Courier New', monospace;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            cursor: crosshair;
+        }
+        #canvas { display: block; background: #000810; }
+        
+        .ui { position: fixed; color: #0ff; font-size: 14px; text-shadow: 0 0 10px #0ff; z-index: 100; }
+        
+        #start-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: radial-gradient(ellipse at center, #001020 0%, #000810 100%);
+            z-index: 200;
+        }
+        #start-screen h1 {
+            font-size: 60px; color: #0ff; text-shadow: 0 0 30px #0ff, 0 0 60px #08f;
+            letter-spacing: 15px; margin-bottom: 10px;
+        }
+        #start-screen .subtitle {
+            font-size: 16px; color: #f08; margin-bottom: 20px;
+            text-shadow: 0 0 10px #f08; letter-spacing: 5px;
+        }
+        #start-screen .online-badge {
+            font-size: 14px; color: #0f0; margin-bottom: 30px;
+            text-shadow: 0 0 10px #0f0; letter-spacing: 3px;
+            padding: 5px 15px; border: 1px solid #0f0; border-radius: 20px;
+        }
+        .menu-btn {
+            background: transparent; border: 2px solid #0ff; color: #0ff;
+            padding: 15px 50px; margin: 10px; font-size: 18px; cursor: pointer;
+            font-family: 'Courier New', monospace; letter-spacing: 3px;
+            transition: all 0.3s; text-shadow: 0 0 10px #0ff;
+        }
+        .menu-btn:hover { background: #0ff; color: #000; box-shadow: 0 0 30px #0ff; }
+        .name-input, .room-input {
+            background: transparent; border: 2px solid #0ff; color: #0ff;
+            padding: 10px 20px; font-size: 16px; text-align: center;
+            font-family: 'Courier New', monospace; margin-bottom: 10px; width: 200px;
+        }
+        .name-input::placeholder, .room-input::placeholder { color: #088; }
+        .room-input { margin-bottom: 20px; }
+        .back-btn { border-color: #888; color: #888; text-shadow: 0 0 10px #888; padding: 10px 30px; font-size: 14px; }
+        .back-btn:hover { background: #888; color: #000; }
+        .start-btn { border-color: #0f0; color: #0f0; text-shadow: 0 0 10px #0f0; }
+        .start-btn:hover { background: #0f0; color: #000; box-shadow: 0 0 30px #0f0; }
+        .ready-btn { border-color: #0f0; color: #0f0; text-shadow: 0 0 10px #0f0; }
+        .ready-btn:hover { background: #0f0; color: #000; box-shadow: 0 0 30px #0f0; }
+        .ready-btn.ready-sent { border-color: #888; color: #888; pointer-events: none; }
+        .room-code-display {
+            font-size: 32px; color: #ff0; margin: 20px 0;
+            text-shadow: 0 0 20px #ff0; letter-spacing: 8px;
+            padding: 15px 30px; border: 3px solid #ff0; border-radius: 10px;
+            background: rgba(255,255,0,0.1);
+        }
+        .room-code-display span { font-weight: bold; }
+        .waiting-text { color: #0ff; font-size: 14px; margin: 10px 0; animation: blink 1s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        
+        #lobby-players, #guest-lobby-players {
+            background: rgba(0,0,0,0.5); border: 1px solid #0ff; padding: 15px;
+            margin: 15px 0; min-width: 250px; border-radius: 5px;
+        }
+        .lobby-player {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 10px; margin: 5px 0; border-radius: 3px;
+            background: rgba(0,255,255,0.1);
+        }
+        .lobby-player .player-color {
+            width: 12px; height: 12px; border-radius: 50%; margin-right: 10px;
+            box-shadow: 0 0 10px currentColor;
+        }
+        .lobby-player .player-name { flex: 1; text-align: left; }
+        .lobby-player .player-status { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
+        .lobby-player .player-status.host { color: #ff0; border: 1px solid #ff0; }
+        .lobby-player .player-status.ready { color: #0f0; border: 1px solid #0f0; }
+        .lobby-player .player-status.waiting { color: #888; border: 1px solid #888; }
+        
+        #connection-status {
+            font-size: 12px; color: #888; margin-top: 20px;
+        }
+        #connection-status.connected { color: #0f0; }
+        #connection-status.error { color: #f00; }
+        
+        #hud { position: fixed; top: 10px; left: 10px; }
+        .hud-label { font-size: 10px; color: #088; margin-bottom: 2px; }
+        .hud-value { font-size: 20px; color: #0ff; margin-bottom: 10px; }
+        #hp-bar { width: 150px; height: 8px; background: #001; border: 1px solid #0ff; margin-bottom: 10px; }
+        #hp-fill { width: 100%; height: 100%; background: linear-gradient(90deg, #f00, #ff0, #0f0); transition: width 0.2s; }
+        
+        #players-list {
+            position: fixed; top: 10px; right: 10px;
+            background: rgba(0,0,0,0.7); padding: 10px; border: 1px solid #0ff;
+            font-size: 12px; max-width: 200px;
+        }
+        #players-list h3 { color: #0ff; margin-bottom: 5px; font-size: 12px; }
+        .player-entry { margin: 3px 0; display: flex; align-items: center; }
+        .player-entry.me { font-weight: bold; }
+        .player-entry.dead { opacity: 0.5; text-decoration: line-through; }
+        
+        #boss-container {
+            position: fixed; top: 50px; left: 50%; transform: translateX(-50%);
+            width: 500px; max-width: 90%; display: none; text-align: center;
+        }
+        #boss-name { font-size: 14px; color: #f00; margin-bottom: 5px; text-shadow: 0 0 10px #f00; font-weight: bold; }
+        #boss-bar { width: 100%; height: 12px; background: #200; border: 1px solid #f00; }
+        #boss-hp { width: 100%; height: 100%; background: linear-gradient(90deg, #f00, #ff0); transition: width 0.3s; }
+        
+        #weapons {
+            position: fixed; bottom: 10px; left: 10px;
+            display: flex; gap: 8px; flex-wrap: wrap; max-width: 350px;
+        }
+        .weapon-slot {
+            padding: 5px 8px; border: 1px solid #444; background: #001;
+            font-size: 9px; color: #888; transition: all 0.3s;
+        }
+        .weapon-slot.active { border-color: #0ff; color: #0ff; box-shadow: 0 0 10px #0ff; }
+        .weapon-slot.locked { opacity: 0.3; }
+        
+        #formation-display {
+            position: fixed; bottom: 80px; left: 10px;
+            font-size: 12px; color: #0f0; text-shadow: 0 0 10px #0f0;
+        }
+        
+        #joystick-zone {
+            position: fixed; bottom: 20px; left: 20px;
+            width: 130px; height: 130px; display: none;
+        }
+        #joystick-base {
+            width: 100%; height: 100%; border-radius: 50%;
+            background: rgba(0,255,255,0.1); border: 2px solid rgba(0,255,255,0.3);
+        }
+        #joystick-stick {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 55px; height: 55px; border-radius: 50%;
+            background: rgba(0,255,255,0.4); border: 2px solid #0ff;
+        }
+        #mobile-buttons {
+            position: fixed; bottom: 20px; right: 20px;
+            display: none; gap: 10px;
+        }
+        .mobile-btn {
+            width: 55px; height: 55px; border-radius: 50%;
+            background: rgba(0,255,255,0.2); border: 2px solid #0ff;
+            color: #0ff; font-size: 10px; font-weight: bold;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .mobile-btn:active { background: rgba(0,255,255,0.5); }
+        
+        #game-over {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); display: none;
+            flex-direction: column; align-items: center; justify-content: center; z-index: 300;
+        }
+        #game-over h2 { font-size: 48px; color: #f00; margin-bottom: 20px; text-shadow: 0 0 30px #f00; }
+        #final-score { font-size: 24px; color: #0ff; margin-bottom: 10px; }
+        #final-wave { font-size: 18px; color: #0ff; margin-bottom: 30px; }
+        
+        #message {
+            position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 32px; color: #0ff; text-shadow: 0 0 20px #0ff;
+            opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 150; width: 100%; text-align: center;
+        }
+        
+        @media (max-width: 768px) {
+            #start-screen h1 { font-size: 36px; letter-spacing: 8px; }
+            .menu-btn { padding: 12px 30px; font-size: 14px; }
+            #joystick-zone, #mobile-buttons { display: flex; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="start-screen">
+        <h1>PLAZMERS</h1>
+        <div class="subtitle">◆ INNER SPACE ◆</div>
+        <div class="online-badge">🌐 ONLINE CO-OP</div>
+        <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
+        
+        <div id="menu-buttons">
+            <button class="menu-btn" onclick="hostGame()">HOST GAME</button>
+            <button class="menu-btn" onclick="showJoinForm()">JOIN GAME</button>
+        </div>
+        
+        <div id="join-form" style="display:none;">
+            <input type="text" id="room-id" class="room-input" placeholder="4-DIGIT CODE" maxlength="4">
+            <button class="menu-btn" onclick="joinGame()">JOIN</button>
+            <button class="menu-btn back-btn" onclick="showMainMenu()">BACK</button>
+        </div>
+        
+        <div id="host-info" style="display:none;">
+            <div class="room-code-display">ROOM CODE: <span id="generated-code">----</span></div>
+            <div class="waiting-text">Share this code with friends!</div>
+            <div id="lobby-players"></div>
+            <button class="menu-btn start-btn" onclick="startHostedGame()">START GAME</button>
+            <button class="menu-btn back-btn" onclick="cancelHost()">CANCEL</button>
+        </div>
+        
+        <div id="guest-waiting" style="display:none;">
+            <div class="room-code-display">ROOM: <span id="joined-room-code">----</span></div>
+            <div id="guest-lobby-players"></div>
+            <button class="menu-btn ready-btn" id="ready-btn" onclick="sendReady()">READY</button>
+            <div id="waiting-for-host" class="waiting-text" style="display:none;">Waiting for host to start...</div>
+            <button class="menu-btn back-btn" onclick="leaveRoom()">LEAVE</button>
+        </div>
+        
+        <div id="connection-status">Connecting to server...</div>
+    </div>
+    
+    <div id="hud" class="ui" style="display:none;">
+        <div class="hud-label">HP</div>
+        <div id="hp-bar"><div id="hp-fill"></div></div>
+        <div class="hud-label">WAVE</div>
+        <div class="hud-value" id="wave">0</div>
+        <div class="hud-label">TEAM SCORE</div>
+        <div class="hud-value" id="score">0</div>
+    </div>
+    
+    <div id="players-list" class="ui" style="display:none;">
+        <h3>PLAYERS</h3>
+        <div id="player-entries"></div>
+    </div>
+    
+    <div id="boss-container">
+        <div id="boss-name">BOSS</div>
+        <div id="boss-bar"><div id="boss-hp"></div></div>
+    </div>
+    
+    <div id="weapons" style="display:none;">
+        <div class="weapon-slot active" id="w-plazmer">PLAZMER</div>
+        <div class="weapon-slot locked" id="w-homing">HOMING</div>
+        <div class="weapon-slot locked" id="w-laser">LASER</div>
+        <div class="weapon-slot locked" id="w-thunder">THUNDER</div>
+        <div class="weapon-slot locked" id="w-allrange">ALL-RANGE</div>
+    </div>
+    
+    <div id="formation-display" style="display:none;">FORMATION: FOLLOW</div>
+    
+    <div id="joystick-zone">
+        <div id="joystick-base"></div>
+        <div id="joystick-stick"></div>
+    </div>
+    <div id="mobile-buttons">
+        <div class="mobile-btn" id="btn-dash">DASH</div>
+        <div class="mobile-btn" id="btn-form">FORM</div>
+    </div>
+    
+    <div id="game-over">
+        <h2>GAME OVER</h2>
+        <div id="final-score">SCORE: 0</div>
+        <div id="final-wave">WAVE: 0</div>
+        <button class="menu-btn" onclick="location.reload()">RETRY</button>
+    </div>
+    
+    <div id="message"></div>
+
 <script>
 // ========== 修正版スクリプト（安全対策済み） ==========
 
-// グローバル変数の宣言（ここではまだ中身を入れない）
+// グローバル変数の宣言
 let canvas, ctx;
 const WORLD_W = 3000, WORLD_H = 3000;
 
@@ -29,7 +301,7 @@ let screenShake = { x: 0, y: 0, intensity: 0 };
 const FORMATIONS = ['FOLLOW', 'GO AROUND 1', 'GO AROUND 2', 'HUNT'];
 let currentFormation = 0;
 
-// UI要素（初期化時に取得するよう変更）
+// UI要素（初期化時に取得）
 let ui = {};
 
 // ========== 初期化（画面読み込み完了後に実行） ==========
@@ -821,3 +1093,5 @@ function updateWeaponUI() {
 window.addEventListener('load', init);
 
 </script>
+</body>
+</html>
