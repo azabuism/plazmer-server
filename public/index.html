@@ -32,7 +32,7 @@
             letter-spacing: 15px; margin-bottom: 10px;
         }
         #start-screen .subtitle {
-            font-size: 16px; color: #f08; margin-bottom: 40px;
+            font-size: 16px; color: #f08; margin-bottom: 30px;
             text-shadow: 0 0 10px #f08; letter-spacing: 5px;
         }
         .menu-btn {
@@ -43,7 +43,8 @@
             pointer-events: auto;
         }
         .menu-btn:hover { background: #0ff; color: #000; box-shadow: 0 0 30px #0ff; }
-        .menu-btn:disabled { border-color: #444; color: #444; cursor: not-allowed; box-shadow: none; }
+        .menu-btn:active { background: #0aa; transform: scale(0.95); }
+        .menu-btn:disabled { border-color: #444; color: #444; cursor: wait; box-shadow: none; }
 
         .name-input, .room-input {
             background: transparent; border: 2px solid #0ff; color: #0ff;
@@ -140,7 +141,8 @@
             font-size: 32px; color: #0ff; text-shadow: 0 0 20px #0ff;
             opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 150; width: 100%; text-align: center;
         }
-        #status-msg { margin-top: 10px; color: #0ff; font-size: 12px; height: 20px; }
+        #status-msg { margin-top: 10px; color: #088; font-size: 12px; height: 20px; animation: blink 1s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
         
         @media (max-width: 768px) {
             #start-screen h1 { font-size: 36px; letter-spacing: 8px; }
@@ -158,8 +160,8 @@
         <input type="text" id="player-name" class="name-input" placeholder="ENTER NAME" maxlength="12">
         
         <div id="menu-buttons">
-            <button class="menu-btn" onclick="hostGame()">HOST GAME</button>
-            <button class="menu-btn" onclick="showJoinForm()">JOIN GAME</button>
+            <button class="menu-btn" id="btn-host" onclick="hostGame()">HOST GAME</button>
+            <button class="menu-btn" id="btn-join" onclick="showJoinForm()">JOIN GAME</button>
         </div>
 
         <div id="join-form">
@@ -172,7 +174,7 @@
             <div class="room-code-display">CODE: <span id="generated-code">----</span></div>
             <div class="hud-label">PLAYERS IN LOBBY</div>
             <div id="lobby-players"></div>
-            <div style="font-size: 10px; color: #888; margin: 5px;">(START ALONE = SOLO MODE)</div>
+            <div style="font-size: 10px; color: #888; margin: 10px;">(START ALONE = SOLO MODE)</div>
             <button class="menu-btn" onclick="tryStartGame()">START MISSION</button>
             <button class="menu-btn back-btn" onclick="location.reload()">CANCEL</button>
         </div>
@@ -188,7 +190,7 @@
     </div>
     
     <div id="hud" class="ui" style="display:none;">
-        <div class="hud-label">IMMUNE CELL HP</div>
+        <div class="hud-label">HP</div>
         <div id="hp-bar"><div id="hp-fill"></div></div>
         <div class="hud-label">WAVE</div>
         <div class="hud-value" id="wave">0</div>
@@ -227,7 +229,7 @@
     </div>
     
     <div id="game-over">
-        <h2>INFECTION SPREAD</h2>
+        <h2>GAME OVER</h2>
         <div id="final-score">SCORE: 0</div>
         <button class="menu-btn" onclick="location.reload()">RETRY</button>
     </div>
@@ -235,7 +237,7 @@
     <div id="message"></div>
 
 <script>
-// ========== 共通変数 ==========
+// ========== 定数・変数 ==========
 const WORLD_W = 3000, WORLD_H = 3000;
 let canvas, ctx;
 let socket = null;
@@ -319,8 +321,8 @@ function init() {
     canvas.addEventListener('mousemove', e => { input.x = e.clientX; input.y = e.clientY; });
     canvas.addEventListener('mousedown', e => {
         e.preventDefault();
-        if(e.button === 0 && (gameState === 'playing_solo' || gameState === 'playing_online')) cycleFormation();
-        if(e.button === 2 && (gameState === 'playing_solo' || gameState === 'playing_online')) triggerBomb();
+        if(e.button === 0 && (gameState.startsWith('playing'))) cycleFormation();
+        if(e.button === 2 && (gameState.startsWith('playing'))) triggerBomb();
     });
     canvas.addEventListener('contextmenu', e => e.preventDefault());
     
@@ -334,8 +336,9 @@ function init() {
     if(typeof io !== 'undefined') {
         socket = io();
         setupSocketListeners();
+        setStatus("ONLINE READY");
     } else {
-        setStatus("OFFLINE MODE: Socket.io not loaded");
+        setStatus("OFFLINE MODE");
     }
 
     initMobileControls();
@@ -361,7 +364,7 @@ function setupSocketListeners() {
         document.getElementById('generated-code').textContent = data.roomId;
         lobbyPlayerCount = data.players.length;
         updateLobby(data.players, 'lobby-players');
-        setStatus("ROOM CREATED");
+        setStatus("");
     });
 
     socket.on('joined', (data) => {
@@ -370,7 +373,7 @@ function setupSocketListeners() {
         document.getElementById('guest-waiting').style.display = 'flex';
         document.getElementById('joined-room-code').textContent = data.roomId;
         updateLobby(data.players, 'guest-lobby-players');
-        setStatus("JOINED ROOM");
+        setStatus("");
     });
 
     socket.on('playerJoined', (data) => {
@@ -380,27 +383,44 @@ function setupSocketListeners() {
     });
 
     socket.on('gameStarted', (data) => {
-        // オンラインゲーム開始
         startOnlineGameClient(data);
     });
     
     socket.on('gameState', (state) => {
-        // オンライン同期（簡易）
+        if(gameState === 'playing_online') {
+            // 同期処理（今回は簡易実装のため省略）
+        }
     });
 }
 
 function hostGame() {
     if(!socket || !socket.connected) {
-        alert("Server not connected. Reload or check connection.");
+        alert("Connecting to server... Please wait.");
         return;
     }
     const name = document.getElementById('player-name').value || "Host";
+    const btn = document.getElementById('btn-host');
+    btn.disabled = true;
+    btn.textContent = "CREATING...";
     setStatus("Creating Room...");
+    
+    // サーバー応答がない場合のタイムアウト
+    setTimeout(() => {
+        if(btn.disabled) {
+            btn.disabled = false;
+            btn.textContent = "HOST GAME";
+            setStatus("Connection timed out. Try again.");
+        }
+    }, 5000);
+
     socket.emit('hostRoom', { name });
 }
 
 function joinGame() {
-    if(!socket || !socket.connected) return;
+    if(!socket || !socket.connected) {
+        alert("Server not connected.");
+        return;
+    }
     const name = document.getElementById('player-name').value || "Guest";
     const roomId = document.getElementById('room-id').value;
     if(roomId.length === 4) socket.emit('joinRoom', { name, roomId });
@@ -408,10 +428,8 @@ function joinGame() {
 
 function tryStartGame() {
     if (lobbyPlayerCount <= 1) {
-        // 1人ならソロモード開始（ローカル）
         startSoloGame();
     } else {
-        // 2人以上ならサーバーへ開始指示
         socket.emit('startGame');
     }
 }
@@ -443,7 +461,7 @@ function updateLobby(players, elementId) {
     });
 }
 
-// ========== ゲーム開始処理 (ソロ/オンライン共通初期化) ==========
+// ========== ゲーム開始処理 ==========
 function setupGameCommon() {
     ui.startScreen.style.display = 'none';
     ui.hud.style.display = 'block';
@@ -468,34 +486,47 @@ function startSoloGame() {
     setupGameCommon();
     player = new Player();
     walls = generateMazeWalls(0);
+    // カメラの初期位置をプレイヤーに合わせる（重要）
+    camera.x = player.x - canvas.width/2;
+    camera.y = player.y - canvas.height/2;
 }
 
 function startOnlineGameClient(data) {
     gameState = 'playing_online';
     setupGameCommon();
-    // オンラインはサーバーからの同期でプレイヤー位置が決まるが、
-    // ここでは簡易的にローカル生成
     player = new Player(); 
-    walls = generateMazeWalls(0); // 本来はサーバー同期が必要
+    walls = generateMazeWalls(0);
+    camera.x = player.x - canvas.width/2;
+    camera.y = player.y - canvas.height/2;
 }
 
 // ========== メインループ ==========
 function update() {
     frame++;
     
-    if (gameState === 'playing_solo') {
-        updateSolo();
-    } else if (gameState === 'playing_online') {
-        updateOnline();
+    if (gameState.startsWith('playing')) {
+        updateGameLogic();
     }
     
     draw();
     requestAnimationFrame(update);
 }
 
-function updateSolo() {
-    if (player) { player.update(); updateCamera(); }
+function updateGameLogic() {
+    // プレイヤー更新
+    if (player) { 
+        player.update(); 
+        // カメラ追従 (スムーズ)
+        camera.x += (player.x - canvas.width / 2 - camera.x) * 0.1;
+        camera.y += (player.y - canvas.height / 2 - camera.y) * 0.1;
+        
+        // オンラインなら入力送信
+        if (gameState === 'playing_online' && socket && joystick.active) {
+            socket.emit('input', { x: player.x, y: player.y, angle: player.angle, dashing: player.dashing });
+        }
+    }
     
+    // WAVE進行
     soloWaveTimer++; soloMobTimer++;
     if (wave === 0 && soloWaveTimer > 60) startWave();
     
@@ -507,7 +538,7 @@ function updateSolo() {
     updateEnemies();
     enemies = enemies.filter(e => e.hp > 0);
     
-    // ボス判定
+    // ボスUI判定
     const bossCheck = enemies.filter(e => e.isBoss && e.hp > 0);
     if (bossCheck.length > 0) {
         ui.bossContainer.style.display = 'block';
@@ -523,7 +554,7 @@ function updateSolo() {
             triggerScreenShake(40);
             enemies.forEach(e => { if (!e.isBoss && e.hp > 0) { e.hp = 0; score += 50; } });
             ui.score.textContent = score;
-            setTimeout(() => { if (gameState === 'playing_solo') startWave(); }, 3000);
+            setTimeout(() => { if (gameState.startsWith('playing')) startWave(); }, 3000);
         }
     }
     
@@ -539,36 +570,33 @@ function updateSolo() {
     updateScreenShake();
 }
 
-function updateOnline() {
-    // オンラインモード：基本はソロと同じ動きをするが、入力のみ送信する
-    // (完全なオンライン同期にはサーバー側の実装が必要なため、今回は「ソロの動き+入力送信」とする)
-    if(player) {
-        player.update(); 
-        updateCamera();
-        // 入力送信
-        if (socket && joystick.active) {
-            socket.emit('input', { x: player.x, y: player.y, angle: player.angle, dashing: player.dashing });
-        }
-    }
-    // 以下、敵や弾の処理は本来サーバー同期だが、動くようにローカル処理を入れる
-    updateSolo(); 
-}
-
-// ========== 描画処理 (修正済) ==========
+// ========== 描画処理 (座標計算修正済) ==========
 function draw() {
     if(!ctx) return;
     ctx.fillStyle = '#000810'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     
+    // カメラ座標計算（整数化してチラつき防止）
+    const camX = Math.floor(camera.x - screenShake.x);
+    const camY = Math.floor(camera.y - screenShake.y);
+
     ctx.save();
-    ctx.translate(-camera.x + screenShake.x, -camera.y + screenShake.y);
+    // 全体をカメラ分ずらす（これが基本）
+    ctx.translate(-camX, -camY);
 
     // グリッド
     ctx.strokeStyle = 'rgba(100,20,30,0.3)'; ctx.lineWidth = 1;
     const gridSize = 80;
-    for (let x = -camera.x % gridSize; x < canvas.width; x += gridSize) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
-    for (let y = -camera.y % gridSize; y < canvas.height; y += gridSize) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+    // グリッドはカメラ位置に合わせてループさせる
+    const startX = Math.floor(camX / gridSize) * gridSize;
+    const startY = Math.floor(camY / gridSize) * gridSize;
+    for (let x = startX; x < startX + canvas.width + gridSize; x += gridSize) { 
+        ctx.beginPath(); ctx.moveTo(x, camY); ctx.lineTo(x, camY + canvas.height); ctx.stroke(); 
+    }
+    for (let y = startY; y < startY + canvas.height + gridSize; y += gridSize) { 
+        ctx.beginPath(); ctx.moveTo(camX, y); ctx.lineTo(camX + canvas.width, y); ctx.stroke(); 
+    }
 
-    // 壁
+    // 壁（すでにワールド座標なのでそのまま描画）
     walls.forEach(w => {
         if (w.type === 'cell') {
             ctx.fillStyle = 'rgba(150,30,50,0.8)'; ctx.strokeStyle = '#f66'; ctx.lineWidth = 3;
@@ -589,13 +617,15 @@ function draw() {
         ctx.shadowBlur = 0;
     });
 
-    // プレイヤー描画（ここが以前バグっていた箇所。修正済み）
+    // プレイヤー（ワールド座標）
     if (player) player.draw();
 
+    // 敵
     enemies.forEach(e => {
         if (e.isBoss) drawBoss(e); else drawEnemy(e);
     });
 
+    // 弾
     bullets.forEach(b => b.draw());
     enemyBullets.forEach(b => {
         ctx.fillStyle = b.color; ctx.shadowBlur = 10; ctx.shadowColor = b.color;
@@ -607,13 +637,14 @@ function draw() {
 
     if(activeLaser) activeLaser.draw();
 
-    ctx.restore();
+    ctx.restore(); // カメラ解除
 
+    // HUD類 (画面固定)
     drawEnemyIndicators();
     drawMinimap();
 }
 
-// ========== プレイヤー (座標計算修正) ==========
+// ========== プレイヤー ==========
 class Player {
     constructor() {
         this.x = WORLD_W / 2; this.y = WORLD_H / 2;
@@ -643,6 +674,7 @@ class Player {
                 if (!checkWall(this.x + vx, this.y)) this.x += vx;
                 if (!checkWall(this.x, this.y + vy)) this.y += vy;
             } else {
+                // マウス追従
                 const mx = input.x + camera.x;
                 const my = input.y + camera.y;
                 this.angle = Math.atan2(my - this.y, mx - this.x);
@@ -691,12 +723,13 @@ class Player {
     }
     
     draw() {
-        // ★修正：カメラ座標は ctx.translate で処理済みなので、ここでは this.x, this.y を直接使う
+        // ワールド座標で描画 (cameraはdraw側でtranslate済み)
         if (this.invincible % 4 < 2) {
             ctx.save();
             ctx.translate(this.x, this.y); 
             ctx.rotate(this.angle);
             ctx.fillStyle = '#0ff';
+            ctx.shadowBlur = 15; ctx.shadowColor = '#0ff';
             ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-6, 6); ctx.lineTo(-6, -6); ctx.fill();
             ctx.restore();
         }
@@ -711,7 +744,7 @@ class PlazmerBullet {
     constructor(d) { this.x=d.x; this.y=d.y; this.angle=d.angle; this.vx=Math.cos(d.angle)*14; this.vy=Math.sin(d.angle)*14; this.life=60; this.size=4; this.color=d.color||'#fff'; }
     update() { this.x+=this.vx; this.y+=this.vy; this.life--; if(this.life<=0||checkWall(this.x,this.y)) this.dead=true; this.checkHit(); }
     checkHit() { enemies.forEach(e=>{ if(e.hp>0 && Math.hypot(e.x-this.x, e.y-this.y) < e.size+this.size) { damageEnemy(e,3,'PLAZMER'); this.dead=true; } }); }
-    draw() { ctx.fillStyle=this.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI*2); ctx.fill(); }
+    draw() { ctx.fillStyle=this.color; ctx.shadowBlur=10; ctx.shadowColor=this.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur=0; }
 }
 
 function createParticle(x, y, color) { particles.push(new Particle(x, y, color, 4, 15)); }
@@ -731,35 +764,61 @@ function createFloatingText(x, y, text, color) { texts.push(new FloatingText(x, 
 class Option {
     constructor() { this.x=player.x; this.y=player.y; this.angle=0; }
     update(i, t) { 
-        this.x += (player.x - this.x)*0.2; // 簡易追従
+        this.x += (player.x - this.x)*0.2;
         this.y += (player.y - this.y)*0.2;
     }
     draw() { 
         ctx.save(); ctx.translate(this.x, this.y); 
-        ctx.fillStyle='#0f0'; ctx.beginPath(); ctx.arc(0,0,6,0,Math.PI*2); ctx.fill(); 
+        ctx.fillStyle='#0f0'; ctx.shadowBlur=5; ctx.shadowColor='#0f0'; ctx.beginPath(); ctx.arc(0,0,6,0,Math.PI*2); ctx.fill(); 
         ctx.restore(); 
     }
 }
 
-function updateCamera() {
-    if(!player) return;
-    camera.x = player.x - canvas.width/2;
-    camera.y = player.y - canvas.height/2;
-    camera.x = Math.max(0, Math.min(WORLD_W - canvas.width, camera.x));
-    camera.y = Math.max(0, Math.min(WORLD_H - canvas.height, camera.y));
-}
-
 function drawEnemy(e) {
     ctx.fillStyle = e.color; 
+    ctx.shadowBlur = 10; ctx.shadowColor = e.color;
     ctx.beginPath(); ctx.arc(e.x, e.y, e.size, 0, Math.PI*2); ctx.fill();
+    ctx.shadowBlur = 0;
 }
 function drawBoss(e) {
     ctx.strokeStyle = e.color; ctx.lineWidth = 3; 
+    ctx.shadowBlur = 20; ctx.shadowColor = e.color;
     ctx.beginPath(); ctx.arc(e.x, e.y, e.size, 0, Math.PI*2); ctx.stroke();
+    ctx.shadowBlur = 0;
 }
 
-function drawEnemyIndicators() {} // 簡略化
-function drawMinimap() {} // 簡略化
+function drawEnemyIndicators() {
+    if(!player) return;
+    const margin = 50;
+    const cx = canvas.width/2; const cy = canvas.height/2;
+    enemies.forEach(e => {
+        if (e.hp <= 0) return;
+        // 画面内にあるかチェック
+        const sx = e.x - camera.x; const sy = e.y - camera.y;
+        if (sx > 0 && sx < canvas.width && sy > 0 && sy < canvas.height) return;
+
+        const angle = Math.atan2(e.y - player.y, e.x - player.x);
+        let ix = cx + Math.cos(angle) * (cx - margin);
+        let iy = cy + Math.sin(angle) * (cy - margin);
+        
+        ctx.save(); ctx.translate(ix, iy); ctx.rotate(angle);
+        ctx.fillStyle = e.isBoss ? '#ff0' : '#f00';
+        ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-10, 6); ctx.lineTo(-10, -6); ctx.fill();
+        ctx.restore();
+    });
+}
+function drawMinimap() {
+    const mapW = 100, mapH = 100;
+    const mx = canvas.width - mapW - 10, my = canvas.height - mapH - 10;
+    const sc = mapW / WORLD_W;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(mx, my, mapW, mapH);
+    ctx.strokeStyle = '#0ff'; ctx.strokeRect(mx, my, mapW, mapH);
+    if(player) { ctx.fillStyle='#fff'; ctx.fillRect(mx + player.x*sc, my + player.y*sc, 2, 2); }
+    enemies.forEach(e => {
+        ctx.fillStyle = e.isBoss ? '#ff0' : '#f00';
+        ctx.fillRect(mx + e.x*sc, my + e.y*sc, e.isBoss?4:2, e.isBoss?4:2);
+    });
+}
 
 // コントローラー
 function initMobileControls() {
@@ -772,11 +831,19 @@ function initMobileControls() {
     joyZone.addEventListener('touchstart', e => { e.preventDefault(); const touch = e.changedTouches[0]; startX = touch.clientX; startY = touch.clientY; joystick.active = true; stick.style.transition = 'none'; }, { passive: false });
     joyZone.addEventListener('touchmove', e => { e.preventDefault(); if (!joystick.active) return; const touch = e.changedTouches[0]; const dx = touch.clientX - startX; const dy = touch.clientY - startY; const distance = Math.min(Math.hypot(dx, dy), maxRadius); const angle = Math.atan2(dy, dx); const moveX = Math.cos(angle) * distance; const moveY = Math.sin(angle) * distance; stick.style.transform = `translate(calc(-50% + ${moveX}px), calc(-50% + ${moveY}px))`; joystick.dx = Math.cos(angle) * (distance / maxRadius); joystick.dy = Math.sin(angle) * (distance / maxRadius); }, { passive: false });
     joyZone.addEventListener('touchend', e => { e.preventDefault(); joystick.active = false; joystick.dx = 0; joystick.dy = 0; stick.style.transition = '0.2s'; stick.style.transform = `translate(-50%, -50%)`; }, { passive: false });
-    const setupButton = (id, action) => { const btn = document.getElementById(id); if(btn) { btn.addEventListener('touchstart', (e) => { e.preventDefault(); action(); btn.style.background = "rgba(0,255,255,0.5)"; }, { passive: false }); btn.addEventListener('touchend', (e) => { e.preventDefault(); btn.style.background = "rgba(0,255,255,0.2)"; }, { passive: false }); } };
+    
+    // ボタン
+    const setupButton = (id, action) => {
+        const btn = document.getElementById(id);
+        if(btn) {
+            btn.addEventListener('touchstart', (e) => { e.preventDefault(); action(); btn.style.background = "rgba(0,255,255,0.5)"; }, { passive: false });
+            btn.addEventListener('touchend', (e) => { e.preventDefault(); btn.style.background = "rgba(0,255,255,0.2)"; }, { passive: false });
+        }
+    };
     setupButton('btn-dash', triggerDash); setupButton('btn-bomb', triggerBomb); setupButton('btn-form', cycleFormation);
 }
 
-// その他の関数
+// ユーティリティ
 function playSound(name) {} 
 function cycleFormation() { currentFormation = (currentFormation + 1) % FORMATIONS.length; showMessage(FORMATIONS[currentFormation]); }
 function triggerDash() { if(player) player.dash(); }
@@ -786,8 +853,8 @@ function damageEnemy(e, val) { e.hp-=val; if(e.hp<=0) { score+=e.score; createPa
 function checkWall(x, y) { return x<0 || x>WORLD_W || y<0 || y>WORLD_H; } 
 function escapeFromWall(p) { p.x = Math.max(60, Math.min(WORLD_W-60, p.x)); p.y = Math.max(60, Math.min(WORLD_H-60, p.y)); }
 function getWallNormal() { return null; }
-function findSafeSpawnPosition() { return {x: 500, y: 500}; } // 簡易
-function generateMazeWalls(n) { return [{x:0,y:0,w:WORLD_W,h:50},{x:0,y:WORLD_H-50,w:WORLD_W,h:50},{x:0,y:0,w:50,h:WORLD_H},{x:WORLD_W-50,y:0,w:50,h:WORLD_H}]; } // 簡易枠
+function findSafeSpawnPosition() { return {x: 500, y: 500}; } 
+function generateMazeWalls(n) { return [{x:0,y:0,w:WORLD_W,h:50},{x:0,y:WORLD_H-50,w:WORLD_W,h:50},{x:0,y:0,w:50,h:WORLD_H},{x:WORLD_W-50,y:0,w:50,h:WORLD_H}]; }
 function spawnMobs() { if(enemies.length < 50) spawnEnemy('virus', Math.random()*WORLD_W, Math.random()*WORLD_H); }
 function spawnEnemy(type, x, y) { enemies.push({x,y,hp:10,maxHp:10,color:'#f00',size:15,speed:2}); }
 function updateEnemyBullets() {} // 簡略化
