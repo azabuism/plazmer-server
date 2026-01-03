@@ -289,6 +289,10 @@ let particles = [];
 let texts = [];
 let frame = 0;
 
+// 補間用データ
+let remotePlayers = new Map(); // 他プレイヤーの補間データ
+let remoteEnemies = new Map(); // 敵の補間データ
+
 // 入力
 let input = { x: 0, y: 0, angle: 0, moving: false, dash: false, hasMoved: false };
 let joystick = { active: false, dx: 0, dy: 0, centerX: 0, centerY: 0 };
@@ -405,6 +409,28 @@ function updateScreenShake() {
         screenShake.y = 0; 
         screenShake.intensity = 0;
     }
+}
+
+// 補間更新（滑らかな動き）
+function updateInterpolation() {
+    const lerpFactor = 0.25; // 補間速度
+    
+    // 他プレイヤーの補間
+    remotePlayers.forEach(rp => {
+        rp.x += (rp.targetX - rp.x) * lerpFactor;
+        rp.y += (rp.targetY - rp.y) * lerpFactor;
+        // 角度の補間（最短経路）
+        let angleDiff = rp.targetAngle - rp.angle;
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+        rp.angle += angleDiff * lerpFactor;
+    });
+    
+    // 敵の補間
+    remoteEnemies.forEach(re => {
+        re.x += (re.targetX - re.x) * lerpFactor;
+        re.y += (re.targetY - re.y) * lerpFactor;
+    });
 }
 
 function updateWeaponUI() {
@@ -616,8 +642,75 @@ function connectToServer() {
     
     socket.on('gameState', (state) => {
         gameState = state;
+        
+        // 自分自身の更新（位置以外）
         const me = state.players.find(p => p.id === myPlayerId);
-        if (me) myPlayer = me;
+        if (me && myPlayer) {
+            // 位置はクライアント予測を優先、その他のデータは更新
+            myPlayer.hp = me.hp;
+            myPlayer.maxHp = me.maxHp;
+            myPlayer.invincible = me.invincible;
+            myPlayer.dashing = me.dashing;
+            myPlayer.alive = me.alive;
+            myPlayer.weaponLevels = me.weaponLevels;
+            myPlayer.thunderEnergy = me.thunderEnergy;
+            myPlayer.options = me.options;
+            myPlayer.score = me.score;
+            myPlayer.respawnTimer = me.respawnTimer;
+            // 死亡時やリスポーン時は位置も同期
+            if (!me.alive || me.invincible > 170) {
+                myPlayer.x = me.x;
+                myPlayer.y = me.y;
+            }
+        }
+        
+        // 他プレイヤーの補間ターゲットを更新
+        state.players.forEach(p => {
+            if (p.id !== myPlayerId) {
+                const existing = remotePlayers.get(p.id);
+                if (existing) {
+                    existing.targetX = p.x;
+                    existing.targetY = p.y;
+                    existing.targetAngle = p.angle;
+                    existing.data = p;
+                } else {
+                    remotePlayers.set(p.id, {
+                        x: p.x, y: p.y, angle: p.angle,
+                        targetX: p.x, targetY: p.y, targetAngle: p.angle,
+                        data: p
+                    });
+                }
+            }
+        });
+        
+        // 離脱したプレイヤーを削除
+        const playerIds = new Set(state.players.map(p => p.id));
+        remotePlayers.forEach((_, id) => {
+            if (!playerIds.has(id)) remotePlayers.delete(id);
+        });
+        
+        // 敵の補間ターゲットを更新
+        state.enemies.forEach(e => {
+            const existing = remoteEnemies.get(e.id);
+            if (existing) {
+                existing.targetX = e.x;
+                existing.targetY = e.y;
+                existing.data = e;
+            } else {
+                remoteEnemies.set(e.id, {
+                    x: e.x, y: e.y,
+                    targetX: e.x, targetY: e.y,
+                    data: e
+                });
+            }
+        });
+        
+        // 死んだ敵を削除
+        const enemyIds = new Set(state.enemies.map(e => e.id));
+        remoteEnemies.forEach((_, id) => {
+            if (!enemyIds.has(id)) remoteEnemies.delete(id);
+        });
+        
         ui.wave.textContent = state.wave;
         ui.score.textContent = state.score;
         const bosses = state.enemies.filter(e => e.isBoss);
@@ -1065,11 +1158,15 @@ function draw() {
         });
     }
     
-    // 敵
+    // 敵（補間された位置を使用）
     if (gameState) {
         gameState.enemies.forEach(e => {
             if (e.hp <= 0) return;
-            const sx = e.x - camera.x + screenShake.x, sy = e.y - camera.y + screenShake.y;
+            // 補間された位置を取得
+            const re = remoteEnemies.get(e.id);
+            const ex = re ? re.x : e.x;
+            const ey = re ? re.y : e.y;
+            const sx = ex - camera.x + screenShake.x, sy = ey - camera.y + screenShake.y;
             ctx.fillStyle = e.color; ctx.shadowBlur = e.isBoss ? 30 : 15; ctx.shadowColor = e.color;
             ctx.beginPath(); ctx.arc(sx, sy, e.size, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(sx, sy, e.size * 0.4, 0, Math.PI * 2); ctx.fill();
@@ -1087,54 +1184,78 @@ function draw() {
         });
     }
     
-    // プレイヤー
-    if (gameState) {
-        gameState.players.forEach(p => {
-            const sx = p.x - camera.x + screenShake.x, sy = p.y - camera.y + screenShake.y;
-            if (!p.alive) {
-                const respawnTime = Math.ceil((180 - (p.respawnTimer || 0)) / 60);
-                ctx.fillStyle = p.color || '#888'; ctx.globalAlpha = 0.5;
-                ctx.font = 'bold 16px Courier New'; ctx.textAlign = 'center';
-                ctx.fillText(p.name, sx, sy - 10); ctx.fillText(`RESPAWN: ${respawnTime}`, sx, sy + 10);
-                ctx.globalAlpha = 1; return;
-            }
-            
-            const isMe = p.id === myPlayerId, playerColor = p.color || '#fff', glowColor = p.glowColor || '#0ff';
-            
-            if (isMe && p.weaponLevels && p.weaponLevels.THUNDER > 0) {
-                const gaugeWidth = 40, gaugeHeight = 6, gaugeX = sx - gaugeWidth / 2, gaugeY = sy + 23;
-                const fillRatio = (p.thunderEnergy || 0) / 180;
-                ctx.fillStyle = '#220'; ctx.fillRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
-                const gradient = ctx.createLinearGradient(gaugeX, gaugeY, gaugeX + gaugeWidth * fillRatio, gaugeY);
-                gradient.addColorStop(0, '#880'); gradient.addColorStop(1, '#ff0');
-                ctx.fillStyle = gradient; ctx.fillRect(gaugeX, gaugeY, gaugeWidth * fillRatio, gaugeHeight);
-                ctx.strokeStyle = fillRatio >= 1 ? '#ff0' : '#880'; ctx.lineWidth = 1; ctx.strokeRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
-            }
-            
-            if ((p.invincible || 0) % 4 < 2) {
-                ctx.save(); ctx.translate(sx, sy);
-                ctx.shadowBlur = p.dashing ? 30 : 15; ctx.shadowColor = glowColor;
-                ctx.fillStyle = p.dashing ? '#fff' : playerColor;
-                ctx.beginPath();
-                for (let i = 0; i < 8; i++) { const a = (Math.PI * 2 / 8) * i + frame * 0.03, r = 8 + Math.sin(a * 3 + frame * 0.1) * 2; if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
-                ctx.closePath(); ctx.fill();
-                ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(0, 0, 3.2, 0, Math.PI * 2); ctx.fill();
-                ctx.rotate(p.angle); ctx.fillStyle = glowColor;
-                ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(8, -3); ctx.lineTo(8, 3); ctx.fill();
-                ctx.restore();
-            }
-            
-            ctx.fillStyle = playerColor; ctx.font = 'bold 10px Courier New'; ctx.textAlign = 'center';
-            ctx.shadowBlur = 5; ctx.shadowColor = glowColor; ctx.fillText(p.name, sx, sy - 20); ctx.shadowBlur = 0;
-            
-            if (!isMe) {
-                const hpRatio = p.hp / (p.maxHp || 100);
-                ctx.fillStyle = '#300'; ctx.fillRect(sx - 15, sy - 30, 30, 3);
-                ctx.fillStyle = hpRatio > 0.5 ? '#0f0' : hpRatio > 0.25 ? '#ff0' : '#f00';
-                ctx.fillRect(sx - 15, sy - 30, 30 * hpRatio, 3);
-            }
-        });
+    // プレイヤー（補間された位置を使用）
+    // 自分自身を描画
+    if (myPlayer && myPlayer.alive) {
+        const sx = myPlayer.x - camera.x + screenShake.x, sy = myPlayer.y - camera.y + screenShake.y;
+        const playerColor = myPlayer.color || '#fff', glowColor = myPlayer.glowColor || '#0ff';
+        
+        if (myPlayer.weaponLevels && myPlayer.weaponLevels.THUNDER > 0) {
+            const gaugeWidth = 40, gaugeHeight = 6, gaugeX = sx - gaugeWidth / 2, gaugeY = sy + 23;
+            const fillRatio = (myPlayer.thunderEnergy || 0) / 180;
+            ctx.fillStyle = '#220'; ctx.fillRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+            const gradient = ctx.createLinearGradient(gaugeX, gaugeY, gaugeX + gaugeWidth * fillRatio, gaugeY);
+            gradient.addColorStop(0, '#880'); gradient.addColorStop(1, '#ff0');
+            ctx.fillStyle = gradient; ctx.fillRect(gaugeX, gaugeY, gaugeWidth * fillRatio, gaugeHeight);
+            ctx.strokeStyle = fillRatio >= 1 ? '#ff0' : '#880'; ctx.lineWidth = 1; ctx.strokeRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+        }
+        
+        if ((myPlayer.invincible || 0) % 4 < 2) {
+            ctx.save(); ctx.translate(sx, sy);
+            ctx.shadowBlur = myPlayer.dashing ? 30 : 15; ctx.shadowColor = glowColor;
+            ctx.fillStyle = myPlayer.dashing ? '#fff' : playerColor;
+            ctx.beginPath();
+            for (let i = 0; i < 8; i++) { const a = (Math.PI * 2 / 8) * i + frame * 0.03, r = 8 + Math.sin(a * 3 + frame * 0.1) * 2; if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+            ctx.closePath(); ctx.fill();
+            ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(0, 0, 3.2, 0, Math.PI * 2); ctx.fill();
+            ctx.rotate(myPlayer.angle); ctx.fillStyle = glowColor;
+            ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(8, -3); ctx.lineTo(8, 3); ctx.fill();
+            ctx.restore();
+        }
+        
+        ctx.fillStyle = playerColor; ctx.font = 'bold 10px Courier New'; ctx.textAlign = 'center';
+        ctx.shadowBlur = 5; ctx.shadowColor = glowColor; ctx.fillText(myPlayer.name || 'Player', sx, sy - 20); ctx.shadowBlur = 0;
     }
+    
+    // 他プレイヤーを描画（補間された位置を使用）
+    remotePlayers.forEach((rp, id) => {
+        const p = rp.data;
+        if (!p) return;
+        
+        const sx = rp.x - camera.x + screenShake.x, sy = rp.y - camera.y + screenShake.y;
+        
+        if (!p.alive) {
+            const respawnTime = Math.ceil((180 - (p.respawnTimer || 0)) / 60);
+            ctx.fillStyle = p.color || '#888'; ctx.globalAlpha = 0.5;
+            ctx.font = 'bold 16px Courier New'; ctx.textAlign = 'center';
+            ctx.fillText(p.name, sx, sy - 10); ctx.fillText(`RESPAWN: ${respawnTime}`, sx, sy + 10);
+            ctx.globalAlpha = 1; return;
+        }
+        
+        const playerColor = p.color || '#fff', glowColor = p.glowColor || '#0ff';
+        
+        if ((p.invincible || 0) % 4 < 2) {
+            ctx.save(); ctx.translate(sx, sy);
+            ctx.shadowBlur = p.dashing ? 30 : 15; ctx.shadowColor = glowColor;
+            ctx.fillStyle = p.dashing ? '#fff' : playerColor;
+            ctx.beginPath();
+            for (let i = 0; i < 8; i++) { const a = (Math.PI * 2 / 8) * i + frame * 0.03, r = 8 + Math.sin(a * 3 + frame * 0.1) * 2; if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+            ctx.closePath(); ctx.fill();
+            ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(0, 0, 3.2, 0, Math.PI * 2); ctx.fill();
+            ctx.rotate(rp.angle); ctx.fillStyle = glowColor;
+            ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(8, -3); ctx.lineTo(8, 3); ctx.fill();
+            ctx.restore();
+        }
+        
+        ctx.fillStyle = playerColor; ctx.font = 'bold 10px Courier New'; ctx.textAlign = 'center';
+        ctx.shadowBlur = 5; ctx.shadowColor = glowColor; ctx.fillText(p.name, sx, sy - 20); ctx.shadowBlur = 0;
+        
+        // HP
+        const hpRatio = p.hp / (p.maxHp || 100);
+        ctx.fillStyle = '#300'; ctx.fillRect(sx - 15, sy - 30, 30, 3);
+        ctx.fillStyle = hpRatio > 0.5 ? '#0f0' : hpRatio > 0.25 ? '#ff0' : '#f00';
+        ctx.fillRect(sx - 15, sy - 30, 30 * hpRatio, 3);
+    });
     
     localBullets.forEach(b => { if (!b.dead) b.draw(); });
     localMissiles.forEach(m => { if (!m.dead) m.draw(); });
@@ -1158,10 +1279,30 @@ function drawMinimap() {
     ctx.fillStyle = 'rgba(255,100,100,0.5)';
     walls.forEach(w => { if (w.type === 'cell') { ctx.beginPath(); ctx.arc(mapX + w.cx * scale, mapY + w.cy * scale, w.radius * scale, 0, Math.PI * 2); ctx.fill(); } });
     
+    // 敵（補間された位置）
     if (gameState) {
-        gameState.enemies.forEach(e => { if (e.hp <= 0) return; ctx.fillStyle = e.isBoss ? '#ff0' : e.color; ctx.beginPath(); ctx.arc(mapX + e.x * scale, mapY + e.y * scale, e.isBoss ? 4 : 2, 0, Math.PI * 2); ctx.fill(); });
-        gameState.players.forEach(p => { if (!p.alive) return; ctx.fillStyle = p.color || '#fff'; ctx.beginPath(); ctx.arc(mapX + p.x * scale, mapY + p.y * scale, 3, 0, Math.PI * 2); ctx.fill(); });
+        gameState.enemies.forEach(e => { 
+            if (e.hp <= 0) return; 
+            const re = remoteEnemies.get(e.id);
+            const ex = re ? re.x : e.x;
+            const ey = re ? re.y : e.y;
+            ctx.fillStyle = e.isBoss ? '#ff0' : e.color; 
+            ctx.beginPath(); ctx.arc(mapX + ex * scale, mapY + ey * scale, e.isBoss ? 4 : 2, 0, Math.PI * 2); ctx.fill(); 
+        });
     }
+    
+    // 自分
+    if (myPlayer && myPlayer.alive) {
+        ctx.fillStyle = myPlayer.color || '#fff';
+        ctx.beginPath(); ctx.arc(mapX + myPlayer.x * scale, mapY + myPlayer.y * scale, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    
+    // 他プレイヤー（補間された位置）
+    remotePlayers.forEach(rp => {
+        if (!rp.data || !rp.data.alive) return;
+        ctx.fillStyle = rp.data.color || '#fff';
+        ctx.beginPath(); ctx.arc(mapX + rp.x * scale, mapY + rp.y * scale, 3, 0, Math.PI * 2); ctx.fill();
+    });
 }
 
 // ========== ゲームループ ==========
@@ -1173,6 +1314,7 @@ function gameLoop() {
     
     if (myPlayer && myPlayer.alive) updateInput();
     updateCamera();
+    updateInterpolation(); // 補間更新
     weaponTimer++;
     if (weaponTimer >= 15 && myPlayer && myPlayer.alive) { fireWeapons(); weaponTimer = 0; }
     localBullets.forEach(b => { if (!b.dead) b.update(); });
