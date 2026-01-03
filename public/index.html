@@ -587,6 +587,7 @@ function updateInput() {
         if (Math.hypot(mx - myPlayer.x, my - myPlayer.y) > 20) moving = true;
     }
     
+    // クライアント予測移動
     if (moving && !myPlayer.dashing) {
         const speed = myPlayer.speed || 6;
         const vx = Math.cos(angle) * speed; const vy = Math.sin(angle) * speed;
