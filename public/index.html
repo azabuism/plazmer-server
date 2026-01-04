@@ -232,6 +232,12 @@
         <div class="hud-value" id="score">0</div>
     </div>
     
+    <div id="music-control" style="position:fixed; bottom:10px; right:10px; z-index:100; font-family:Courier New; font-size:12px; color:#0ff;">
+        <span id="music-icon">🎵</span>
+        <input type="range" id="volume-slider" min="0" max="100" value="40" style="width:80px; vertical-align:middle; cursor:pointer;">
+        <span id="volume-display">40%</span>
+    </div>
+    
     <div id="players-list" class="ui" style="display:none;">
         <h3>PLAYERS</h3>
         <div id="player-entries"></div>
@@ -303,6 +309,20 @@ let huntLockOnTimer = 0; // ロックオン演出タイマー
 let huntAttacking = false; // 攻撃中フラグ
 const FORMATIONS = ['FOLLOW', 'HUNT'];
 
+// ゲームミュージック
+const MUSIC_TRACKS = [
+    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IoDrift-2.mp3',
+    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IonDrift.mp3',
+    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IonDriftProtocol-2.mp3',
+    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IonDriftProtocol.mp3',
+    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/PhotonRushProtocol.mp3',
+    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/PulsefireDrift.mp3',
+    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/QuantumCrossfire.mp3'
+];
+let bgMusic = null;
+let currentMusicIndex = -1;
+let musicVolume = 0.4;
+
 // 入力
 let input = { x: 0, y: 0, angle: 0, moving: false, dash: false, hasMoved: false };
 let joystick = { active: false, dx: 0, dy: 0, centerX: 0, centerY: 0 };
@@ -310,10 +330,6 @@ let joystick = { active: false, dx: 0, dy: 0, centerX: 0, centerY: 0 };
 // カメラ
 let camera = { x: 0, y: 0 };
 let screenShake = { x: 0, y: 0, intensity: 0 };
-
-// フォーメーション
-const FORMATIONS = ['FOLLOW', 'GO AROUND 1', 'GO AROUND 2', 'HUNT'];
-let currentFormation = 0;
 
 // UI要素
 const ui = {
@@ -1014,6 +1030,42 @@ function showMessage(text) {
 
 function playSound(type) { /* サウンド未実装 */ }
 
+// BGM再生関数
+function playRandomMusic() {
+    // 新しいランダムトラックを選択（前回と違うものを選ぶ）
+    let newIndex;
+    do {
+        newIndex = Math.floor(Math.random() * MUSIC_TRACKS.length);
+    } while (newIndex === currentMusicIndex && MUSIC_TRACKS.length > 1);
+    currentMusicIndex = newIndex;
+    
+    // 既存の音楽を停止
+    if (bgMusic) {
+        bgMusic.pause();
+        bgMusic = null;
+    }
+    
+    // 新しい音楽を再生
+    bgMusic = new Audio(MUSIC_TRACKS[currentMusicIndex]);
+    bgMusic.volume = musicVolume;
+    bgMusic.loop = true;
+    bgMusic.play().catch(e => console.log('Music autoplay blocked:', e));
+    
+    console.log('Playing:', MUSIC_TRACKS[currentMusicIndex].split('/').pop());
+}
+
+function stopMusic() {
+    if (bgMusic) {
+        bgMusic.pause();
+        bgMusic = null;
+    }
+}
+
+function setMusicVolume(vol) {
+    musicVolume = Math.max(0, Math.min(1, vol));
+    if (bgMusic) bgMusic.volume = musicVolume;
+}
+
 function initMobileControls() {
     const zone = document.getElementById('joystick-zone');
     const stick = document.getElementById('joystick-stick');
@@ -1065,6 +1117,18 @@ function init() {
     document.addEventListener('keydown', e => {
         if (e.code === 'Space') triggerDash();
         if (e.code === 'KeyF') cycleFormation();
+    });
+    
+    // 音量スライダーのイベント
+    const volumeSlider = document.getElementById('volume-slider');
+    const volumeDisplay = document.getElementById('volume-display');
+    const musicIcon = document.getElementById('music-icon');
+    
+    volumeSlider.addEventListener('input', (e) => {
+        const vol = parseInt(e.target.value);
+        setMusicVolume(vol / 100);
+        volumeDisplay.textContent = vol + '%';
+        musicIcon.textContent = vol === 0 ? '🔇' : '🎵';
     });
     
     initMobileControls();
@@ -1122,6 +1186,8 @@ function connectToServer() {
         }
         updateWeaponUI();
         showMessage('◆ GAME START ◆');
+        // ゲーム開始時に音楽を再生
+        playRandomMusic();
     });
     
     socket.on('gameStart', () => { showMessage('◆ GET READY ◆'); });
@@ -1182,7 +1248,12 @@ function connectToServer() {
     
     socket.on('hostCancelled', () => { alert('Host cancelled the game.'); location.reload(); });
     socket.on('playerLeft', () => { showMessage('A player left'); });
-    socket.on('waveStart', (data) => { walls = data.walls; showMessage(`◆ WAVE ${data.wave} ◆`); });
+    socket.on('waveStart', (data) => { 
+        walls = data.walls; 
+        showMessage(`◆ WAVE ${data.wave} ◆`); 
+        // WAVEごとにランダムな音楽を再生
+        playRandomMusic();
+    });
     socket.on('bossSpawn', (data) => { showMessage(`◆ ${data.boss.name} APPEARED ◆`); triggerScreenShake(5); });
     socket.on('bossDefeated', () => { showMessage('◆ PATHOGEN ELIMINATED ◆'); triggerScreenShake(8); });
     socket.on('enemyDefeated', (data) => { playSound(data.isBoss ? 'bossDefeat' : 'enemyDefeat'); });
