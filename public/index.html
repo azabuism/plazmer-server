@@ -21,12 +21,15 @@
         
         .ui { position: fixed; color: #0ff; font-size: 14px; text-shadow: 0 0 10px #0ff; z-index: 100; pointer-events: none; }
         
-        #start-screen {
+        /* スクリーン共通 */
+        .screen {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             background: radial-gradient(ellipse at center, #001020 0%, #000810 100%);
             z-index: 200;
+            pointer-events: auto; /* ボタン操作用 */
         }
+        
         #start-screen h1 {
             font-size: 60px; color: #0ff; text-shadow: 0 0 30px #0ff, 0 0 60px #08f;
             letter-spacing: 15px; margin-bottom: 10px;
@@ -43,7 +46,8 @@
             pointer-events: auto;
         }
         .menu-btn:hover { background: #0ff; color: #000; box-shadow: 0 0 30px #0ff; }
-        
+        .menu-btn:disabled { border-color: #444; color: #444; cursor: wait; }
+
         .name-input, .room-input {
             background: transparent; border: 2px solid #0ff; color: #0ff;
             padding: 10px 20px; font-size: 16px; text-align: center;
@@ -51,7 +55,21 @@
             pointer-events: auto;
         }
         .name-input::placeholder { color: #088; }
+
+        /* チュートリアル */
+        #tutorial-screen { display: none; background: rgba(0,10,20,0.95); }
+        .tutorial-content {
+            border: 2px solid #0ff; padding: 30px; border-radius: 10px;
+            width: 90%; max-width: 600px; text-align: center;
+            box-shadow: 0 0 30px #0ff;
+        }
+        .control-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;
+            text-align: left;
+        }
+        .key { color: #ff0; border: 1px solid #ff0; padding: 2px 5px; border-radius: 4px; font-size: 0.9em; margin-right: 8px; }
         
+        /* ロビー・待機画面 */
         #join-form, #host-info, #guest-waiting { display: none; flex-direction: column; align-items: center; }
         .room-code-display {
             font-size: 32px; color: #ff0; margin: 20px 0;
@@ -112,23 +130,18 @@
         }
         #mobile-buttons {
             position: fixed; bottom: 20px; right: 20px;
-            display: none; gap: 10px;
+            display: none; gap: 20px;
             pointer-events: auto;
         }
         .mobile-btn {
-            width: 55px; height: 55px; border-radius: 50%;
+            width: 65px; height: 65px; border-radius: 50%;
             background: rgba(0,255,255,0.2); border: 2px solid #0ff;
-            color: #0ff; font-size: 10px; font-weight: bold;
+            color: #0ff; font-size: 12px; font-weight: bold;
             display: flex; align-items: center; justify-content: center;
         }
         .mobile-btn:active { background: rgba(0,255,255,0.5); }
         
-        #game-over {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9); display: none;
-            flex-direction: column; align-items: center; justify-content: center; z-index: 300;
-            pointer-events: auto;
-        }
+        #game-over { display: none; background: rgba(0,0,0,0.9); z-index: 300; }
         #game-over h2 { font-size: 48px; color: #f00; margin-bottom: 20px; text-shadow: 0 0 30px #f00; }
         #final-score { font-size: 24px; color: #0ff; margin-bottom: 30px; }
         
@@ -144,13 +157,14 @@
             #start-screen h1 { font-size: 36px; letter-spacing: 8px; }
             .menu-btn { padding: 12px 30px; font-size: 14px; }
             #joystick-zone, #mobile-buttons { display: flex; }
+            .control-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
     <canvas id="canvas"></canvas>
     
-    <div id="start-screen">
+    <div id="start-screen" class="screen">
         <h1>PLAZMERS</h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <input type="text" id="player-name" class="name-input" placeholder="ENTER NAME" maxlength="12">
@@ -158,6 +172,7 @@
         <div id="menu-buttons">
             <button class="menu-btn" id="btn-host" onclick="hostGame()">HOST GAME</button>
             <button class="menu-btn" id="btn-join" onclick="showJoinForm()">JOIN GAME</button>
+            <button class="menu-btn" onclick="showTutorial()" style="margin-top:20px; font-size:14px">HOW TO PLAY</button>
         </div>
 
         <div id="join-form">
@@ -183,6 +198,28 @@
         </div>
         
         <div id="status-msg"></div>
+    </div>
+
+    <div id="tutorial-screen" class="screen">
+        <div class="tutorial-content">
+            <h2 style="color:#fff; margin-bottom:20px;">MISSION CONTROL</h2>
+            <div class="control-grid">
+                <div>
+                    <h3 style="color:#0ff; border-bottom:1px solid #0ff">PC</h3>
+                    <p><span class="key">MOUSE</span> 移動 (Move)</p>
+                    <p><span class="key">SPACE</span> ダッシュ (Dash)</p>
+                    <p><span class="key">L-CLICK</span> 陣形切替 (Form)</p>
+                </div>
+                <div>
+                    <h3 style="color:#0ff; border-bottom:1px solid #0ff">MOBILE</h3>
+                    <p><span class="key">STICK</span> 移動 (Move)</p>
+                    <p><span class="key">DASH</span> ダッシュ (Dash)</p>
+                    <p><span class="key">FORM</span> 陣形切替 (Form)</p>
+                </div>
+            </div>
+            <p style="color:#888; font-size:12px;">※攻撃は自動です / Auto Fire</p>
+            <button class="menu-btn back-btn" onclick="hideTutorial()">BACK</button>
+        </div>
     </div>
     
     <div id="hud" class="ui" style="display:none;">
@@ -218,7 +255,7 @@
         <div class="mobile-btn" id="btn-form">FORM</div>
     </div>
     
-    <div id="game-over">
+    <div id="game-over" class="screen">
         <h2>INFECTION SPREAD</h2>
         <div id="final-score">SCORE: 0</div>
         <button class="menu-btn" onclick="location.reload()">RETRY</button>
@@ -232,7 +269,7 @@ const WORLD_W = 3000, WORLD_H = 3000;
 let canvas, ctx;
 let socket = null;
 
-// ゲーム状態
+// ゲームオブジェクト
 let player = null;
 let enemies = [];
 let bullets = [];
@@ -257,8 +294,7 @@ let optionFormation = 'FOLLOW';
 let huntTarget = null;
 let huntLockOnTimer = 0;
 let huntAttacking = false;
-let damageFlash = 0;
-let alertTimer = 0;
+let damageFlash = 0; // ダメージフラッシュフレーム
 
 let wave = 0;
 let score = 0;
@@ -306,6 +342,7 @@ function init() {
 
     ui = {
         startScreen: document.getElementById('start-screen'),
+        tutorialScreen: document.getElementById('tutorial-screen'),
         gameOver: document.getElementById('game-over'),
         hp: document.getElementById('hp-fill'),
         wave: document.getElementById('wave'),
@@ -330,6 +367,7 @@ function init() {
     resize();
     window.addEventListener('resize', resize);
     
+    // PC入力
     canvas.addEventListener('mousemove', e => { input.x = e.clientX; input.y = e.clientY; });
     canvas.addEventListener('mousedown', e => {
         e.preventDefault();
@@ -362,21 +400,26 @@ function setStatus(msg) {
     if(ui.statusMsg) ui.statusMsg.textContent = msg;
 }
 
+// ========== 画面操作 ==========
+function showTutorial() {
+    ui.startScreen.style.display = 'none';
+    ui.tutorialScreen.style.display = 'flex';
+}
+function hideTutorial() {
+    ui.tutorialScreen.style.display = 'none';
+    ui.startScreen.style.display = 'flex';
+}
+
 // ========== BGM機能 ==========
 function playWaveBgm(waveNum) {
     const index = (Math.max(1, waveNum) - 1) % BGM_URLS.length;
     const nextSrc = BGM_URLS[index];
-    
-    // 曲が変わる場合のみ再生し直し
     if (currentBgm.src !== nextSrc) {
         currentBgm.pause();
         currentBgm.src = nextSrc;
-        const playPromise = currentBgm.play();
-        if (playPromise !== undefined) {
-            playPromise.catch(error => {
-                console.log("Audio playback failed (usually requires user interaction):", error);
-            });
-        }
+        currentBgm.play().catch(e => console.log("BGM Play Error (Mixed Content?):", e));
+    } else if (currentBgm.paused) {
+        currentBgm.play().catch(e => {});
     }
 }
 
@@ -392,9 +435,7 @@ function setupSocketListeners() {
         lobbyPlayerCount = data.players.length;
         updateLobby(data.players, 'lobby-players');
         setStatus("");
-        const btn = document.getElementById('btn-host');
-        btn.disabled = false;
-        btn.textContent = "HOST GAME";
+        document.getElementById('btn-host').disabled = false;
     });
 
     socket.on('joined', (data) => {
@@ -425,25 +466,15 @@ function hostGame() {
     const name = document.getElementById('player-name').value || "Host";
     const btn = document.getElementById('btn-host');
     btn.disabled = true;
-    btn.textContent = "CREATING...";
     setStatus("Requesting Room...");
-    
     setTimeout(() => {
-        if(btn.disabled) {
-            btn.disabled = false;
-            btn.textContent = "HOST GAME";
-            setStatus("Connection timed out.");
-        }
+        if(btn.disabled) { btn.disabled = false; setStatus("Connection timed out."); }
     }, 5000);
-
     socket.emit('hostRoom', { name });
 }
 
 function joinGame() {
-    if(!socket || !socket.connected) {
-        alert("Server not connected.");
-        return;
-    }
+    if(!socket || !socket.connected) { alert("Server not connected."); return; }
     const name = document.getElementById('player-name').value || "Guest";
     const roomId = document.getElementById('room-id').value;
     if(roomId.length === 4) socket.emit('joinRoom', { name, roomId });
@@ -493,7 +524,6 @@ function setupGameCommon() {
     
     enemies = []; bullets = []; enemyBullets = []; particles = []; texts = [];
     items = []; options = []; missiles = [];
-    // 補間用リセット
     remotePlayers = new Map(); remoteEnemies = new Map(); damageTexts = [];
     localOptions = []; dashTrail = []; dashParticles = []; optionBeams = [];
     
@@ -512,7 +542,7 @@ function startSoloGame() {
     setupGameCommon();
     player = new Player();
     walls = generateMazeWalls(0);
-    // カメラの初期化（重要）
+    // カメラをプレイヤー位置に強制同期
     camera.x = player.x - canvas.width/2;
     camera.y = player.y - canvas.height/2;
     playWaveBgm(1);
@@ -531,11 +561,9 @@ function startOnlineGameClient(data) {
 // ========== メインループ ==========
 function update() {
     frame++;
-    
     if (gameState.startsWith('playing')) {
         updateGameLogic();
     }
-    
     draw();
     requestAnimationFrame(update);
 }
@@ -544,8 +572,10 @@ function updateGameLogic() {
     if (player) { 
         player.update(); 
         // カメラ追従
-        camera.x += (player.x - canvas.width / 2 - camera.x) * 0.1;
-        camera.y += (player.y - canvas.height / 2 - camera.y) * 0.1;
+        const targetX = player.x - canvas.width / 2;
+        const targetY = player.y - canvas.height / 2;
+        camera.x += (targetX - camera.x) * 0.1;
+        camera.y += (targetY - camera.y) * 0.1;
         
         if (gameState === 'playing_online' && socket && joystick.active) {
             socket.emit('input', { x: player.x, y: player.y, angle: player.angle, dashing: player.dashing });
@@ -595,7 +625,6 @@ function updateGameLogic() {
     updateCombo();
     updateScreenShake();
     
-    // ダメージテキスト更新
     damageTexts.forEach(dt => { dt.y -= 1; dt.life--; dt.alpha = dt.life/40; });
     damageTexts = damageTexts.filter(dt => dt.life > 0);
 }
@@ -611,7 +640,6 @@ function draw() {
     ctx.save();
     ctx.translate(-camX, -camY);
 
-    // グリッド
     ctx.strokeStyle = 'rgba(100,20,30,0.3)'; ctx.lineWidth = 1;
     const gridSize = 80;
     const startX = Math.floor(camX / gridSize) * gridSize;
@@ -668,21 +696,21 @@ function draw() {
         ctx.globalAlpha = 1;
     });
 
-    ctx.restore(); // カメラ解除
+    ctx.restore(); 
 
     drawEnemyIndicators();
     drawMinimap();
 
-    // ダメージフラッシュ（画面全体）
+    // ダメージフラッシュ（赤）
     if (damageFlash > 0) {
         ctx.save();
-        ctx.fillStyle = `rgba(255, 0, 0, ${damageFlash / 30})`;
+        ctx.fillStyle = `rgba(255, 0, 0, ${damageFlash / 20})`;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.restore();
         damageFlash--;
     }
 
-    // HP低下アラート
+    // HPピンチアラート
     if (player && player.alive && player.hp < player.maxHp * 0.3) {
         const pulse = (Math.sin(frame * 0.2) + 1) / 2; 
         ctx.save();
@@ -690,11 +718,12 @@ function draw() {
         ctx.lineWidth = 10;
         ctx.strokeRect(0, 0, canvas.width, canvas.height);
         
-        if (frame % 30 < 15) {
+        if (frame % 40 < 20) {
             ctx.fillStyle = '#f00';
             ctx.font = 'bold 24px Courier New';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
+            ctx.shadowBlur = 10; ctx.shadowColor='#f00';
             ctx.fillText("WARNING: LOW SHIELD", canvas.width/2, canvas.height/2 - 100);
         }
         ctx.restore();
@@ -754,6 +783,7 @@ class Player {
         if (this.weaponTimer >= 15) { this.fireWeapons(); this.weaponTimer = 0; }
         
         if (activeLaser) { activeLaser.update(); if (activeLaser.dead) activeLaser = null; }
+        options.forEach((opt, i) => opt.update(i, options.length));
     }
     
     fireWeapons() {
@@ -774,15 +804,14 @@ class Player {
     damage(val) {
         if (this.invincible > 0 || this.dashing) return;
         this.hp -= val; ui.hp.style.width = (this.hp / this.maxHp * 100) + '%';
-        this.invincible = 60; // 無敵1秒
-        triggerScreenShake(20);
-        damageFlash = 10;
+        this.invincible = 60; 
+        triggerScreenShake(30); // 揺れ強化
+        damageFlash = 15; // 赤フラッシュ
         playSound('hit');
         if (this.hp <= 0) { gameState = 'over'; ui.gameOver.style.display = 'flex'; }
     }
     
     draw() {
-        // ★描画修正：ctx.translate済みの座標系で描画する
         if (this.invincible % 4 < 2) {
             ctx.save();
             ctx.translate(this.x, this.y); 
@@ -792,6 +821,7 @@ class Player {
             ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-6, 6); ctx.lineTo(-6, -6); ctx.fill();
             ctx.restore();
         }
+        options.forEach(opt => opt.draw());
     }
     
     heal(val) { this.hp = Math.min(this.maxHp, this.hp + val); ui.hp.style.width = (this.hp/this.maxHp*100)+'%'; }
