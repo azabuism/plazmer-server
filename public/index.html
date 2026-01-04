@@ -171,7 +171,6 @@
         <input type="text" id="player-name" class="name-input" placeholder="ENTER NAME" maxlength="12">
         
         <div id="menu-buttons">
-            <button class="menu-btn" onclick="startSoloGame()">SOLO MODE</button>
             <button class="menu-btn" id="btn-host" onclick="hostGame()">HOST GAME</button>
             <button class="menu-btn" id="btn-join" onclick="showJoinForm()">JOIN GAME</button>
             <button class="menu-btn" onclick="showTutorial()" style="margin-top:20px; font-size:14px">HOW TO PLAY</button>
@@ -307,12 +306,12 @@ let lobbyPlayerCount = 0;
 
 // BGM
 const BGM_URLS = [
-    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Photon Rush Protocol.mp3",
-    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Ion Drift-2.mp3",
-    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Ion Drift.mp3",
-    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Ion Drift Protocol.mp3",
-    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Pulsefire Drift.mp3",
-    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Quantum Crossfire.mp3"
+    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Photon%20Rush%20Protocol.mp3",
+    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Ion%20Drift-2.mp3",
+    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Ion%20Drift.mp3",
+    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Ion%20Drift%20Protocol.mp3",
+    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Pulsefire%20Drift.mp3",
+    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Quantum%20Crossfire.mp3"
 ];
 let currentBgm = new Audio();
 currentBgm.loop = true;
@@ -390,8 +389,6 @@ function init() {
         setStatus("ONLINE READY");
     } else {
         setStatus("OFFLINE MODE");
-        document.getElementById('btn-host').disabled = true;
-        document.getElementById('btn-join').disabled = true;
     }
 
     initMobileControls();
@@ -424,7 +421,7 @@ function playWaveBgm(waveNum) {
         currentBgm.pause();
         currentBgm.src = nextSrc;
         const p = currentBgm.play();
-        if (p) p.catch(e => console.log("BGM Play Error:", e));
+        if (p) p.catch(e => console.log("BGM Error:", e));
     } else if (currentBgm.paused) {
         currentBgm.play().catch(e => {});
     }
@@ -433,7 +430,6 @@ function playWaveBgm(waveNum) {
 // ========== オンライン制御 ==========
 function setupSocketListeners() {
     socket.on('connect', () => { setStatus("CONNECTED"); });
-    
     socket.on('hosted', (data) => {
         document.getElementById('menu-buttons').style.display = 'none';
         document.getElementById('host-info').style.display = 'flex';
@@ -443,7 +439,6 @@ function setupSocketListeners() {
         setStatus("");
         document.getElementById('btn-host').disabled = false;
     });
-
     socket.on('joined', (data) => {
         document.getElementById('menu-buttons').style.display = 'none';
         document.getElementById('join-form').style.display = 'none';
@@ -452,16 +447,12 @@ function setupSocketListeners() {
         updateLobby(data.players, 'guest-lobby-players');
         setStatus("");
     });
-
     socket.on('playerJoined', (data) => {
         lobbyPlayerCount = data.players.length;
         updateLobby(data.players, 'lobby-players');
         updateLobby(data.players, 'guest-lobby-players');
     });
-
-    socket.on('gameStarted', (data) => {
-        startOnlineGameClient(data);
-    });
+    socket.on('gameStarted', (data) => { startOnlineGameClient(data); });
 }
 
 function hostGame() {
@@ -470,9 +461,7 @@ function hostGame() {
     const btn = document.getElementById('btn-host');
     btn.disabled = true;
     setStatus("Requesting...");
-    setTimeout(() => {
-        if(btn.disabled) { btn.disabled = false; setStatus("Timed out."); }
-    }, 5000);
+    setTimeout(() => { if(btn.disabled) { btn.disabled = false; setStatus("Timed out."); } }, 5000);
     socket.emit('hostRoom', { name });
 }
 
@@ -484,11 +473,8 @@ function joinGame() {
 }
 
 function tryStartGame() {
-    if (lobbyPlayerCount <= 1) {
-        startSoloGame();
-    } else {
-        socket.emit('startGame');
-    }
+    if (lobbyPlayerCount <= 1) startSoloGame();
+    else socket.emit('startGame');
 }
 
 function sendReady() {
@@ -545,11 +531,8 @@ function startSoloGame() {
     setupGameCommon();
     player = new Player();
     walls = generateMazeWalls(0);
-    // カメラの初期位置を確実に設定（画面中央がプレイヤー位置）
-    // 安全のため、プレイヤー位置を壁のない場所に強制移動
     const startPos = findSafeSpawnPosition(0);
-    player.x = startPos.x;
-    player.y = startPos.y;
+    player.x = startPos.x; player.y = startPos.y;
     camera.x = player.x - canvas.width/2;
     camera.y = player.y - canvas.height/2;
     playWaveBgm(1);
@@ -561,8 +544,7 @@ function startOnlineGameClient(data) {
     player = new Player(); 
     walls = generateMazeWalls(0);
     const startPos = findSafeSpawnPosition(0);
-    player.x = startPos.x;
-    player.y = startPos.y;
+    player.x = startPos.x; player.y = startPos.y;
     camera.x = player.x - canvas.width/2;
     camera.y = player.y - canvas.height/2;
     playWaveBgm(1);
@@ -581,21 +563,11 @@ function update() {
 function updateGameLogic() {
     if (player) { 
         player.update(); 
-        // カメラ追従 (NaN対策)
-        let targetX = player.x - canvas.width / 2;
-        let targetY = player.y - canvas.height / 2;
-        if(isNaN(targetX)) targetX = 0;
-        if(isNaN(targetY)) targetY = 0;
+        const targetX = player.x - canvas.width / 2;
+        const targetY = player.y - canvas.height / 2;
+        if(!isNaN(targetX)) camera.x += (targetX - camera.x) * 0.1;
+        if(!isNaN(targetY)) camera.y += (targetY - camera.y) * 0.1;
         
-        camera.x += (targetX - camera.x) * 0.1;
-        camera.y += (targetY - camera.y) * 0.1;
-        
-        // 座標が壊れた場合の緊急リセット
-        if(isNaN(camera.x) || isNaN(camera.y)) {
-            camera.x = player.x - canvas.width/2;
-            camera.y = player.y - canvas.height/2;
-        }
-
         if (gameState === 'playing_online' && socket && joystick.active) {
             socket.emit('input', { x: player.x, y: player.y, angle: player.angle, dashing: player.dashing });
         }
@@ -652,7 +624,7 @@ function updateGameLogic() {
 function draw() {
     if(!ctx) return;
     
-    // 安全対策：カメラがNaNならリセット
+    // 安全対策
     if (isNaN(camera.x)) camera.x = 0;
     if (isNaN(camera.y)) camera.y = 0;
     if (isNaN(screenShake.x)) screenShake.x = 0;
@@ -715,11 +687,8 @@ function draw() {
     particles.forEach(p => p.draw());
     texts.forEach(t => t.draw());
     damageTexts.forEach(dt => {
-        ctx.globalAlpha = dt.alpha;
-        ctx.fillStyle = dt.color;
-        ctx.font = 'bold 14px Courier New';
-        ctx.fillText(dt.damage, dt.x, dt.y);
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = dt.alpha; ctx.fillStyle = dt.color; ctx.font = 'bold 14px Courier New';
+        ctx.fillText(dt.damage, dt.x, dt.y); ctx.globalAlpha = 1;
     });
 
     ctx.restore(); 
@@ -727,7 +696,6 @@ function draw() {
     drawEnemyIndicators();
     drawMinimap();
 
-    // ダメージフラッシュ（赤）
     if (damageFlash > 0) {
         ctx.save();
         ctx.fillStyle = `rgba(255, 0, 0, ${damageFlash / 20})`;
@@ -736,7 +704,6 @@ function draw() {
         damageFlash--;
     }
 
-    // HPピンチアラート
     if (player && player.alive && player.hp < player.maxHp * 0.3) {
         const pulse = (Math.sin(frame * 0.2) + 1) / 2; 
         ctx.save();
@@ -744,10 +711,7 @@ function draw() {
         ctx.lineWidth = 10;
         ctx.strokeRect(0, 0, canvas.width, canvas.height);
         if (frame % 40 < 20) {
-            ctx.fillStyle = '#f00';
-            ctx.font = 'bold 24px Courier New';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#f00'; ctx.font = 'bold 24px Courier New'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.shadowBlur = 10; ctx.shadowColor='#f00';
             ctx.fillText("WARNING: LOW SHIELD", canvas.width/2, canvas.height/2 - 100);
         }
@@ -856,7 +820,6 @@ class Player {
 function updateOptions() {
     const optionCount = weaponLevels.ALLRANGE || 0;
     while(localOptions.length < optionCount) localOptions.push({x:player.x,y:player.y});
-    
     if(currentFormation === 'FOLLOW') {
         localOptions.forEach((opt,i) => {
            const hist = player.history[Math.min((i+1)*10, player.history.length-1)];
@@ -938,15 +901,17 @@ function updateCamera() {
 }
 
 function drawEnemy(e) {
+    const sx = e.x - camera.x + screenShake.x; const sy = e.y - camera.y + screenShake.y;
     ctx.fillStyle = e.color; 
     ctx.shadowBlur = 10; ctx.shadowColor = e.color;
-    ctx.beginPath(); ctx.arc(e.x, e.y, e.size, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(sx, sy, e.size, 0, Math.PI*2); ctx.fill();
     ctx.shadowBlur = 0;
 }
 function drawBoss(e) {
+    const sx = e.x - camera.x + screenShake.x; const sy = e.y - camera.y + screenShake.y;
     ctx.strokeStyle = e.color; ctx.lineWidth = 3; 
     ctx.shadowBlur = 20; ctx.shadowColor = e.color;
-    ctx.beginPath(); ctx.arc(e.x, e.y, e.size, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(sx, sy, e.size, 0, Math.PI*2); ctx.stroke();
     ctx.shadowBlur = 0;
 }
 
@@ -1005,8 +970,20 @@ function getWallNormal() { return null; }
 function findSafeSpawnPosition() { return {x: 500, y: 500}; } 
 function generateMazeWalls(n) { return [{x:0,y:0,w:WORLD_W,h:50},{x:0,y:WORLD_H-50,w:WORLD_W,h:50},{x:0,y:0,w:50,h:WORLD_H},{x:WORLD_W-50,y:0,w:50,h:WORLD_H}]; }
 function spawnMobs() { if(enemies.length < 50) spawnEnemy('virus', Math.random()*WORLD_W, Math.random()*WORLD_H); }
-function spawnEnemy(type, x, y) { enemies.push({x,y,hp:10,maxHp:10,color:'#f00',size:15,speed:2}); }
-function updateEnemyBullets() {} 
+function spawnEnemy(type, x, y) { enemies.push({x,y,hp:10,maxHp:10,color:'#f00',size:15,speed:2, timer:0}); }
+function updateEnemyBullets() {
+    enemyBullets.forEach(b => {
+        b.x += b.vx || 0; b.y += b.vy || 0;
+        b.life--;
+        if(b.life <= 0) b.dead = true;
+        // プレイヤーとの衝突判定
+        if(player && Math.hypot(player.x - b.x, player.y - b.y) < b.size + 8) {
+             player.damage(10);
+             b.dead = true;
+        }
+    });
+    enemyBullets = enemyBullets.filter(b => !b.dead);
+}
 function startWave() {
     wave++;
     ui.wave.textContent = wave;
