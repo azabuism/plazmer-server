@@ -44,11 +44,10 @@
             font-family: 'Courier New', monospace; letter-spacing: 3px;
             transition: all 0.3s; text-shadow: 0 0 10px #0ff;
             pointer-events: auto;
-            min-width: 200px;
+            min-width: 220px;
         }
         .menu-btn:hover { background: #0ff; color: #000; box-shadow: 0 0 30px #0ff; }
-        .menu-btn:active { transform: scale(0.95); }
-        .menu-btn:disabled { border-color: #444; color: #444; cursor: wait; box-shadow: none; }
+        .menu-btn:disabled { border-color: #444; color: #444; cursor: wait; }
 
         .name-input, .room-input {
             background: transparent; border: 2px solid #0ff; color: #0ff;
@@ -58,7 +57,7 @@
         }
         .name-input::placeholder { color: #088; }
         
-        /* ロビー画面 */
+        /* ロビー・待機画面 */
         #join-form, #host-info, #guest-waiting { display: none; flex-direction: column; align-items: center; }
         .room-code-display {
             font-size: 32px; color: #ff0; margin: 20px 0;
@@ -188,7 +187,8 @@
             <div class="room-code-display">CODE: <span id="generated-code">----</span></div>
             <div class="hud-label">PLAYERS IN LOBBY</div>
             <div id="lobby-players"></div>
-            <button class="menu-btn" onclick="socket.emit('startGame')">START MISSION</button>
+            <div style="font-size: 10px; color: #888; margin: 10px;">(START ALONE = SOLO MODE)</div>
+            <button class="menu-btn" onclick="tryStartGame()">START MISSION</button>
             <button class="menu-btn back-btn" onclick="location.reload()">CANCEL</button>
         </div>
 
@@ -341,10 +341,6 @@ function init() {
     canvas = document.getElementById('canvas');
     if(!canvas) return;
     ctx = canvas.getContext('2d');
-    
-    // キャンバスサイズを即時設定
-    resize();
-    window.addEventListener('resize', resize);
 
     ui = {
         startScreen: document.getElementById('start-screen'),
@@ -370,7 +366,9 @@ function init() {
         weaponsDiv: document.getElementById('weapons')
     };
 
-    // PC入力
+    resize();
+    window.addEventListener('resize', resize);
+    
     canvas.addEventListener('mousemove', e => { input.x = e.clientX; input.y = e.clientY; });
     canvas.addEventListener('mousedown', e => {
         if(gameState === 'title') return;
@@ -465,10 +463,15 @@ function setupSocketListeners() {
 }
 
 function hostGame() {
-    if(!socket || !socket.connected) { alert("Server Error"); return; }
+    if(!socket || !socket.connected) { alert("Connecting..."); return; }
     const name = document.getElementById('player-name').value || "Host";
+    const btn = document.getElementById('btn-host');
+    btn.disabled = true;
+    setStatus("Requesting...");
+    setTimeout(() => {
+        if(btn.disabled) { btn.disabled = false; setStatus("Timed out."); }
+    }, 5000);
     socket.emit('hostRoom', { name });
-    setStatus("Connecting...");
 }
 
 function joinGame() {
@@ -476,6 +479,14 @@ function joinGame() {
     const name = document.getElementById('player-name').value || "Guest";
     const roomId = document.getElementById('room-id').value;
     if(roomId.length === 4) socket.emit('joinRoom', { name, roomId });
+}
+
+function tryStartGame() {
+    if (lobbyPlayerCount <= 1) {
+        startSoloGame();
+    } else {
+        socket.emit('startGame');
+    }
 }
 
 function sendReady() {
@@ -532,7 +543,6 @@ function startSoloGame() {
     setupGameCommon();
     player = new Player();
     walls = generateMazeWalls(0);
-    // カメラの初期位置を確実に設定
     camera.x = player.x - canvas.width/2;
     camera.y = player.y - canvas.height/2;
     playWaveBgm(1);
@@ -561,13 +571,11 @@ function update() {
 function updateGameLogic() {
     if (player) { 
         player.update(); 
-        // カメラ追従 (NaN対策)
+        // カメラ追従
         const targetX = player.x - canvas.width / 2;
         const targetY = player.y - canvas.height / 2;
         camera.x += (targetX - camera.x) * 0.1;
         camera.y += (targetY - camera.y) * 0.1;
-        if(isNaN(camera.x)) camera.x = 0;
-        if(isNaN(camera.y)) camera.y = 0;
         
         if (gameState === 'playing_online' && socket && joystick.active) {
             socket.emit('input', { x: player.x, y: player.y, angle: player.angle, dashing: player.dashing });
@@ -625,7 +633,6 @@ function updateGameLogic() {
 function draw() {
     if(!ctx) return;
     
-    // 安全対策：カメラがNaNならリセット
     if (isNaN(camera.x)) camera.x = 0;
     if (isNaN(camera.y)) camera.y = 0;
     if (isNaN(screenShake.x)) screenShake.x = 0;
@@ -708,7 +715,7 @@ function draw() {
         damageFlash--;
     }
 
-    if (player && player.alive && player.hp < player.maxHp * 0.3) {
+    if (player && player.hp > 0 && player.hp < player.maxHp * 0.3) {
         const pulse = (Math.sin(frame * 0.2) + 1) / 2; 
         ctx.save();
         ctx.strokeStyle = `rgba(255, 0, 0, ${pulse * 0.8})`;
@@ -808,7 +815,6 @@ class Player {
     }
     
     draw() {
-        // ★修正: 描画時も座標をtranslate済みコンテキストに合わせる
         if (this.invincible % 4 < 2) {
             ctx.save();
             ctx.translate(this.x, this.y); 
