@@ -1,1020 +1,1363 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>PLAZMERS - INNER SPACE</title>
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            background: #000810; 
-            overflow: hidden; 
-            font-family: 'Courier New', monospace;
-            touch-action: none;
-            user-select: none;
-            -webkit-user-select: none;
-            cursor: crosshair;
-            position: fixed; width: 100%; height: 100%;
-        }
-        #canvas { display: block; background: #000810; width: 100%; height: 100%; }
-        
-        .ui { position: fixed; color: #0ff; font-size: 14px; text-shadow: 0 0 10px #0ff; z-index: 100; pointer-events: none; }
-        
-        /* スクリーン共通 */
-        .screen {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            background: radial-gradient(ellipse at center, #001020 0%, #000810 100%);
-            z-index: 200;
-            pointer-events: auto;
-        }
-        
-        #start-screen h1 {
-            font-size: 60px; color: #0ff; text-shadow: 0 0 30px #0ff, 0 0 60px #08f;
-            letter-spacing: 15px; margin-bottom: 10px;
-        }
-        #start-screen .subtitle {
-            font-size: 16px; color: #f08; margin-bottom: 30px;
-            text-shadow: 0 0 10px #f08; letter-spacing: 5px;
-        }
-        .menu-btn {
-            background: transparent; border: 2px solid #0ff; color: #0ff;
-            padding: 15px 50px; margin: 10px; font-size: 18px; cursor: pointer;
-            font-family: 'Courier New', monospace; letter-spacing: 3px;
-            transition: all 0.3s; text-shadow: 0 0 10px #0ff;
-            pointer-events: auto;
-            min-width: 220px;
-        }
-        .menu-btn:hover { background: #0ff; color: #000; box-shadow: 0 0 30px #0ff; }
-        .menu-btn:disabled { border-color: #444; color: #444; cursor: wait; }
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const { v4: uuidv4 } = require('uuid');
 
-        .name-input, .room-input {
-            background: transparent; border: 2px solid #0ff; color: #0ff;
-            padding: 10px 20px; font-size: 16px; text-align: center;
-            font-family: 'Courier New', monospace; margin-bottom: 15px; width: 200px;
-            pointer-events: auto;
-        }
-        .name-input::placeholder { color: #088; }
-        
-        /* ロビー・待機画面 */
-        #join-form, #host-info, #guest-waiting { display: none; flex-direction: column; align-items: center; }
-        .room-code-display {
-            font-size: 32px; color: #ff0; margin: 20px 0;
-            text-shadow: 0 0 20px #ff0; letter-spacing: 8px;
-            padding: 15px 30px; border: 3px solid #ff0; border-radius: 10px;
-            background: rgba(255,255,0,0.1);
-        }
-        #lobby-players, #guest-lobby-players {
-            background: rgba(0,0,0,0.5); border: 1px solid #0ff; padding: 15px;
-            margin: 15px 0; min-width: 250px; border-radius: 5px;
-        }
-        .lobby-player { padding: 5px; margin: 2px; border-bottom: 1px solid #044; color: #0ff; text-align: left; }
-        
-        #hud { position: fixed; top: 10px; left: 10px; }
-        .hud-label { font-size: 10px; color: #088; margin-bottom: 2px; }
-        .hud-value { font-size: 20px; color: #0ff; margin-bottom: 10px; }
-        #hp-bar { width: 150px; height: 8px; background: #001; border: 1px solid #0ff; margin-bottom: 10px; }
-        #hp-fill { width: 100%; height: 100%; background: linear-gradient(90deg, #f00, #ff0, #0f0); transition: width 0.2s; }
-        
-        #boss-container {
-            position: fixed; top: 50px; left: 50%; transform: translateX(-50%);
-            width: 500px; max-width: 90%; display: none; text-align: center;
-        }
-        #boss-name { font-size: 14px; color: #f00; margin-bottom: 5px; text-shadow: 0 0 10px #f00; font-weight: bold; }
-        #boss-bar { width: 100%; height: 12px; background: #200; border: 1px solid #f00; }
-        #boss-hp { width: 100%; height: 100%; background: linear-gradient(90deg, #f00, #ff0); transition: width 0.3s; }
-        
-        #weapons {
-            position: fixed; bottom: 10px; left: 10px;
-            display: flex; gap: 8px; flex-wrap: wrap; max-width: 350px;
-        }
-        .weapon-slot {
-            padding: 5px 8px; border: 1px solid #444; background: #001;
-            font-size: 9px; color: #888; transition: all 0.3s;
-        }
-        .weapon-slot.active { border-color: #0ff; color: #0ff; box-shadow: 0 0 10px #0ff; }
-        .weapon-slot.locked { opacity: 0.3; }
-        
-        #formation-display {
-            position: fixed; bottom: 80px; left: 10px;
-            font-size: 12px; color: #0f0; text-shadow: 0 0 10px #0f0;
-        }
-        
-        #joystick-zone {
-            position: fixed; bottom: 20px; left: 20px;
-            width: 130px; height: 130px; display: none;
-            pointer-events: auto;
-        }
-        #joystick-base {
-            width: 100%; height: 100%; border-radius: 50%;
-            background: rgba(0,255,255,0.1); border: 2px solid rgba(0,255,255,0.3);
-        }
-        #joystick-stick {
-            position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            width: 55px; height: 55px; border-radius: 50%;
-            background: rgba(0,255,255,0.4); border: 2px solid #0ff;
-        }
-        #mobile-buttons {
-            position: fixed; bottom: 20px; right: 20px;
-            display: none; gap: 20px;
-            pointer-events: auto;
-        }
-        .mobile-btn {
-            width: 65px; height: 65px; border-radius: 50%;
-            background: rgba(0,255,255,0.2); border: 2px solid #0ff;
-            color: #0ff; font-size: 12px; font-weight: bold;
-            display: flex; align-items: center; justify-content: center;
-        }
-        .mobile-btn:active { background: rgba(0,255,255,0.5); }
-        
-        #game-over { display: none; background: rgba(0,0,0,0.9); z-index: 300; }
-        #game-over h2 { font-size: 48px; color: #f00; margin-bottom: 20px; text-shadow: 0 0 30px #f00; }
-        #final-score { font-size: 24px; color: #0ff; margin-bottom: 30px; }
-        
-        #message {
-            position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%);
-            font-size: 32px; color: #0ff; text-shadow: 0 0 20px #0ff;
-            opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 150; width: 100%; text-align: center;
-        }
-        #status-msg { margin-top: 10px; color: #088; font-size: 12px; height: 20px; animation: blink 1s infinite; }
-        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-        
-        /* チュートリアル */
-        #tutorial-screen { display: none; background: rgba(0,10,20,0.95); }
-        .tutorial-content {
-            border: 2px solid #0ff; padding: 30px; border-radius: 10px;
-            width: 90%; max-width: 600px; text-align: center;
-            box-shadow: 0 0 30px #0ff;
-        }
-        .control-grid {
-            display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;
-            text-align: left;
-        }
-        .key { color: #ff0; border: 1px solid #ff0; padding: 2px 5px; border-radius: 4px; font-size: 0.9em; margin-right: 8px; }
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: { origin: "*" }
+});
 
-        @media (max-width: 768px) {
-            #start-screen h1 { font-size: 36px; letter-spacing: 8px; }
-            .menu-btn { padding: 12px 30px; font-size: 14px; }
-            #joystick-zone, #mobile-buttons { display: flex; }
-            .control-grid { grid-template-columns: 1fr; }
-        }
-    </style>
-</head>
-<body>
-    <canvas id="canvas"></canvas>
-    
-    <div id="start-screen" class="screen">
-        <h1>PLAZMERS</h1>
-        <div class="subtitle">◆ INNER SPACE ◆</div>
-        <input type="text" id="player-name" class="name-input" placeholder="ENTER NAME" maxlength="12">
-        
-        <div id="menu-buttons">
-            <button class="menu-btn" onclick="startSoloGame()">SOLO MODE</button>
-            <button class="menu-btn" id="btn-host" onclick="hostGame()">HOST GAME</button>
-            <button class="menu-btn" id="btn-join" onclick="showJoinForm()">JOIN GAME</button>
-            <button class="menu-btn" onclick="showTutorial()" style="margin-top:20px; font-size:14px">HOW TO PLAY</button>
-        </div>
+app.use(express.static('public'));
 
-        <div id="join-form">
-            <input type="text" id="room-id" class="room-input" placeholder="ROOM CODE" maxlength="4">
-            <button class="menu-btn" onclick="joinGame()">CONNECT</button>
-            <button class="menu-btn back-btn" onclick="showMainMenu()">BACK</button>
-        </div>
-
-        <div id="host-info">
-            <div class="room-code-display">CODE: <span id="generated-code">----</span></div>
-            <div class="hud-label">PLAYERS IN LOBBY</div>
-            <div id="lobby-players"></div>
-            <div style="font-size: 10px; color: #888; margin: 10px;">(START ALONE = SOLO MODE)</div>
-            <button class="menu-btn" onclick="tryStartGame()">START MISSION</button>
-            <button class="menu-btn back-btn" onclick="location.reload()">CANCEL</button>
-        </div>
-
-        <div id="guest-waiting">
-            <div class="room-code-display">ROOM: <span id="joined-room-code">----</span></div>
-            <div id="guest-lobby-players"></div>
-            <button class="menu-btn" id="ready-btn" onclick="sendReady()">READY</button>
-            <button class="menu-btn back-btn" onclick="location.reload()">LEAVE</button>
-        </div>
-        
-        <div id="status-msg"></div>
-    </div>
-
-    <div id="tutorial-screen" class="screen">
-        <div class="tutorial-content">
-            <h2 style="color:#fff; margin-bottom:20px;">CONTROLS</h2>
-            <div class="control-grid">
-                <div>
-                    <h3 style="color:#0ff; border-bottom:1px solid #0ff">PC</h3>
-                    <p><span class="key">MOUSE</span> 移動 (Move)</p>
-                    <p><span class="key">SPACE</span> ダッシュ (Dash)</p>
-                    <p><span class="key">L-CLICK</span> 陣形 (Form)</p>
-                </div>
-                <div>
-                    <h3 style="color:#0ff; border-bottom:1px solid #0ff">MOBILE</h3>
-                    <p><span class="key">STICK</span> 移動 (Move)</p>
-                    <p><span class="key">DASH</span> ダッシュ</p>
-                    <p><span class="key">FORM</span> 陣形</p>
-                </div>
-            </div>
-            <p style="color:#888; font-size:12px;">Auto Fire System Enabled</p>
-            <button class="menu-btn back-btn" onclick="hideTutorial()">BACK</button>
-        </div>
-    </div>
-    
-    <div id="hud" class="ui" style="display:none;">
-        <div class="hud-label">SHIELD</div>
-        <div id="hp-bar"><div id="hp-fill"></div></div>
-        <div class="hud-label">WAVE</div>
-        <div class="hud-value" id="wave">0</div>
-        <div class="hud-label">SCORE</div>
-        <div class="hud-value" id="score">0</div>
-    </div>
-    
-    <div id="boss-container">
-        <div id="boss-name">BOSS</div>
-        <div id="boss-bar"><div id="boss-hp"></div></div>
-    </div>
-    
-    <div id="weapons" style="display:none;">
-        <div class="weapon-slot active" id="w-plazmer">PLAZMER</div>
-        <div class="weapon-slot locked" id="w-homing">HOMING</div>
-        <div class="weapon-slot locked" id="w-laser">LASER</div>
-        <div class="weapon-slot locked" id="w-thunder">THUNDER</div>
-        <div class="weapon-slot locked" id="w-allrange">ALL-RANGE</div>
-    </div>
-    
-    <div id="formation-display" style="display:none;">FORMATION: FOLLOW</div>
-    
-    <div id="joystick-zone">
-        <div id="joystick-base"></div>
-        <div id="joystick-stick"></div>
-    </div>
-    <div id="mobile-buttons">
-        <div class="mobile-btn" id="btn-dash">DASH</div>
-        <div class="mobile-btn" id="btn-form">FORM</div>
-    </div>
-    
-    <div id="game-over" class="screen">
-        <h2>MISSION FAILED</h2>
-        <div id="final-score">SCORE: 0</div>
-        <button class="menu-btn" onclick="location.reload()">RETRY</button>
-    </div>
-    
-    <div id="message"></div>
-
-<script>
-// ========== 定数・変数 ==========
+// ========== 定数 ==========
 const WORLD_W = 3000, WORLD_H = 3000;
-let canvas, ctx;
-let socket = null;
+const TICK_RATE = 60;
+const TICK_INTERVAL = 1000 / TICK_RATE;
 
-// ゲームオブジェクト
-let player = null;
-let enemies = [];
-let bullets = [];
-let enemyBullets = [];
-let particles = [];
-let texts = [];
-let items = [];
-let options = [];
-let walls = [];
-let activeLaser = null;
-let missiles = [];
+// ========== 敵テンプレート ==========
+const ENEMY_TYPES = {
+    virus: { hp: 3, speed: 1.8, size: 10, color: '#0f0', score: 50 },
+    bacteria: { hp: 5, speed: 1.3, size: 14, color: '#0a0', score: 60 },
+    infected: { hp: 10, speed: 1.5, size: 18, color: '#ff0', score: 100, shoots: true },
+    mutant: { hp: 18, speed: 2, size: 16, color: '#f80', score: 150 },
+    toxin: { hp: 8, speed: 2.2, size: 12, color: '#f0f', score: 120 },
+    parasite: { hp: 25, speed: 1, size: 22, color: '#88f', score: 200, armor: true },
+    cancer: { hp: 35, speed: 0.8, size: 30, color: '#800', score: 300, divides: true },
+    tumor: { hp: 60, speed: 0.4, size: 40, color: '#400', score: 400 },
+    plague: { hp: 45, speed: 1.8, size: 25, color: '#0ff', score: 350, shoots: true },
+    necrosis: { hp: 80, speed: 0.6, size: 35, color: '#444', score: 500, armor: true }
+};
 
-// 補間・演出用
-let remotePlayers = new Map();
-let remoteEnemies = new Map();
-let damageTexts = [];
-let localOptions = [];
-let dashTrail = [];
-let dashParticles = [];
-let optionBeams = [];
-let optionFormation = 'FOLLOW';
-let huntTarget = null;
-let huntLockOnTimer = 0;
-let huntAttacking = false;
-let damageFlash = 0;
-
-let wave = 0;
-let score = 0;
-let frame = 0;
-let gameState = 'title'; 
-let currentBoss = null;
-let lobbyPlayerCount = 0;
-
-// BGM
-const BGM_URLS = [
-    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Photon Rush Protocol.mp3",
-    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Ion Drift-2.mp3",
-    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Ion Drift.mp3",
-    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Ion Drift Protocol.mp3",
-    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Pulsefire Drift.mp3",
-    "http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/Quantum Crossfire.mp3"
+const BOSS_TYPES = [
+    { name: 'VIRUS-α', color: '#0f0', baseHp: 200, size: 50, pattern: 'radial', speed: 2 },
+    { name: 'BACTERIA-β', color: '#08f', baseHp: 400, size: 55, pattern: 'spiral', speed: 2.5 },
+    { name: 'INFECTION-γ', color: '#f80', baseHp: 600, size: 60, pattern: 'burst', speed: 3 },
+    { name: 'CANCER-δ', color: '#f00', baseHp: 900, size: 70, pattern: 'divide', speed: 2 },
+    { name: 'PLAGUE-ε', color: '#f0f', baseHp: 1200, size: 75, pattern: 'swarm', speed: 3.5 },
+    { name: 'NECROSIS-ζ', color: '#888', baseHp: 1600, size: 80, pattern: 'laser', speed: 2 },
+    { name: 'PANDEMIC-η', color: '#ff0', baseHp: 2000, size: 85, pattern: 'chaos', speed: 4 },
+    { name: 'NIGHTMARE-θ', color: '#f44', baseHp: 2500, size: 90, pattern: 'nightmare', speed: 3 },
+    { name: 'APOCALYPSE-ι', color: '#a0f', baseHp: 3000, size: 95, pattern: 'apocalypse', speed: 3.5 },
+    { name: 'OMEGA-CELL', color: '#fff', baseHp: 4000, size: 120, pattern: 'all', speed: 4 }
 ];
-let currentBgm = new Audio();
-currentBgm.loop = true;
-currentBgm.volume = 0.4;
 
-// 設定
-let weaponLevels = { PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0, ALLRANGE: 0 };
-let thunderEnergy = 0;
-const THUNDER_MAX_ENERGY = 180;
-const FORMATIONS = ['FOLLOW', 'GO AROUND 1', 'GO AROUND 2', 'HUNT'];
-let currentFormation = 0;
-let camera = { x: 0, y: 0 };
-let screenShake = { x: 0, y: 0, intensity: 0 };
-let combo = { count: 0, timer: 0, multiplier: 1 };
-let soloWaveTimer = 0;
-let soloMobTimer = 0;
-let enemyIdCounter = 0;
+// ========== ルーム管理 ==========
+const rooms = new Map();
 
-let input = { x: 0, y: 0, active: false };
-let joystick = { active: false, dx: 0, dy: 0 };
-
-let ui = {};
-
-// ========== 初期化 ==========
-function init() {
-    canvas = document.getElementById('canvas');
-    if(!canvas) return;
-    ctx = canvas.getContext('2d');
-
-    ui = {
-        startScreen: document.getElementById('start-screen'),
-        tutorialScreen: document.getElementById('tutorial-screen'),
-        gameOver: document.getElementById('game-over'),
-        hp: document.getElementById('hp-fill'),
-        wave: document.getElementById('wave'),
-        score: document.getElementById('score'),
-        bossContainer: document.getElementById('boss-container'),
-        bossName: document.getElementById('boss-name'),
-        bossHp: document.getElementById('boss-hp'),
-        message: document.getElementById('message'),
-        formationDisplay: document.getElementById('formation-display'),
-        statusMsg: document.getElementById('status-msg'),
-        weapons: {
-            plazmer: document.getElementById('w-plazmer'),
-            homing: document.getElementById('w-homing'),
-            laser: document.getElementById('w-laser'),
-            thunder: document.getElementById('w-thunder'),
-            allrange: document.getElementById('w-allrange')
-        },
-        hud: document.getElementById('hud'),
-        weaponsDiv: document.getElementById('weapons')
-    };
-
-    resize();
-    window.addEventListener('resize', resize);
-    
-    // PC入力
-    canvas.addEventListener('mousemove', e => { input.x = e.clientX; input.y = e.clientY; });
-    canvas.addEventListener('mousedown', e => {
-        if(gameState === 'title') return;
-        e.preventDefault();
-        if(e.button === 0) cycleFormation();
-    });
-    canvas.addEventListener('contextmenu', e => e.preventDefault());
-    
-    document.addEventListener('keydown', e => {
-        if(gameState === 'title') return;
-        if (e.code === 'Space') triggerDash();
-        if (e.code === 'KeyF') cycleFormation();
-    });
-
-    if(typeof io !== 'undefined') {
-        socket = io();
-        setupSocketListeners();
-        setStatus("ONLINE READY");
-    } else {
-        setStatus("OFFLINE MODE");
-        document.getElementById('btn-host').disabled = true;
-        document.getElementById('btn-join').disabled = true;
-    }
-
-    initMobileControls();
-    requestAnimationFrame(update);
-}
-
-function resize() {
-    if(canvas) { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-}
-
-function setStatus(msg) {
-    if(ui.statusMsg) ui.statusMsg.textContent = msg;
-}
-
-// ========== 画面操作 ==========
-function showTutorial() {
-    ui.startScreen.style.display = 'none';
-    ui.tutorialScreen.style.display = 'flex';
-}
-function hideTutorial() {
-    ui.tutorialScreen.style.display = 'none';
-    ui.startScreen.style.display = 'flex';
-}
-
-// ========== BGM機能 ==========
-function playWaveBgm(waveNum) {
-    const index = (Math.max(1, waveNum) - 1) % BGM_URLS.length;
-    const nextSrc = BGM_URLS[index];
-    if (currentBgm.src !== nextSrc) {
-        currentBgm.pause();
-        currentBgm.src = nextSrc;
-        const p = currentBgm.play();
-        if (p) p.catch(e => console.log("BGM Play Error:", e));
-    } else if (currentBgm.paused) {
-        currentBgm.play().catch(e => {});
-    }
-}
-
-// ========== オンライン制御 ==========
-function setupSocketListeners() {
-    socket.on('connect', () => { setStatus("CONNECTED"); });
-    
-    socket.on('hosted', (data) => {
-        document.getElementById('menu-buttons').style.display = 'none';
-        document.getElementById('host-info').style.display = 'flex';
-        document.getElementById('generated-code').textContent = data.roomId;
-        lobbyPlayerCount = data.players.length;
-        updateLobby(data.players, 'lobby-players');
-        setStatus("");
-        document.getElementById('btn-host').disabled = false;
-    });
-
-    socket.on('joined', (data) => {
-        document.getElementById('menu-buttons').style.display = 'none';
-        document.getElementById('join-form').style.display = 'none';
-        document.getElementById('guest-waiting').style.display = 'flex';
-        document.getElementById('joined-room-code').textContent = data.roomId;
-        updateLobby(data.players, 'guest-lobby-players');
-        setStatus("");
-    });
-
-    socket.on('playerJoined', (data) => {
-        lobbyPlayerCount = data.players.length;
-        updateLobby(data.players, 'lobby-players');
-        updateLobby(data.players, 'guest-lobby-players');
-    });
-
-    socket.on('gameStarted', (data) => {
-        startOnlineGameClient(data);
-    });
-}
-
-function hostGame() {
-    if(!socket || !socket.connected) { alert("Connecting..."); return; }
-    const name = document.getElementById('player-name').value || "Host";
-    const btn = document.getElementById('btn-host');
-    btn.disabled = true;
-    setStatus("Requesting...");
-    setTimeout(() => {
-        if(btn.disabled) { btn.disabled = false; setStatus("Timed out."); }
-    }, 5000);
-    socket.emit('hostRoom', { name });
-}
-
-function joinGame() {
-    if(!socket || !socket.connected) { alert("Server Error"); return; }
-    const name = document.getElementById('player-name').value || "Guest";
-    const roomId = document.getElementById('room-id').value;
-    if(roomId.length === 4) socket.emit('joinRoom', { name, roomId });
-}
-
-function tryStartGame() {
-    if (lobbyPlayerCount <= 1) {
-        startSoloGame();
-    } else {
-        socket.emit('startGame');
-    }
-}
-
-function sendReady() {
-    socket.emit('playerReady');
-    document.getElementById('ready-btn').textContent = "READY!";
-    document.getElementById('ready-btn').disabled = true;
-}
-
-function showJoinForm() {
-    document.getElementById('menu-buttons').style.display = 'none';
-    document.getElementById('join-form').style.display = 'flex';
-}
-function showMainMenu() {
-    document.getElementById('menu-buttons').style.display = 'block';
-    document.getElementById('join-form').style.display = 'none';
-}
-function updateLobby(players, elementId) {
-    const el = document.getElementById(elementId);
-    if(!el) return;
-    el.innerHTML = '';
-    players.forEach(p => {
-        const div = document.createElement('div');
-        div.className = 'lobby-player';
-        div.textContent = `${p.name} ${p.isHost ? '[HOST]' : ''}`;
-        div.style.color = p.color;
-        el.appendChild(div);
-    });
-}
-
-// ========== ゲーム開始処理 ==========
-function setupGameCommon() {
-    ui.startScreen.style.display = 'none';
-    ui.hud.style.display = 'block';
-    ui.weaponsDiv.style.display = 'flex';
-    ui.formationDisplay.style.display = 'block';
-    
-    enemies = []; bullets = []; enemyBullets = []; particles = []; texts = [];
-    items = []; options = []; missiles = [];
-    remotePlayers = new Map(); remoteEnemies = new Map(); damageTexts = [];
-    localOptions = []; dashTrail = []; dashParticles = []; optionBeams = [];
-    
-    weaponLevels = { PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0, ALLRANGE: 0 };
-    thunderEnergy = 0; currentFormation = 0;
-    wave = 0; score = 0; frame = 0;
-    soloWaveTimer = 0; soloMobTimer = 0; enemyIdCounter = 0;
-    combo = { count: 0, timer: 0, multiplier: 1 };
-    damageFlash = 0;
-    
-    updateWeaponUI();
-}
-
-function startSoloGame() {
-    gameState = 'playing_solo';
-    setupGameCommon();
-    player = new Player();
-    walls = generateMazeWalls(0);
-    // カメラの初期位置を確実に設定（画面中央がプレイヤー位置）
-    // 安全のため、プレイヤー位置を壁のない場所に強制移動
-    const startPos = findSafeSpawnPosition(0);
-    player.x = startPos.x;
-    player.y = startPos.y;
-    camera.x = player.x - canvas.width/2;
-    camera.y = player.y - canvas.height/2;
-    playWaveBgm(1);
-}
-
-function startOnlineGameClient(data) {
-    gameState = 'playing_online';
-    setupGameCommon();
-    player = new Player(); 
-    walls = generateMazeWalls(0);
-    const startPos = findSafeSpawnPosition(0);
-    player.x = startPos.x;
-    player.y = startPos.y;
-    camera.x = player.x - canvas.width/2;
-    camera.y = player.y - canvas.height/2;
-    playWaveBgm(1);
-}
-
-// ========== メインループ ==========
-function update() {
-    frame++;
-    if (gameState.startsWith('playing')) {
-        updateGameLogic();
-    }
-    draw();
-    requestAnimationFrame(update);
-}
-
-function updateGameLogic() {
-    if (player) { 
-        player.update(); 
-        // カメラ追従 (NaN対策)
-        let targetX = player.x - canvas.width / 2;
-        let targetY = player.y - canvas.height / 2;
-        if(isNaN(targetX)) targetX = 0;
-        if(isNaN(targetY)) targetY = 0;
+class GameRoom {
+    constructor(id) {
+        this.id = id;
+        this.players = new Map();
+        this.enemies = [];
+        this.enemyBullets = [];
+        this.items = [];
+        this.walls = [];
+        this.wave = 0;
+        this.score = 0;
+        this.state = 'waiting'; // waiting, playing, gameover
+        this.frame = 0;
+        this.enemyIdCounter = 0;
+        this.waveTimer = 0;
+        this.mobTimer = 0;
+        this.currentBosses = [];
+        this.lastUpdate = Date.now();
         
-        camera.x += (targetX - camera.x) * 0.1;
-        camera.y += (targetY - camera.y) * 0.1;
+        this.generateWalls(0);
+    }
+    
+    generateWalls(waveNum) {
+        this.walls = [];
+        const thickness = 50;
         
-        // 座標が壊れた場合の緊急リセット
-        if(isNaN(camera.x) || isNaN(camera.y)) {
-            camera.x = player.x - canvas.width/2;
-            camera.y = player.y - canvas.height/2;
-        }
-
-        if (gameState === 'playing_online' && socket && joystick.active) {
-            socket.emit('input', { x: player.x, y: player.y, angle: player.angle, dashing: player.dashing });
-        }
-    }
-    
-    soloWaveTimer++; soloMobTimer++;
-    if (wave === 0 && soloWaveTimer > 60) startWave();
-    
-    const activeBosses = enemies.filter(e => e.isBoss && e.hp > 0);
-    if (activeBosses.length > 0 && soloMobTimer >= 60) {
-        soloMobTimer = 0; spawnMobs();
-    }
-    
-    updateEnemies();
-    enemies = enemies.filter(e => e.hp > 0);
-    
-    const bossCheck = enemies.filter(e => e.isBoss && e.hp > 0);
-    if (bossCheck.length > 0) {
-        ui.bossContainer.style.display = 'block';
-        let totalHp = 0, totalMaxHp = 0;
-        bossCheck.forEach(boss => { totalHp += boss.hp; totalMaxHp += boss.maxHp; });
-        ui.bossHp.style.width = (totalHp / totalMaxHp * 100) + '%';
-        ui.bossName.textContent = `BOSS DANGER x${bossCheck.length}`;
-    } else {
-        ui.bossContainer.style.display = 'none';
-        if (currentBoss && currentBoss.hp <= 0 && enemies.filter(e=>e.isBoss).length===0 && wave > 0) {
-            currentBoss = null;
-            showMessage('◆ PATHOGEN ELIMINATED ◆');
-            triggerScreenShake(40);
-            enemies.forEach(e => { if (!e.isBoss && e.hp > 0) { e.hp = 0; score += 50; } });
-            ui.score.textContent = score;
-            setTimeout(() => { if (gameState.startsWith('playing')) startWave(); }, 3000);
-        }
-    }
-    
-    bullets.forEach(b => { if (!b.dead) b.update(); });
-    bullets = bullets.filter(b => !b.dead);
-    updateEnemyBullets();
-    updateItems();
-    updateOptions(); 
-    updateDashTrail(); 
-    particles.forEach(p => p.update());
-    particles = particles.filter(p => p.life > 0);
-    texts.forEach(t => t.update());
-    texts = texts.filter(t => t.life > 0);
-    updateCombo();
-    updateScreenShake();
-    
-    damageTexts.forEach(dt => { dt.y -= 1; dt.life--; dt.alpha = dt.life/40; });
-    damageTexts = damageTexts.filter(dt => dt.life > 0);
-}
-
-// ========== 描画処理 ==========
-function draw() {
-    if(!ctx) return;
-    
-    // 安全対策：カメラがNaNならリセット
-    if (isNaN(camera.x)) camera.x = 0;
-    if (isNaN(camera.y)) camera.y = 0;
-    if (isNaN(screenShake.x)) screenShake.x = 0;
-    if (isNaN(screenShake.y)) screenShake.y = 0;
-
-    ctx.fillStyle = '#000810'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    const camX = Math.floor(camera.x - screenShake.x);
-    const camY = Math.floor(camera.y - screenShake.y);
-
-    ctx.save();
-    ctx.translate(-camX, -camY);
-
-    ctx.strokeStyle = 'rgba(100,20,30,0.3)'; ctx.lineWidth = 1;
-    const gridSize = 80;
-    const startX = Math.floor(camX / gridSize) * gridSize;
-    const startY = Math.floor(camY / gridSize) * gridSize;
-    for (let x = startX; x < startX + canvas.width + gridSize; x += gridSize) { 
-        ctx.beginPath(); ctx.moveTo(x, camY); ctx.lineTo(x, camY + canvas.height); ctx.stroke(); 
-    }
-    for (let y = startY; y < startY + canvas.height + gridSize; y += gridSize) { 
-        ctx.beginPath(); ctx.moveTo(camX, y); ctx.lineTo(camX + canvas.width, y); ctx.stroke(); 
-    }
-
-    walls.forEach(w => {
-        if (w.type === 'cell') {
-            ctx.fillStyle = 'rgba(150,30,50,0.8)'; ctx.strokeStyle = '#f66'; ctx.lineWidth = 3;
-            ctx.shadowBlur = 15; ctx.shadowColor = '#f00';
-            ctx.beginPath(); ctx.arc(w.cx, w.cy, w.radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-            ctx.fillStyle = 'rgba(100,20,30,0.5)'; ctx.beginPath(); ctx.arc(w.cx, w.cy, w.radius * 0.4, 0, Math.PI * 2); ctx.fill();
-        } else {
-            ctx.fillStyle = 'rgba(100,30,50,0.9)'; ctx.strokeStyle = '#f88'; ctx.lineWidth = 3;
-            ctx.shadowBlur = 15; ctx.shadowColor = '#f44';
-            ctx.fillRect(w.x, w.y, w.w, w.h); ctx.strokeRect(w.x, w.y, w.w, w.h);
-        }
-        ctx.shadowBlur = 0;
-    });
-
-    items.forEach(item => {
-        ctx.fillStyle = item.color; ctx.shadowBlur = 15; ctx.shadowColor = item.color;
-        ctx.beginPath(); ctx.arc(item.x, item.y, 10, 0, Math.PI * 2); ctx.fill();
-        ctx.shadowBlur = 0;
-    });
-
-    drawDashEffects(); 
-
-    if (player) player.draw();
-
-    enemies.forEach(e => { if (e.isBoss) drawBoss(e); else drawEnemy(e); });
-
-    bullets.forEach(b => b.draw());
-    enemyBullets.forEach(b => {
-        ctx.fillStyle = b.color; ctx.shadowBlur = 10; ctx.shadowColor = b.color;
-        ctx.beginPath(); ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
-    });
-    
-    drawOptions(); 
-    if(activeLaser) activeLaser.draw();
-
-    particles.forEach(p => p.draw());
-    texts.forEach(t => t.draw());
-    damageTexts.forEach(dt => {
-        ctx.globalAlpha = dt.alpha;
-        ctx.fillStyle = dt.color;
-        ctx.font = 'bold 14px Courier New';
-        ctx.fillText(dt.damage, dt.x, dt.y);
-        ctx.globalAlpha = 1;
-    });
-
-    ctx.restore(); 
-
-    drawEnemyIndicators();
-    drawMinimap();
-
-    // ダメージフラッシュ（赤）
-    if (damageFlash > 0) {
-        ctx.save();
-        ctx.fillStyle = `rgba(255, 0, 0, ${damageFlash / 20})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.restore();
-        damageFlash--;
-    }
-
-    // HPピンチアラート
-    if (player && player.alive && player.hp < player.maxHp * 0.3) {
-        const pulse = (Math.sin(frame * 0.2) + 1) / 2; 
-        ctx.save();
-        ctx.strokeStyle = `rgba(255, 0, 0, ${pulse * 0.8})`;
-        ctx.lineWidth = 10;
-        ctx.strokeRect(0, 0, canvas.width, canvas.height);
-        if (frame % 40 < 20) {
-            ctx.fillStyle = '#f00';
-            ctx.font = 'bold 24px Courier New';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowBlur = 10; ctx.shadowColor='#f00';
-            ctx.fillText("WARNING: LOW SHIELD", canvas.width/2, canvas.height/2 - 100);
-        }
-        ctx.restore();
-    }
-}
-
-// ========== プレイヤー ==========
-class Player {
-    constructor() {
-        this.x = WORLD_W / 2; this.y = WORLD_H / 2;
-        this.r = 8; this.color = '#fff'; this.maxHp = 100; this.hp = 100;
-        this.speed = 6; this.angle = 0;
-        this.weaponTimer = 0; this.dashing = false; this.dashTimer = 0;
-        this.invincible = 60; this.pulsePhase = 0; this.history = [];
-        this.options = [];
-    }
-    update() {
-        if (this.invincible > 0) this.invincible--;
-        this.pulsePhase += 0.1;
+        // 外壁
+        this.walls.push({ x: 0, y: 0, w: WORLD_W, h: thickness, type: 'border' });
+        this.walls.push({ x: 0, y: WORLD_H - thickness, w: WORLD_W, h: thickness, type: 'border' });
+        this.walls.push({ x: 0, y: 0, w: thickness, h: WORLD_H, type: 'border' });
+        this.walls.push({ x: WORLD_W - thickness, y: 0, w: thickness, h: WORLD_H, type: 'border' });
         
-        if (checkWall(this.x, this.y) && !this.dashing) escapeFromWall(this);
+        // 迷路風の壁
+        const gridSize = 300;
+        const cellsX = Math.floor(WORLD_W / gridSize);
+        const cellsY = Math.floor(WORLD_H / gridSize);
         
-        if (this.dashing) {
-            this.dashTimer--;
-            this.x += Math.cos(this.angle) * 28;
-            this.y += Math.sin(this.angle) * 28;
-            if (frame % 2 === 0) particles.push(new Particle(this.x, this.y, '#fff', 5, 5));
-            if (this.dashTimer <= 0) this.dashing = false;
-        } else {
-            if (joystick.active) {
-                this.angle = Math.atan2(joystick.dy, joystick.dx);
-                const mag = Math.min(1, Math.hypot(joystick.dx, joystick.dy));
-                const vx = joystick.dx * this.speed * mag;
-                const vy = joystick.dy * this.speed * mag;
-                if (!checkWall(this.x + vx, this.y)) this.x += vx;
-                if (!checkWall(this.x, this.y + vy)) this.y += vy;
-            } else {
-                const mx = input.x + camera.x;
-                const my = input.y + camera.y;
-                this.angle = Math.atan2(my - this.y, mx - this.x);
-                if (Math.hypot(mx - this.x, my - this.y) > 20) {
-                    const vx = Math.cos(this.angle) * this.speed;
-                    const vy = Math.sin(this.angle) * this.speed;
-                    if (!checkWall(this.x + vx, this.y)) this.x += vx;
-                    if (!checkWall(this.x, this.y + vy)) this.y += vy;
+        for (let gx = 1; gx < cellsX - 1; gx++) {
+            for (let gy = 1; gy < cellsY - 1; gy++) {
+                if (gx >= cellsX/2 - 1 && gx <= cellsX/2 + 1 && gy >= cellsY/2 - 1 && gy <= cellsY/2 + 1) continue;
+                
+                if (Math.random() < 0.4 + waveNum * 0.02) {
+                    const cx = gx * gridSize + gridSize / 2;
+                    const cy = gy * gridSize + gridSize / 2;
+                    const size = 40 + Math.random() * 60;
+                    
+                    this.walls.push({
+                        x: cx - size/2, y: cy - size/2,
+                        w: size, h: size,
+                        type: 'cell',
+                        cx: cx, cy: cy, radius: size / 2
+                    });
                 }
             }
         }
         
-        this.x = Math.max(60, Math.min(WORLD_W - 60, this.x));
-        this.y = Math.max(60, Math.min(WORLD_H - 60, this.y));
-        
-        this.history.unshift({x:this.x, y:this.y, angle:this.angle});
-        if(this.history.length > 120) this.history.pop();
-
-        this.weaponTimer++;
-        if (this.weaponTimer >= 15) { this.fireWeapons(); this.weaponTimer = 0; }
-        
-        if (activeLaser) { activeLaser.update(); if (activeLaser.dead) activeLaser = null; }
-        options.forEach((opt, i) => opt.update(i, options.length));
-    }
-    
-    fireWeapons() {
-        bullets.push(new PlazmerBullet({x:this.x, y:this.y, angle:this.angle}));
-        localOptions.forEach(opt => {
-            if(currentFormation !== 'FOLLOW') bullets.push(new PlazmerBullet({x:opt.x, y:opt.y, angle:opt.angle, color:'#0f0'}));
-        });
-    }
-    
-    dash() {
-        if (!this.dashing) {
-            this.dashing = true; this.dashTimer = 10;
-            this.invincible = Math.max(this.invincible, 12);
-            for(let i=0;i<8;i++) createParticle(this.x, this.y, '#fff');
+        // 追加の散らばった赤血球
+        const extraCount = 20 + waveNum * 3;
+        for (let i = 0; i < extraCount; i++) {
+            const size = 30 + Math.random() * 50;
+            const x = 150 + Math.random() * (WORLD_W - 300);
+            const y = 150 + Math.random() * (WORLD_H - 300);
+            
+            if (Math.hypot(x - WORLD_W/2, y - WORLD_H/2) < 300) continue;
+            
+            let overlap = false;
+            for (const wall of this.walls) {
+                if (wall.type === 'cell') {
+                    if (Math.hypot(x - wall.cx, y - wall.cy) < wall.radius + size/2 + 20) {
+                        overlap = true; break;
+                    }
+                }
+            }
+            if (overlap) continue;
+            
+            this.walls.push({
+                x: x - size/2, y: y - size/2, w: size, h: size,
+                type: 'cell', cx: x, cy: y, radius: size / 2
+            });
         }
     }
     
-    damage(val) {
-        if (this.invincible > 0 || this.dashing) return;
-        this.hp -= val; ui.hp.style.width = (this.hp / this.maxHp * 100) + '%';
-        this.invincible = 60; 
-        triggerScreenShake(30); 
-        damageFlash = 10;
-        playSound('hit');
-        if (this.hp <= 0) { gameState = 'over'; ui.gameOver.style.display = 'flex'; }
-    }
-    
-    draw() {
-        if (this.invincible % 4 < 2) {
-            ctx.save();
-            ctx.translate(this.x, this.y); 
-            ctx.rotate(this.angle);
-            ctx.fillStyle = '#0ff';
-            ctx.shadowBlur = 15; ctx.shadowColor = '#0ff';
-            ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-6, 6); ctx.lineTo(-6, -6); ctx.fill();
-            ctx.restore();
+    checkWall(x, y) {
+        for (const w of this.walls) {
+            if (w.type === 'cell') {
+                if (Math.hypot(x - w.cx, y - w.cy) < w.radius) return true;
+            } else {
+                if (x >= w.x && x <= w.x + w.w && y >= w.y && y <= w.y + w.h) return true;
+            }
         }
-        options.forEach(opt => opt.draw());
+        return false;
     }
     
-    heal(val) { this.hp = Math.min(this.maxHp, this.hp + val); ui.hp.style.width = (this.hp/this.maxHp*100)+'%'; }
-}
-
-// ========== ユーティリティ ==========
-function updateOptions() {
-    const optionCount = weaponLevels.ALLRANGE || 0;
-    while(localOptions.length < optionCount) localOptions.push({x:player.x,y:player.y});
+    getWallNormal(x, y) {
+        for (const w of this.walls) {
+            if (w.type === 'cell') {
+                const dist = Math.hypot(x - w.cx, y - w.cy);
+                if (dist < w.radius + 10) {
+                    return { x: (x - w.cx) / dist, y: (y - w.cy) / dist };
+                }
+            }
+        }
+        if (x < 60) return { x: 1, y: 0 };
+        if (x > WORLD_W - 60) return { x: -1, y: 0 };
+        if (y < 60) return { x: 0, y: 1 };
+        if (y > WORLD_H - 60) return { x: 0, y: -1 };
+        return null;
+    }
     
-    if(currentFormation === 'FOLLOW') {
-        localOptions.forEach((opt,i) => {
-           const hist = player.history[Math.min((i+1)*10, player.history.length-1)];
-           if(hist) { opt.x+=(hist.x-opt.x)*0.2; opt.y+=(hist.y-opt.y)*0.2; opt.angle=hist.angle; }
+    escapeFromWall(entity) {
+        if (!this.checkWall(entity.x, entity.y)) return false;
+        for (let dist = 10; dist < 500; dist += 10) {
+            for (let a = 0; a < Math.PI * 2; a += Math.PI / 16) {
+                const testX = entity.x + Math.cos(a) * dist;
+                const testY = entity.y + Math.sin(a) * dist;
+                if (!this.checkWall(testX, testY) && testX > 60 && testX < WORLD_W - 60 && testY > 60 && testY < WORLD_H - 60) {
+                    entity.x = testX;
+                    entity.y = testY;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+    addPlayer(socket, name, isHost = false) {
+        const playerIndex = this.players.size;
+        const colorData = PLAYER_COLORS[Math.min(playerIndex, PLAYER_COLORS.length - 1)];
+        
+        const player = {
+            id: socket.id,
+            name: name || 'Player',
+            x: WORLD_W / 2 + (Math.random() - 0.5) * 200,
+            y: WORLD_H / 2 + (Math.random() - 0.5) * 200,
+            angle: 0,
+            hp: 100,
+            maxHp: 100,
+            speed: 6,
+            invincible: 60,
+            dashing: false,
+            dashTimer: 0,
+            weaponLevels: { PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0, ALLRANGE: 0 },
+            thunderEnergy: 0,
+            options: [],
+            formation: 0,
+            score: 0,
+            alive: true,
+            lastInput: { x: 0, y: 0, angle: 0, dash: false },
+            // 新規追加
+            isHost: isHost,
+            playerIndex: playerIndex,
+            color: colorData.main,
+            glowColor: colorData.glow,
+            colorName: colorData.name,
+            ready: isHost, // ホストは常にready
+            respawnTimer: 0
+        };
+        
+        this.players.set(socket.id, player);
+        
+        return player;
+    }
+    
+    removePlayer(socketId) {
+        this.players.delete(socketId);
+        
+        // 全員離脱でルーム削除
+        if (this.players.size === 0) {
+            rooms.delete(this.id);
+        }
+    }
+    
+    startGame() {
+        if (this.state !== 'waiting') return;
+        
+        this.state = 'playing';
+        this.wave = 0;
+        this.score = 0;
+        this.frame = 0;
+        this.waveTimer = 0;
+        this.enemies = [];
+        this.enemyBullets = [];
+        this.items = [];
+        this.generateWalls(0);
+        
+        io.to(this.id).emit('gameStart', { wave: this.wave });
+    }
+    
+    startWave() {
+        this.wave++;
+        this.generateWalls(this.wave);
+        
+        // 重要: 前のWAVEのボスをクリア
+        this.currentBosses = [];
+        this.enemies = this.enemies.filter(e => e.isBoss === false); // 残った雑魚もクリア
+        
+        // プレイヤーが壁に埋まっていたら脱出
+        this.players.forEach(player => {
+            if (player.alive && this.checkWall(player.x, player.y)) {
+                this.escapeFromWall(player);
+            }
         });
-    } else {
-        const r = 60;
-        localOptions.forEach((opt,i) => {
-            const a = frame*0.05 + (Math.PI*2/localOptions.length)*i;
-            opt.x += (player.x + Math.cos(a)*r - opt.x)*0.1;
-            opt.y += (player.y + Math.sin(a)*r - opt.y)*0.1;
-            opt.angle = a;
+        
+        io.to(this.id).emit('waveStart', { 
+            wave: this.wave, 
+            walls: this.walls 
+        });
+        
+        // ボス数決定
+        let bossCount = 1;
+        if (this.wave >= 50) bossCount = 3;
+        else if (this.wave >= 20) bossCount = 2;
+        if (this.wave % 10 === 0) bossCount += 1;
+        
+        // マルチプレイ用にボスHP増加
+        const playerCount = this.players.size;
+        const multiplayerScale = 1 + (playerCount - 1) * 0.5;
+        
+        setTimeout(() => {
+            for (let i = 0; i < bossCount; i++) {
+                this.spawnBoss(multiplayerScale);
+            }
+        }, 1500);
+    }
+    
+    spawnBoss(multiplayerScale = 1) {
+        const bossIndex = (this.wave - 1) % BOSS_TYPES.length;
+        const template = BOSS_TYPES[bossIndex];
+        
+        let waveScale = 1 + Math.floor(this.wave / 5) * 1.0;
+        if (this.wave > 20) waveScale *= (1 + (this.wave - 20) * 0.5);
+        
+        const pos = this.findSafeSpawnPosition(500);
+        
+        const boss = {
+            id: 'boss_' + (this.enemyIdCounter++),
+            type: 'boss',
+            bossType: bossIndex,
+            pattern: template.pattern,
+            name: template.name,
+            x: pos.x, y: pos.y,
+            hp: Math.floor(template.baseHp * waveScale * multiplayerScale * 1.5),
+            maxHp: Math.floor(template.baseHp * waveScale * multiplayerScale * 1.5),
+            speed: 1.5,
+            size: template.size + Math.floor(this.wave / 5) * 2,
+            color: template.color,
+            score: 3000 + this.wave * 500,
+            isBoss: true,
+            timer: 0,
+            attackTimer: 0,
+            phase: 0
+        };
+        
+        this.enemies.push(boss);
+        this.currentBosses.push(boss);
+        
+        io.to(this.id).emit('bossSpawn', { 
+            boss: this.sanitizeEnemy(boss),
+            bossCount: this.currentBosses.filter(b => b.hp > 0).length
         });
     }
-}
-function drawOptions() {
-    localOptions.forEach(opt => {
-        const sx = opt.x - camera.x + screenShake.x;
-        const sy = opt.y - camera.y + screenShake.y;
-        ctx.save(); ctx.translate(sx, sy);
-        ctx.fillStyle='#0f0'; ctx.shadowBlur=10; ctx.shadowColor='#0f0';
-        ctx.beginPath(); ctx.arc(0,0,6,0,Math.PI*2); ctx.fill();
-        ctx.restore();
-    });
-}
-function updateDashTrail() {
-    if(player.dashing) {
-        dashParticles.push({x:player.x,y:player.y,vx:(Math.random()-0.5)*5,vy:(Math.random()-0.5)*5,life:20,size:3,color:'#0ff',update:function(){this.x+=this.vx;this.y+=this.vy;this.life--;}});
+    
+    spawnEnemy(type, x, y) {
+        const template = ENEMY_TYPES[type];
+        if (!template) return null;
+        
+        let waveScale = 1 + this.wave * 0.1;
+        let speedMult = 1;
+        if (this.wave > 20) {
+            const hardModeFactor = 1 + Math.pow((this.wave - 20) * 0.1, 2);
+            waveScale *= hardModeFactor;
+            speedMult = 1.3 + Math.min(0.5, (this.wave - 20) * 0.02);
+        }
+        
+        const enemy = {
+            id: 'e_' + (this.enemyIdCounter++),
+            type,
+            x, y,
+            hp: Math.floor(template.hp * waveScale),
+            maxHp: Math.floor(template.hp * waveScale),
+            speed: Math.min(template.speed * 2.5 * speedMult, (template.speed + this.wave * 0.05) * speedMult),
+            size: template.size,
+            color: template.color,
+            score: template.score,
+            shoots: template.shoots || false,
+            armor: template.armor || false,
+            divides: template.divides || false,
+            isBoss: false,
+            timer: Math.floor(Math.random() * 60),
+            phase: Math.random() * Math.PI * 2
+        };
+        
+        this.enemies.push(enemy);
+        return enemy;
+    }
+    
+    spawnMobs() {
+        const activeBosses = this.currentBosses.filter(b => b.hp > 0);
+        if (activeBosses.length === 0) return;
+        
+        const maxMobs = Math.min(150, 30 + this.wave * 2);
+        const mobCount = this.enemies.filter(e => !e.isBoss && e.hp > 0).length;
+        if (mobCount >= maxMobs) return;
+        
+        const batchSize = 1 + Math.floor(this.wave / 10);
+        for (let i = 0; i < batchSize; i++) {
+            const pos = this.findSafeSpawnPosition(250);
+            const types = ['virus', 'bacteria'];
+            if (this.wave >= 2) types.push('infected', 'toxin');
+            if (this.wave >= 4) types.push('mutant', 'parasite');
+            if (this.wave >= 6) types.push('cancer');
+            if (this.wave >= 8) types.push('tumor', 'plague');
+            if (this.wave >= 10) types.push('necrosis');
+            const type = types[Math.floor(Math.random() * types.length)];
+            this.spawnEnemy(type, pos.x, pos.y);
+        }
+    }
+    
+    findSafeSpawnPosition(minDist) {
+        for (let i = 0; i < 50; i++) {
+            const x = 150 + Math.random() * (WORLD_W - 300);
+            const y = 150 + Math.random() * (WORLD_H - 300);
+            if (this.checkWall(x, y)) continue;
+            
+            let tooClose = false;
+            this.players.forEach(player => {
+                if (player.alive && Math.hypot(player.x - x, player.y - y) < minDist) {
+                    tooClose = true;
+                }
+            });
+            if (tooClose) continue;
+            
+            return { x, y };
+        }
+        return { x: WORLD_W - 300, y: WORLD_H - 300 };
+    }
+    
+    update() {
+        if (this.state !== 'playing') return;
+        
+        this.frame++;
+        this.waveTimer++;
+        this.mobTimer++;
+        
+        // Wave開始
+        if (this.wave === 0 && this.waveTimer > 60) {
+            this.startWave();
+        }
+        
+        // 雑魚敵スポーン
+        if (this.mobTimer >= 60) {
+            this.mobTimer = 0;
+            this.spawnMobs();
+        }
+        
+        // プレイヤー更新
+        this.players.forEach(player => {
+            if (!player.alive) return;
+            this.updatePlayer(player);
+        });
+        
+        // 敵更新
+        this.updateEnemies();
+        
+        // 敵弾更新
+        this.updateEnemyBullets();
+        
+        // アイテム更新
+        this.updateItems();
+        
+        // ボス全滅チェック（ボスがスポーンされるまでスキップ）
+        const activeBosses = this.currentBosses.filter(b => b.hp > 0);
+        if (this.currentBosses.length > 0 && activeBosses.length === 0) {
+            this.currentBosses = [];
+            // 残り雑魚も全滅
+            this.enemies.forEach(e => {
+                if (!e.isBoss && e.hp > 0) {
+                    e.hp = 0;
+                    this.score += 50;
+                }
+            });
+            
+            io.to(this.id).emit('bossDefeated', { wave: this.wave, score: this.score });
+            
+            setTimeout(() => {
+                if (this.state === 'playing') this.startWave();
+            }, 3000);
+        }
+        
+        // 状態送信（30fps）
+        if (this.frame % 2 === 0) {
+            this.broadcastState();
+        }
+    }
+    
+    updatePlayer(player) {
+        // リスポーン処理
+        if (!player.alive) {
+            player.respawnTimer++;
+            if (player.respawnTimer >= 180) { // 3秒でリスポーン
+                this.respawnPlayer(player);
+            }
+            return;
+        }
+        
+        if (player.invincible > 0) player.invincible--;
+        
+        // 壁脱出
+        if (this.checkWall(player.x, player.y) && !player.dashing) {
+            this.escapeFromWall(player);
+        }
+        
+        // ダッシュ処理（壁抜け可能）
+        if (player.dashing) {
+            player.dashTimer--;
+            const vx = Math.cos(player.angle) * 35; // 速度アップ
+            const vy = Math.sin(player.angle) * 35;
+            player.x += vx;
+            player.y += vy;
+            player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
+            player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
+            if (player.dashTimer <= 0) {
+                player.dashing = false;
+                // ダッシュ終了時に壁の中にいたら脱出
+                if (this.checkWall(player.x, player.y)) {
+                    this.escapeFromWall(player);
+                }
+            }
+        } else {
+            // 入力による移動
+            const input = player.lastInput;
+            if (input.moving) {
+                const vx = Math.cos(input.angle) * player.speed;
+                const vy = Math.sin(input.angle) * player.speed;
+                if (!this.checkWall(player.x + vx, player.y)) player.x += vx;
+                if (!this.checkWall(player.x, player.y + vy)) player.y += vy;
+            }
+            player.angle = input.angle;
+        }
+        
+        player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
+        player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
+        
+        // サンダーエネルギー（180でキャップ）
+        if (player.weaponLevels.THUNDER > 0 && player.thunderEnergy < 180) {
+            player.thunderEnergy++;
+        }
+        
+        // 敵との衝突
+        this.enemies.forEach(enemy => {
+            if (enemy.hp <= 0) return;
+            if (Math.hypot(player.x - enemy.x, player.y - enemy.y) < 8 + enemy.size) {
+                if (!player.dashing && player.invincible <= 0) {
+                    this.damagePlayer(player, enemy.isBoss ? 20 : 10);
+                }
+            }
+        });
+    }
+    
+    respawnPlayer(player) {
+        const pos = this.findSafeSpawnPosition(300);
+        player.x = pos.x;
+        player.y = pos.y;
+        player.hp = player.maxHp;
+        player.alive = true;
+        player.invincible = 180; // 3秒無敵
+        player.respawnTimer = 0;
+        player.dashing = false;
+        player.dashTimer = 0;
+        
+        // 武器レベルを半減（最低1は維持）
+        player.weaponLevels.PLAZMER = Math.max(1, Math.floor(player.weaponLevels.PLAZMER / 2));
+        player.weaponLevels.HOMING = Math.floor(player.weaponLevels.HOMING / 2);
+        player.weaponLevels.LASER = Math.floor(player.weaponLevels.LASER / 2);
+        player.weaponLevels.THUNDER = Math.floor(player.weaponLevels.THUNDER / 2);
+        player.weaponLevels.ALLRANGE = Math.floor(player.weaponLevels.ALLRANGE / 2);
+        
+        // オプション数も半減
+        const newOptionCount = Math.floor(player.options.length / 2);
+        player.options = player.options.slice(0, newOptionCount);
+        
+        io.to(player.id).emit('respawned', {
+            x: player.x,
+            y: player.y,
+            hp: player.hp,
+            weaponLevels: player.weaponLevels,
+            options: player.options.length
+        });
+        
+        io.to(this.id).emit('playerRespawned', {
+            playerId: player.id,
+            name: player.name
+        });
+    }
+    
+    updateEnemies() {
+        // 最も近いプレイヤーを探す関数
+        const findNearestPlayer = (x, y) => {
+            let nearest = null, minDist = Infinity;
+            this.players.forEach(player => {
+                if (!player.alive) return;
+                const d = Math.hypot(player.x - x, player.y - y);
+                if (d < minDist) { minDist = d; nearest = player; }
+            });
+            return nearest;
+        };
+        
+        this.enemies.forEach(enemy => {
+            if (enemy.hp <= 0) return;
+            enemy.timer++;
+            
+            if (this.checkWall(enemy.x, enemy.y)) {
+                this.escapeFromWall(enemy);
+            }
+            
+            const target = findNearestPlayer(enemy.x, enemy.y);
+            if (target) {
+                const angle = Math.atan2(target.y - enemy.y, target.x - enemy.x);
+                const vx = Math.cos(angle) * enemy.speed;
+                const vy = Math.sin(angle) * enemy.speed;
+                
+                if (!this.checkWall(enemy.x + vx, enemy.y + vy)) {
+                    enemy.x += vx;
+                    enemy.y += vy;
+                } else {
+                    if (!this.checkWall(enemy.x + vx, enemy.y)) enemy.x += vx;
+                    else if (!this.checkWall(enemy.x, enemy.y + vy)) enemy.y += vy;
+                }
+                
+                // 射撃する敵
+                if (enemy.shoots && enemy.timer % 90 === 0) {
+                    const a = Math.atan2(target.y - enemy.y, target.x - enemy.x);
+                    this.enemyBullets.push({
+                        id: 'eb_' + this.enemyIdCounter++,
+                        x: enemy.x, y: enemy.y,
+                        vx: Math.cos(a) * 5, vy: Math.sin(a) * 5,
+                        life: 120, size: 5, color: enemy.color
+                    });
+                }
+                
+                // ボス攻撃
+                if (enemy.isBoss) {
+                    enemy.attackTimer++;
+                    this.bossAttack(enemy, target);
+                }
+            }
+        });
+        
+        // 死んだ敵を除去
+        this.enemies = this.enemies.filter(e => e.hp > 0);
+    }
+    
+    bossAttack(boss, target) {
+        const angle = Math.atan2(target.y - boss.y, target.x - boss.x);
+        
+        switch (boss.pattern) {
+            case 'radial':
+                if (boss.attackTimer % 60 === 0) {
+                    for (let i = 0; i < 16; i++) {
+                        const a = (Math.PI * 2 / 16) * i + boss.phase;
+                        this.enemyBullets.push({
+                            id: 'eb_' + this.enemyIdCounter++,
+                            x: boss.x, y: boss.y,
+                            vx: Math.cos(a) * 4, vy: Math.sin(a) * 4,
+                            life: 150, size: 6, color: boss.color
+                        });
+                    }
+                    boss.phase += 0.2;
+                }
+                break;
+            case 'spiral':
+                if (boss.attackTimer % 8 === 0) {
+                    const a = boss.timer * 0.15;
+                    this.enemyBullets.push({
+                        id: 'eb_' + this.enemyIdCounter++,
+                        x: boss.x, y: boss.y,
+                        vx: Math.cos(a) * 5, vy: Math.sin(a) * 5,
+                        life: 120, size: 5, color: boss.color
+                    });
+                }
+                break;
+            case 'burst':
+                if (boss.attackTimer % 40 === 0) {
+                    for (let i = 0; i < 8; i++) {
+                        const a = angle + (Math.random() - 0.5) * 0.8;
+                        const speed = 4 + Math.random() * 3;
+                        this.enemyBullets.push({
+                            id: 'eb_' + this.enemyIdCounter++,
+                            x: boss.x, y: boss.y,
+                            vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+                            life: 60, size: 8, color: '#f80'
+                        });
+                    }
+                }
+                break;
+            case 'swarm':
+                if (boss.attackTimer % 5 === 0) {
+                    const a = angle + (Math.random() - 0.5) * 1.5;
+                    this.enemyBullets.push({
+                        id: 'eb_' + this.enemyIdCounter++,
+                        x: boss.x, y: boss.y,
+                        vx: Math.cos(a) * 6, vy: Math.sin(a) * 6,
+                        life: 80, size: 4, color: boss.color
+                    });
+                }
+                break;
+            case 'laser':
+                // レーザービーム攻撃
+                if (boss.attackTimer % 90 === 0) {
+                    // 8方向レーザー
+                    for (let i = 0; i < 8; i++) {
+                        const a = (Math.PI * 2 / 8) * i + boss.phase;
+                        for (let j = 0; j < 20; j++) {
+                            this.enemyBullets.push({
+                                id: 'eb_' + this.enemyIdCounter++,
+                                x: boss.x + Math.cos(a) * j * 25,
+                                y: boss.y + Math.sin(a) * j * 25,
+                                vx: Math.cos(a) * 8, vy: Math.sin(a) * 8,
+                                life: 40, size: 4, color: '#f00'
+                            });
+                        }
+                    }
+                    boss.phase += 0.3;
+                }
+                break;
+            case 'chaos':
+                // カオスパターン：複数の攻撃を同時に
+                if (boss.attackTimer % 20 === 0) {
+                    // 螺旋
+                    for (let i = 0; i < 3; i++) {
+                        const a = boss.timer * 0.2 + i * (Math.PI * 2 / 3);
+                        this.enemyBullets.push({
+                            id: 'eb_' + this.enemyIdCounter++,
+                            x: boss.x, y: boss.y,
+                            vx: Math.cos(a) * 5, vy: Math.sin(a) * 5,
+                            life: 150, size: 6, color: '#ff0'
+                        });
+                    }
+                }
+                if (boss.attackTimer % 60 === 0) {
+                    // 放射
+                    for (let i = 0; i < 24; i++) {
+                        const a = (Math.PI * 2 / 24) * i;
+                        this.enemyBullets.push({
+                            id: 'eb_' + this.enemyIdCounter++,
+                            x: boss.x, y: boss.y,
+                            vx: Math.cos(a) * 3, vy: Math.sin(a) * 3,
+                            life: 200, size: 8, color: '#f80'
+                        });
+                    }
+                }
+                break;
+            case 'nightmare':
+                // ナイトメア：追尾弾＋壁弾幕
+                if (boss.attackTimer % 30 === 0) {
+                    // プレイヤー追尾弾
+                    for (let i = 0; i < 5; i++) {
+                        const spreadAngle = angle + (i - 2) * 0.2;
+                        this.enemyBullets.push({
+                            id: 'eb_' + this.enemyIdCounter++,
+                            x: boss.x, y: boss.y,
+                            vx: Math.cos(spreadAngle) * 7, vy: Math.sin(spreadAngle) * 7,
+                            life: 100, size: 10, color: '#f44',
+                            homing: true, target: target
+                        });
+                    }
+                }
+                if (boss.attackTimer % 15 === 0) {
+                    // 回転弾幕
+                    for (let i = 0; i < 6; i++) {
+                        const a = boss.timer * 0.1 + i * (Math.PI / 3);
+                        this.enemyBullets.push({
+                            id: 'eb_' + this.enemyIdCounter++,
+                            x: boss.x, y: boss.y,
+                            vx: Math.cos(a) * 4, vy: Math.sin(a) * 4,
+                            life: 180, size: 5, color: '#a44'
+                        });
+                    }
+                }
+                break;
+            case 'apocalypse':
+                // アポカリプス：全画面攻撃
+                if (boss.attackTimer % 10 === 0) {
+                    // 超高速螺旋
+                    const a1 = boss.timer * 0.3;
+                    const a2 = boss.timer * 0.3 + Math.PI;
+                    this.enemyBullets.push({
+                        id: 'eb_' + this.enemyIdCounter++,
+                        x: boss.x, y: boss.y,
+                        vx: Math.cos(a1) * 6, vy: Math.sin(a1) * 6,
+                        life: 200, size: 7, color: '#a0f'
+                    });
+                    this.enemyBullets.push({
+                        id: 'eb_' + this.enemyIdCounter++,
+                        x: boss.x, y: boss.y,
+                        vx: Math.cos(a2) * 6, vy: Math.sin(a2) * 6,
+                        life: 200, size: 7, color: '#f0a'
+                    });
+                }
+                if (boss.attackTimer % 45 === 0) {
+                    // 爆発放射
+                    for (let i = 0; i < 32; i++) {
+                        const a = (Math.PI * 2 / 32) * i + boss.phase;
+                        const speed = 3 + (i % 2) * 2;
+                        this.enemyBullets.push({
+                            id: 'eb_' + this.enemyIdCounter++,
+                            x: boss.x, y: boss.y,
+                            vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+                            life: 250, size: 6, color: '#f0f'
+                        });
+                    }
+                    boss.phase += 0.1;
+                }
+                if (boss.attackTimer % 120 === 0) {
+                    // 十字レーザー
+                    for (let dir = 0; dir < 4; dir++) {
+                        const baseA = dir * (Math.PI / 2);
+                        for (let j = 0; j < 30; j++) {
+                            this.enemyBullets.push({
+                                id: 'eb_' + this.enemyIdCounter++,
+                                x: boss.x + Math.cos(baseA) * j * 20,
+                                y: boss.y + Math.sin(baseA) * j * 20,
+                                vx: Math.cos(baseA) * 10, vy: Math.sin(baseA) * 10,
+                                life: 30, size: 8, color: '#fff'
+                            });
+                        }
+                    }
+                }
+                break;
+            case 'all':
+                // 全パターン使用（最終ボス）
+                const phase = Math.floor(boss.attackTimer / 120) % 5;
+                if (phase === 0 && boss.attackTimer % 20 === 0) {
+                    // 螺旋×2
+                    const a1 = boss.timer * 0.2;
+                    const a2 = boss.timer * 0.2 + Math.PI;
+                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a1) * 5, vy: Math.sin(a1) * 5, life: 150, size: 6, color: '#fff' });
+                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a2) * 5, vy: Math.sin(a2) * 5, life: 150, size: 6, color: '#fff' });
+                }
+                if (phase === 1 && boss.attackTimer % 40 === 0) {
+                    for (let i = 0; i < 24; i++) {
+                        const a = (Math.PI * 2 / 24) * i + boss.phase;
+                        this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 4, vy: Math.sin(a) * 4, life: 200, size: 8, color: '#ff0' });
+                    }
+                    boss.phase += 0.15;
+                }
+                if (phase === 2 && boss.attackTimer % 5 === 0) {
+                    const a = angle + (Math.random() - 0.5) * 2;
+                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 8, vy: Math.sin(a) * 8, life: 80, size: 5, color: '#f00' });
+                }
+                if (phase === 3 && boss.attackTimer % 60 === 0) {
+                    for (let dir = 0; dir < 8; dir++) {
+                        const baseA = dir * (Math.PI / 4);
+                        for (let j = 0; j < 15; j++) {
+                            this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x + Math.cos(baseA) * j * 30, y: boss.y + Math.sin(baseA) * j * 30, vx: Math.cos(baseA) * 12, vy: Math.sin(baseA) * 12, life: 25, size: 6, color: '#0ff' });
+                        }
+                    }
+                }
+                if (phase === 4 && boss.attackTimer % 15 === 0) {
+                    for (let i = 0; i < 8; i++) {
+                        const a = (Math.PI * 2 / 8) * i + boss.timer * 0.15;
+                        this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 6, vy: Math.sin(a) * 6, life: 120, size: 7, color: '#f0f' });
+                    }
+                }
+                break;
+        }
+    }
+    
+    updateEnemyBullets() {
+        this.enemyBullets.forEach(b => {
+            // 追尾弾の処理
+            if (b.homing && b.target) {
+                const player = this.players.get(b.target.id);
+                if (player && player.alive) {
+                    const angleToPlayer = Math.atan2(player.y - b.y, player.x - b.x);
+                    const currentAngle = Math.atan2(b.vy, b.vx);
+                    let angleDiff = angleToPlayer - currentAngle;
+                    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+                    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+                    const turnSpeed = 0.08;
+                    const newAngle = currentAngle + Math.max(-turnSpeed, Math.min(turnSpeed, angleDiff));
+                    const speed = Math.hypot(b.vx, b.vy);
+                    b.vx = Math.cos(newAngle) * speed;
+                    b.vy = Math.sin(newAngle) * speed;
+                }
+            }
+            
+            b.x += b.vx;
+            b.y += b.vy;
+            b.life--;
+            
+            if (b.life <= 0 || this.checkWall(b.x, b.y)) {
+                b.dead = true;
+                return;
+            }
+            
+            // プレイヤーとの衝突
+            this.players.forEach(player => {
+                if (!player.alive || player.invincible > 0 || player.dashing) return;
+                if (Math.hypot(player.x - b.x, player.y - b.y) < 8 + b.size) {
+                    this.damagePlayer(player, 8);
+                    b.dead = true;
+                }
+            });
+        });
+        
+        this.enemyBullets = this.enemyBullets.filter(b => !b.dead);
+    }
+    
+    updateItems() {
+        this.items.forEach(item => {
+            // 壁の中のアイテムを自動的に移動
+            if (this.checkWall(item.x, item.y)) {
+                for (let dist = 20; dist < 200; dist += 20) {
+                    for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) {
+                        const testX = item.x + Math.cos(a) * dist;
+                        const testY = item.y + Math.sin(a) * dist;
+                        if (!this.checkWall(testX, testY)) {
+                            item.x = testX;
+                            item.y = testY;
+                            break;
+                        }
+                    }
+                    if (!this.checkWall(item.x, item.y)) break;
+                }
+            }
+            
+            this.players.forEach(player => {
+                if (!player.alive) return;
+                
+                // アイテム吸引（さらに範囲拡大・強化）
+                const dist = Math.hypot(player.x - item.x, player.y - item.y);
+                if (dist < 250) {
+                    const pullStrength = 0.2;
+                    item.x += (player.x - item.x) * pullStrength;
+                    item.y += (player.y - item.y) * pullStrength;
+                }
+                
+                // アイテム取得（さらに範囲拡大）
+                if (dist < 50) {
+                    this.collectItem(player, item);
+                    item.collected = true;
+                }
+            });
+        });
+        
+        this.items = this.items.filter(i => !i.collected);
+    }
+    
+    collectItem(player, item) {
+        if (item.type === 'H') {
+            player.hp = Math.min(player.maxHp, player.hp + 30);
+        } else if (item.type === 'ALLRANGE') {
+            if (player.options.length < 6) {
+                player.options.push({ x: player.x, y: player.y, angle: 0 });
+            }
+            player.weaponLevels.ALLRANGE++;
+        } else {
+            player.weaponLevels[item.type] = (player.weaponLevels[item.type] || 0) + 1;
+        }
+        
+        io.to(player.id).emit('itemCollected', { 
+            type: item.type, 
+            weaponLevels: player.weaponLevels,
+            hp: player.hp,
+            options: player.options.length
+        });
+    }
+    
+    damagePlayer(player, damage) {
+        if (player.invincible > 0 || player.dashing) return;
+        
+        player.hp -= damage;
+        player.invincible = 30;
+        
+        io.to(player.id).emit('playerDamaged', { hp: player.hp, damage });
+        
+        if (player.hp <= 0) {
+            player.alive = false;
+            io.to(this.id).emit('playerDied', { playerId: player.id, name: player.name });
+        }
+    }
+    
+    damageEnemy(enemyId, damage, weaponType, attackerId) {
+        const enemy = this.enemies.find(e => e.id === enemyId);
+        if (!enemy || enemy.hp <= 0) return;
+        
+        if (enemy.armor && weaponType !== 'THUNDER' && weaponType !== 'LASER') {
+            damage = Math.floor(damage / 2);
+        }
+        
+        enemy.hp -= damage;
+        
+        if (enemy.hp <= 0) {
+            this.defeatEnemy(enemy, attackerId);
+        }
+        
+        return enemy.hp;
+    }
+    
+    defeatEnemy(enemy, attackerId) {
+        const attacker = this.players.get(attackerId);
+        if (attacker) {
+            attacker.score += enemy.score;
+        }
+        this.score += enemy.score;
+        
+        // アイテムドロップ
+        this.dropItems(enemy.x, enemy.y, enemy.isBoss);
+        
+        // 分裂する敵
+        if (enemy.divides && !enemy.isBoss) {
+            for (let i = 0; i < 2; i++) {
+                const a = Math.random() * Math.PI * 2;
+                this.spawnEnemy('virus', enemy.x + Math.cos(a) * 30, enemy.y + Math.sin(a) * 30);
+            }
+        }
+        
+        io.to(this.id).emit('enemyDefeated', { 
+            enemyId: enemy.id, 
+            isBoss: enemy.isBoss,
+            score: this.score 
+        });
+    }
+    
+    dropItems(x, y, isBoss) {
+        // 武器と同じ色に合わせる
+        const itemColors = { 
+            PLAZMER: '#0ff',  // シアン（PLAZMER弾と同じ）
+            HOMING: '#a0f',   // 紫（ホーミングミサイルと同じ）
+            LASER: '#0ff',    // シアン（レーザーと同じ）
+            THUNDER: '#ff0',  // 黄色（サンダーと同じ）
+            ALLRANGE: '#0f0', // 緑（オールレンジと同じ）
+            H: '#f44'         // 赤（HP回復）
+        };
+        
+        // 安全なアイテム位置を見つける関数
+        const findSafeItemPos = (baseX, baseY) => {
+            if (!this.checkWall(baseX, baseY)) return { x: baseX, y: baseY };
+            // 壁の中なら周囲を探す
+            for (let dist = 20; dist < 150; dist += 20) {
+                for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) {
+                    const testX = baseX + Math.cos(a) * dist;
+                    const testY = baseY + Math.sin(a) * dist;
+                    if (!this.checkWall(testX, testY) && 
+                        testX > 60 && testX < WORLD_W - 60 && 
+                        testY > 60 && testY < WORLD_H - 60) {
+                        return { x: testX, y: testY };
+                    }
+                }
+            }
+            return { x: baseX, y: baseY }; // 見つからなければ元の位置
+        };
+        
+        if (isBoss) {
+            const count = 5 + Math.floor(Math.random() * 3);
+            const types = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER', 'ALLRANGE', 'H'];
+            for (let i = 0; i < count; i++) {
+                const a = (Math.PI * 2 / count) * i;
+                const type = types[Math.floor(Math.random() * types.length)];
+                const pos = findSafeItemPos(x + Math.cos(a) * 60, y + Math.sin(a) * 60);
+                this.items.push({
+                    id: 'item_' + this.enemyIdCounter++,
+                    x: pos.x,
+                    y: pos.y,
+                    type,
+                    color: itemColors[type]
+                });
+            }
+        } else {
+            if (Math.random() < 0.10) {
+                const types = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'];
+                const type = types[Math.floor(Math.random() * types.length)];
+                const pos = findSafeItemPos(x, y);
+                this.items.push({
+                    id: 'item_' + this.enemyIdCounter++,
+                    x: pos.x, y: pos.y, type, color: itemColors[type]
+                });
+            }
+            if (Math.random() < 0.04) {
+                const pos = findSafeItemPos(x, y);
+                this.items.push({
+                    id: 'item_' + this.enemyIdCounter++,
+                    x: pos.x, y: pos.y, type: 'H', color: '#f06'
+                });
+            }
+            if (Math.random() < 0.03) {
+                const pos = findSafeItemPos(x, y);
+                this.items.push({
+                    id: 'item_' + this.enemyIdCounter++,
+                    x: pos.x, y: pos.y, type: 'ALLRANGE', color: '#0f0'
+                });
+            }
+        }
+    }
+    
+    handlePlayerInput(socketId, input) {
+        const player = this.players.get(socketId);
+        if (!player || !player.alive) return;
+        
+        player.lastInput = input;
+        
+        // クライアントからの位置情報を考慮（ある程度の誤差は許容）
+        if (input.x !== undefined && input.y !== undefined) {
+            const dist = Math.hypot(input.x - player.x, input.y - player.y);
+            // 1フレームで移動できる最大距離の3倍以内なら許容
+            if (dist < player.speed * 3) {
+                player.x = input.x;
+                player.y = input.y;
+            }
+        }
+        
+        if (input.dash && !player.dashing) {
+            player.dashing = true;
+            player.dashTimer = 10;
+            player.invincible = Math.max(player.invincible, 12);
+        }
+    }
+    
+    handlePlayerShoot(socketId, data) {
+        const player = this.players.get(socketId);
+        if (!player || !player.alive) return;
+        
+        // クライアントが計算した弾/ミサイルのダメージを検証して敵に適用
+        if (data.hits && data.hits.length > 0) {
+            data.hits.forEach(hit => {
+                this.damageEnemy(hit.enemyId, hit.damage, hit.weaponType, socketId);
+            });
+        }
+    }
+    
+    sanitizePlayer(player) {
+        return {
+            id: player.id,
+            name: player.name,
+            x: player.x,
+            y: player.y,
+            angle: player.angle,
+            hp: player.hp,
+            maxHp: player.maxHp,
+            invincible: player.invincible,
+            dashing: player.dashing,
+            alive: player.alive,
+            weaponLevels: player.weaponLevels,
+            thunderEnergy: player.thunderEnergy,
+            options: player.options,
+            formation: player.formation,
+            score: player.score,
+            // 新規追加
+            isHost: player.isHost,
+            playerIndex: player.playerIndex,
+            color: player.color,
+            glowColor: player.glowColor,
+            colorName: player.colorName,
+            ready: player.ready,
+            respawnTimer: player.respawnTimer
+        };
+    }
+    
+    sanitizeEnemy(enemy) {
+        return {
+            id: enemy.id,
+            type: enemy.type,
+            x: enemy.x,
+            y: enemy.y,
+            hp: enemy.hp,
+            maxHp: enemy.maxHp,
+            size: enemy.size,
+            color: enemy.color,
+            isBoss: enemy.isBoss,
+            name: enemy.name,
+            pattern: enemy.pattern
+        };
+    }
+    
+    broadcastState() {
+        const state = {
+            frame: this.frame,
+            wave: this.wave,
+            score: this.score,
+            players: Array.from(this.players.values()).map(p => this.sanitizePlayer(p)),
+            enemies: this.enemies.map(e => this.sanitizeEnemy(e)),
+            enemyBullets: this.enemyBullets.map(b => ({
+                id: b.id, x: b.x, y: b.y, size: b.size, color: b.color
+            })),
+            items: this.items,
+            bossCount: this.currentBosses.filter(b => b.hp > 0).length
+        };
+        
+        io.to(this.id).emit('gameState', state);
     }
 }
-function drawDashEffects() {
-    dashParticles.forEach(p => {
-        const sx = p.x-camera.x+screenShake.x, sy = p.y-camera.y+screenShake.y;
-        ctx.fillStyle=p.color; ctx.globalAlpha=p.life/20;
-        ctx.beginPath(); ctx.arc(sx,sy,p.size,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+
+// ========== ルームコード生成 ==========
+function generateRoomCode() {
+    let code;
+    do {
+        code = Math.floor(1000 + Math.random() * 9000).toString();
+    } while (rooms.has(code));
+    return code;
+}
+
+// ========== プレイヤー色定義 ==========
+const PLAYER_COLORS = [
+    { main: '#ffffff', glow: '#0ff', name: 'WHITE' },   // HOST
+    { main: '#ff4444', glow: '#f00', name: 'RED' },     // Guest 1
+    { main: '#aa44ff', glow: '#a0f', name: 'PURPLE' },  // Guest 2
+    { main: '#4488ff', glow: '#08f', name: 'BLUE' }     // Guest 3
+];
+
+// ========== Socket.io 接続処理 ==========
+io.on('connection', (socket) => {
+    console.log('Player connected:', socket.id);
+    
+    let currentRoom = null;
+    
+    // ホストとしてルーム作成
+    socket.on('hostRoom', (data) => {
+        const playerName = data.name || 'Host';
+        const roomId = generateRoomCode();
+        
+        // 新しいルームを作成
+        const room = new GameRoom(roomId);
+        room.hostId = socket.id;
+        rooms.set(roomId, room);
+        
+        currentRoom = room;
+        socket.join(roomId);
+        
+        const player = currentRoom.addPlayer(socket, playerName, true); // isHost = true
+        
+        socket.emit('hosted', {
+            playerId: socket.id,
+            roomId: roomId,
+            player: currentRoom.sanitizePlayer(player),
+            walls: currentRoom.walls,
+            state: currentRoom.state,
+            wave: currentRoom.wave,
+            players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p))
+        });
+        
+        console.log(`Player ${playerName} hosted room ${roomId}`);
     });
-}
-
-class PlazmerBullet {
-    constructor(d) { this.x=d.x; this.y=d.y; this.angle=d.angle; this.vx=Math.cos(d.angle)*14; this.vy=Math.sin(d.angle)*14; this.life=60; this.size=4; this.color=d.color||'#fff'; }
-    update() { this.x+=this.vx; this.y+=this.vy; this.life--; if(this.life<=0||checkWall(this.x,this.y)) this.dead=true; this.checkHit(); }
-    checkHit() { enemies.forEach(e=>{ if(e.hp>0 && Math.hypot(e.x-this.x, e.y-this.y) < e.size+this.size+20) { damageEnemy(e,3,'PLAZMER'); this.dead=true; } }); }
-    draw() { ctx.fillStyle=this.color; ctx.shadowBlur=10; ctx.shadowColor=this.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur=0; }
-}
-
-function createParticle(x, y, color) { particles.push(new Particle(x, y, color, 4, 15)); }
-class Particle {
-    constructor(x, y, color, size, life) { this.x=x; this.y=y; this.color=color; this.size=size; this.life=life; this.max=life; this.vx=(Math.random()-0.5)*6; this.vy=(Math.random()-0.5)*6; }
-    update() { this.x+=this.vx; this.y+=this.vy; this.life--; }
-    draw() { ctx.fillStyle=this.color; ctx.globalAlpha=this.life/this.max; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha=1; }
-}
-
-class FloatingText {
-    constructor(x, y, text, color) { this.x=x; this.y=y; this.text=text; this.color=color; this.life=40; this.vy=-2; }
-    update() { this.y+=this.vy; this.vy*=0.95; this.life--; }
-    draw() { ctx.fillStyle=this.color; ctx.globalAlpha=this.life/40; ctx.font='bold 14px Courier New'; ctx.textAlign='center'; ctx.fillText(this.text, this.x, this.y); ctx.globalAlpha=1; }
-}
-function createFloatingText(x, y, text, color) { texts.push(new FloatingText(x, y, text, color)); }
-
-class Option {
-    constructor() { this.x=player.x; this.y=player.y; this.angle=0; }
-    update(i, t) { 
-        this.x += (player.x - this.x)*0.2;
-        this.y += (player.y - this.y)*0.2;
-    }
-    draw() { 
-        ctx.save(); ctx.translate(this.x, this.y); 
-        ctx.fillStyle='#0f0'; ctx.shadowBlur=5; ctx.shadowColor='#0f0'; ctx.beginPath(); ctx.arc(0,0,6,0,Math.PI*2); ctx.fill(); 
-        ctx.restore(); 
-    }
-}
-
-function updateCamera() {
-    if(!player) return;
-    camera.x = player.x - canvas.width/2;
-    camera.y = player.y - canvas.height/2;
-    camera.x = Math.max(0, Math.min(WORLD_W - canvas.width, camera.x));
-    camera.y = Math.max(0, Math.min(WORLD_H - canvas.height, camera.y));
-}
-
-function drawEnemy(e) {
-    ctx.fillStyle = e.color; 
-    ctx.shadowBlur = 10; ctx.shadowColor = e.color;
-    ctx.beginPath(); ctx.arc(e.x, e.y, e.size, 0, Math.PI*2); ctx.fill();
-    ctx.shadowBlur = 0;
-}
-function drawBoss(e) {
-    ctx.strokeStyle = e.color; ctx.lineWidth = 3; 
-    ctx.shadowBlur = 20; ctx.shadowColor = e.color;
-    ctx.beginPath(); ctx.arc(e.x, e.y, e.size, 0, Math.PI*2); ctx.stroke();
-    ctx.shadowBlur = 0;
-}
-
-function drawEnemyIndicators() {
-    if(!player) return;
-    const margin = 50;
-    const cx = canvas.width/2; const cy = canvas.height/2;
-    enemies.forEach(e => {
-        if (e.hp <= 0) return;
-        const sx = e.x - camera.x; const sy = e.y - camera.y;
-        if (sx > 0 && sx < canvas.width && sy > 0 && sy < canvas.height) return;
-        const angle = Math.atan2(e.y - player.y, e.x - player.x);
-        let ix = cx + Math.cos(angle) * (cx - margin);
-        let iy = cy + Math.sin(angle) * (cy - margin);
-        ctx.save(); ctx.translate(ix, iy); ctx.rotate(angle);
-        ctx.fillStyle = e.isBoss ? '#ff0' : '#f00';
-        ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-10, 6); ctx.lineTo(-10, -6); ctx.fill();
-        ctx.restore();
+    
+    // 既存ルームに参加
+    socket.on('joinRoom', (data) => {
+        const roomId = data.roomId;
+        const playerName = data.name || 'Player';
+        
+        // ルームが存在するかチェック
+        if (!rooms.has(roomId)) {
+            socket.emit('joinError', { message: `Room ${roomId} not found!` });
+            return;
+        }
+        
+        const room = rooms.get(roomId);
+        
+        // 最大4人まで
+        if (room.players.size >= 4) {
+            socket.emit('joinError', { message: 'Room is full! (Max 4 players)' });
+            return;
+        }
+        
+        // ゲーム中は参加不可
+        if (room.state === 'playing') {
+            socket.emit('joinError', { message: 'Game already in progress!' });
+            return;
+        }
+        
+        currentRoom = room;
+        socket.join(roomId);
+        
+        const player = currentRoom.addPlayer(socket, playerName, false); // isHost = false
+        
+        socket.emit('joined', {
+            playerId: socket.id,
+            roomId: roomId,
+            player: currentRoom.sanitizePlayer(player),
+            walls: currentRoom.walls,
+            state: currentRoom.state,
+            wave: currentRoom.wave,
+            players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p)),
+            isGuest: true
+        });
+        
+        // ホストと他のプレイヤーに通知
+        socket.to(roomId).emit('playerJoined', {
+            player: currentRoom.sanitizePlayer(player),
+            players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p))
+        });
+        
+        console.log(`Player ${playerName} joined room ${roomId} as Guest ${player.playerIndex}`);
     });
-}
-function drawMinimap() {
-    const mapW = 100, mapH = 100;
-    const mx = canvas.width - mapW - 10, my = canvas.height - mapH - 10;
-    const sc = mapW / WORLD_W;
-    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(mx, my, mapW, mapH);
-    ctx.strokeStyle = '#0ff'; ctx.strokeRect(mx, my, mapW, mapH);
-    if(player) { ctx.fillStyle='#fff'; ctx.fillRect(mx + player.x*sc, my + player.y*sc, 2, 2); }
-    enemies.forEach(e => {
-        ctx.fillStyle = e.isBoss ? '#ff0' : '#f00';
-        ctx.fillRect(mx + e.x*sc, my + e.y*sc, e.isBoss?4:2, e.isBoss?4:2);
+    
+    // ゲストがREADY
+    socket.on('playerReady', () => {
+        if (!currentRoom) return;
+        const player = currentRoom.players.get(socket.id);
+        if (player && !player.isHost) {
+            player.ready = true;
+            
+            // 全員に通知
+            io.to(currentRoom.id).emit('playerReadyUpdate', {
+                playerId: socket.id,
+                players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p))
+            });
+            
+            console.log(`Player ${player.name} is READY in room ${currentRoom.id}`);
+        }
     });
-}
+    
+    // ホストがゲーム開始
+    socket.on('startGame', () => {
+        if (!currentRoom) return;
+        if (currentRoom.hostId !== socket.id) return; // ホストのみ開始可能
+        if (currentRoom.state !== 'waiting') return;
+        
+        currentRoom.startGame();
+        io.to(currentRoom.id).emit('gameStarted', {
+            players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p))
+        });
+        console.log(`Game started in room ${currentRoom.id}`);
+    });
+    
+    // ホストがキャンセル
+    socket.on('cancelHost', () => {
+        if (currentRoom) {
+            io.to(currentRoom.id).emit('hostCancelled');
+            rooms.delete(currentRoom.id);
+            currentRoom = null;
+        }
+    });
+    
+    socket.on('input', (input) => {
+        if (currentRoom) {
+            currentRoom.handlePlayerInput(socket.id, input);
+        }
+    });
+    
+    socket.on('shoot', (data) => {
+        if (currentRoom) {
+            currentRoom.handlePlayerShoot(socket.id, data);
+        }
+    });
+    
+    socket.on('hit', (data) => {
+        if (currentRoom) {
+            const remainingHp = currentRoom.damageEnemy(data.enemyId, data.damage, data.weaponType, socket.id);
+            // ダメージを全員に通知
+            io.to(currentRoom.id).emit('enemyHit', {
+                enemyId: data.enemyId,
+                damage: data.damage,
+                remainingHp: remainingHp
+            });
+        }
+    });
+    
+    socket.on('destroyBullet', (data) => {
+        if (currentRoom) {
+            const idx = currentRoom.enemyBullets.findIndex(b => b.id === data.bulletId);
+            if (idx !== -1) {
+                currentRoom.enemyBullets.splice(idx, 1);
+            }
+        }
+    });
+    
+    socket.on('fire', (data) => {
+        if (currentRoom) {
+            const player = currentRoom.players.get(socket.id);
+            if (player) {
+                // サンダー発射時はエネルギーをリセット
+                if (data.type === 'THUNDER') {
+                    player.thunderEnergy = 0;
+                }
+                // 他のプレイヤーに弾丸を通知
+                socket.to(currentRoom.id).emit('remoteFire', {
+                    playerId: socket.id,
+                    type: data.type,
+                    angle: data.angle,
+                    x: player.x,
+                    y: player.y
+                });
+            }
+        }
+    });
+    
+    socket.on('formation', (data) => {
+        if (currentRoom) {
+            const player = currentRoom.players.get(socket.id);
+            if (player) {
+                player.formation = data.formation;
+            }
+        }
+    });
+    
+    socket.on('disconnect', () => {
+        console.log('Player disconnected:', socket.id);
+        if (currentRoom) {
+            currentRoom.removePlayer(socket.id);
+            socket.to(currentRoom.id).emit('playerLeft', { playerId: socket.id });
+        }
+    });
+});
 
-function initMobileControls() {
-    const joyZone = document.getElementById('joystick-zone');
-    const stick = document.getElementById('joystick-stick');
-    if (!joyZone || !stick) return;
-    document.addEventListener('touchmove', e => { if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') e.preventDefault(); }, { passive: false });
-    document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });
-    const maxRadius = 40; let startX = 0, startY = 0;
-    joyZone.addEventListener('touchstart', e => { e.preventDefault(); const touch = e.changedTouches[0]; startX = touch.clientX; startY = touch.clientY; joystick.active = true; stick.style.transition = 'none'; }, { passive: false });
-    joyZone.addEventListener('touchmove', e => { e.preventDefault(); if (!joystick.active) return; const touch = e.changedTouches[0]; const dx = touch.clientX - startX; const dy = touch.clientY - startY; const distance = Math.min(Math.hypot(dx, dy), maxRadius); const angle = Math.atan2(dy, dx); const moveX = Math.cos(angle) * distance; const moveY = Math.sin(angle) * distance; stick.style.transform = `translate(calc(-50% + ${moveX}px), calc(-50% + ${moveY}px))`; joystick.dx = Math.cos(angle) * (distance / maxRadius); joystick.dy = Math.sin(angle) * (distance / maxRadius); }, { passive: false });
-    joyZone.addEventListener('touchend', e => { e.preventDefault(); joystick.active = false; joystick.dx = 0; joystick.dy = 0; stick.style.transition = '0.2s'; stick.style.transform = `translate(-50%, -50%)`; }, { passive: false });
-    const setupButton = (id, action) => { const btn = document.getElementById(id); if(btn) { btn.addEventListener('touchstart', (e) => { e.preventDefault(); action(); btn.style.background = "rgba(0,255,255,0.5)"; }, { passive: false }); btn.addEventListener('touchend', (e) => { e.preventDefault(); btn.style.background = "rgba(0,255,255,0.2)"; }, { passive: false }); } };
-    setupButton('btn-dash', triggerDash); setupButton('btn-form', cycleFormation);
-}
+// ========== ゲームループ ==========
+setInterval(() => {
+    rooms.forEach(room => {
+        room.update();
+    });
+}, TICK_INTERVAL);
 
-function playSound(name) {} 
-function cycleFormation() { currentFormation = (currentFormation + 1) % FORMATIONS.length; showMessage(FORMATIONS[currentFormation]); }
-function triggerDash() { if(player) player.dash(); }
-function showMessage(msg) { ui.message.textContent = msg; ui.message.style.opacity = 1; setTimeout(()=>ui.message.style.opacity=0, 2000); }
-function damageEnemy(e, val) { e.hp-=val; if(e.hp<=0) { score+=e.score; createParticle(e.x, e.y, e.color); } }
-function checkWall(x, y) { return x<0 || x>WORLD_W || y<0 || y>WORLD_H; } 
-function escapeFromWall(p) { p.x = Math.max(60, Math.min(WORLD_W-60, p.x)); p.y = Math.max(60, Math.min(WORLD_H-60, p.y)); }
-function getWallNormal() { return null; }
-function findSafeSpawnPosition() { return {x: 500, y: 500}; } 
-function generateMazeWalls(n) { return [{x:0,y:0,w:WORLD_W,h:50},{x:0,y:WORLD_H-50,w:WORLD_W,h:50},{x:0,y:0,w:50,h:WORLD_H},{x:WORLD_W-50,y:0,w:50,h:WORLD_H}]; }
-function spawnMobs() { if(enemies.length < 50) spawnEnemy('virus', Math.random()*WORLD_W, Math.random()*WORLD_H); }
-function spawnEnemy(type, x, y) { enemies.push({x,y,hp:10,maxHp:10,color:'#f00',size:15,speed:2}); }
-function updateEnemyBullets() {} 
-function startWave() {
-    wave++;
-    ui.wave.textContent = wave;
-    showMessage(`◆ WAVE ${wave} ◆`);
-    playWaveBgm(wave); 
-}
-
-window.addEventListener('load', init);
-</script>
-</body>
-</html>
+// ========== サーバー起動 ==========
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`PLAZMERS Server running on port ${PORT}`);
+});
