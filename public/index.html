@@ -369,6 +369,7 @@ function init() {
     resize();
     window.addEventListener('resize', resize);
     
+    // PC入力
     canvas.addEventListener('mousemove', e => { input.x = e.clientX; input.y = e.clientY; });
     canvas.addEventListener('mousedown', e => {
         if(gameState === 'title') return;
@@ -440,6 +441,7 @@ function setupSocketListeners() {
         lobbyPlayerCount = data.players.length;
         updateLobby(data.players, 'lobby-players');
         setStatus("");
+        document.getElementById('btn-host').disabled = false;
     });
 
     socket.on('joined', (data) => {
@@ -543,6 +545,11 @@ function startSoloGame() {
     setupGameCommon();
     player = new Player();
     walls = generateMazeWalls(0);
+    // カメラの初期位置を確実に設定（画面中央がプレイヤー位置）
+    // 安全のため、プレイヤー位置を壁のない場所に強制移動
+    const startPos = findSafeSpawnPosition(0);
+    player.x = startPos.x;
+    player.y = startPos.y;
     camera.x = player.x - canvas.width/2;
     camera.y = player.y - canvas.height/2;
     playWaveBgm(1);
@@ -553,6 +560,9 @@ function startOnlineGameClient(data) {
     setupGameCommon();
     player = new Player(); 
     walls = generateMazeWalls(0);
+    const startPos = findSafeSpawnPosition(0);
+    player.x = startPos.x;
+    player.y = startPos.y;
     camera.x = player.x - canvas.width/2;
     camera.y = player.y - canvas.height/2;
     playWaveBgm(1);
@@ -571,12 +581,21 @@ function update() {
 function updateGameLogic() {
     if (player) { 
         player.update(); 
-        // カメラ追従
-        const targetX = player.x - canvas.width / 2;
-        const targetY = player.y - canvas.height / 2;
+        // カメラ追従 (NaN対策)
+        let targetX = player.x - canvas.width / 2;
+        let targetY = player.y - canvas.height / 2;
+        if(isNaN(targetX)) targetX = 0;
+        if(isNaN(targetY)) targetY = 0;
+        
         camera.x += (targetX - camera.x) * 0.1;
         camera.y += (targetY - camera.y) * 0.1;
         
+        // 座標が壊れた場合の緊急リセット
+        if(isNaN(camera.x) || isNaN(camera.y)) {
+            camera.x = player.x - canvas.width/2;
+            camera.y = player.y - canvas.height/2;
+        }
+
         if (gameState === 'playing_online' && socket && joystick.active) {
             socket.emit('input', { x: player.x, y: player.y, angle: player.angle, dashing: player.dashing });
         }
@@ -633,6 +652,7 @@ function updateGameLogic() {
 function draw() {
     if(!ctx) return;
     
+    // 安全対策：カメラがNaNならリセット
     if (isNaN(camera.x)) camera.x = 0;
     if (isNaN(camera.y)) camera.y = 0;
     if (isNaN(screenShake.x)) screenShake.x = 0;
@@ -707,6 +727,7 @@ function draw() {
     drawEnemyIndicators();
     drawMinimap();
 
+    // ダメージフラッシュ（赤）
     if (damageFlash > 0) {
         ctx.save();
         ctx.fillStyle = `rgba(255, 0, 0, ${damageFlash / 20})`;
@@ -715,7 +736,8 @@ function draw() {
         damageFlash--;
     }
 
-    if (player && player.hp > 0 && player.hp < player.maxHp * 0.3) {
+    // HPピンチアラート
+    if (player && player.alive && player.hp < player.maxHp * 0.3) {
         const pulse = (Math.sin(frame * 0.2) + 1) / 2; 
         ctx.save();
         ctx.strokeStyle = `rgba(255, 0, 0, ${pulse * 0.8})`;
