@@ -311,6 +311,10 @@ let joystick = { active: false, dx: 0, dy: 0, centerX: 0, centerY: 0 };
 let camera = { x: 0, y: 0 };
 let screenShake = { x: 0, y: 0, intensity: 0 };
 
+// フォーメーション
+const FORMATIONS = ['FOLLOW', 'GO AROUND 1', 'GO AROUND 2', 'HUNT'];
+let currentFormation = 0;
+
 // UI要素
 const ui = {
     startScreen: document.getElementById('start-screen'),
@@ -401,6 +405,7 @@ function updateCamera() {
 }
 
 function triggerScreenShake(intensity) { 
+    // 揺れを軽減し、最大値を制限
     screenShake.intensity = Math.min(screenShake.intensity + intensity * 0.2, 8); 
 }
 
@@ -408,7 +413,7 @@ function updateScreenShake() {
     if (screenShake.intensity > 0.1) {
         screenShake.x = (Math.random() - 0.5) * screenShake.intensity;
         screenShake.y = (Math.random() - 0.5) * screenShake.intensity;
-        screenShake.intensity *= 0.85;
+        screenShake.intensity *= 0.85; // より速く減衰
     } else { 
         screenShake.x = 0; 
         screenShake.y = 0; 
@@ -416,20 +421,28 @@ function updateScreenShake() {
     }
 }
 
+// 補間更新（滑らかな動き）
 function updateInterpolation() {
-    const lerpFactor = 0.35;
+    const lerpFactor = 0.35; // 補間速度（上げてラグ軽減）
+    
+    // 他プレイヤーの補間
     remotePlayers.forEach(rp => {
         rp.x += (rp.targetX - rp.x) * lerpFactor;
         rp.y += (rp.targetY - rp.y) * lerpFactor;
+        // 角度の補間（最短経路）
         let angleDiff = rp.targetAngle - rp.angle;
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
         rp.angle += angleDiff * lerpFactor;
     });
+    
+    // 敵の補間
     remoteEnemies.forEach(re => {
         re.x += (re.targetX - re.x) * lerpFactor;
         re.y += (re.targetY - re.y) * lerpFactor;
     });
+    
+    // ダメージテキスト更新
     damageTexts.forEach(dt => {
         dt.y -= 1.5;
         dt.life--;
@@ -438,6 +451,7 @@ function updateInterpolation() {
     damageTexts = damageTexts.filter(dt => dt.life > 0);
 }
 
+// ダメージテキスト生成
 function spawnDamageText(x, y, damage, color) {
     damageTexts.push({
         x: x + (Math.random() - 0.5) * 20,
@@ -449,11 +463,13 @@ function spawnDamageText(x, y, damage, color) {
     });
 }
 
+// オプション（ビット）の更新
 function updateOptions() {
     if (!myPlayer || !myPlayer.options || !myPlayer.alive) return;
     const optionCount = myPlayer.options.length;
     if (optionCount === 0) return;
-
+    
+    // localOptionsの数をサーバーと同期
     while (localOptions.length < optionCount) {
         const i = localOptions.length;
         localOptions.push({
@@ -461,40 +477,45 @@ function updateOptions() {
             y: myPlayer.y,
             targetX: myPlayer.x,
             targetY: myPlayer.y,
-            baseAngle: (Math.PI / 2) * i
+            baseAngle: (Math.PI / 2) * i // 上下左右
         });
     }
     while (localOptions.length > optionCount) {
         localOptions.pop();
     }
-
-    const radius = 60;
-
+    
+    const radius = 60; // プレイヤーからの距離
+    
     if (optionFormation === 'FOLLOW') {
+        // FOLLOWモード：プレイヤーの上下左右に配置
         const positions = [
-            { angle: -Math.PI / 2 },
-            { angle: Math.PI / 2 },
-            { angle: Math.PI },
-            { angle: 0 },
-            { angle: -Math.PI * 3/4 },
-            { angle: -Math.PI / 4 }
+            { angle: -Math.PI / 2 }, // 上
+            { angle: Math.PI / 2 },  // 下
+            { angle: Math.PI },      // 左
+            { angle: 0 },            // 右
+            { angle: -Math.PI * 3/4 }, // 左上
+            { angle: -Math.PI / 4 }   // 右上
         ];
-
+        
         for (let i = 0; i < localOptions.length; i++) {
             const opt = localOptions[i];
             const pos = positions[i % positions.length];
             opt.targetX = myPlayer.x + Math.cos(pos.angle) * radius;
             opt.targetY = myPlayer.y + Math.sin(pos.angle) * radius;
+            // 滑らかに移動
             opt.x += (opt.targetX - opt.x) * 0.12;
             opt.y += (opt.targetY - opt.y) * 0.12;
         }
-
+        
         huntTarget = null;
         huntLockOnTimer = 0;
         huntAttacking = false;
-
+        
     } else if (optionFormation === 'HUNT') {
+        // HUNTモード：敵をロックオンして攻撃
+        
         if (!huntAttacking && !huntTarget) {
+            // ターゲットを探す
             let bestTarget = null;
             let maxHp = 0;
             if (gameState && gameState.enemies) {
@@ -511,15 +532,18 @@ function updateOptions() {
                     }
                 });
             }
+            
             if (bestTarget) {
                 huntTarget = bestTarget;
-                huntLockOnTimer = 60;
+                huntLockOnTimer = 60; // 1秒ロックオン演出
             }
         }
-
+        
         if (huntTarget && huntLockOnTimer > 0) {
+            // ロックオン演出中：その場で待機
             huntLockOnTimer--;
-
+            
+            // ターゲット位置を更新
             if (gameState && gameState.enemies) {
                 const enemy = gameState.enemies.find(e => e.id === huntTarget.id);
                 if (enemy && enemy.hp > 0) {
@@ -528,15 +552,19 @@ function updateOptions() {
                     huntTarget.y = re ? re.y : enemy.y;
                     huntTarget.hp = enemy.hp;
                 } else {
-                    huntTarget = null;
+                    huntTarget = null; // ターゲットが死んだ
                 }
             }
-
+            
             if (huntLockOnTimer === 0 && huntTarget) {
-                huntAttacking = true;
+                huntAttacking = true; // 攻撃開始！
             }
-
+            
         } else if (huntAttacking && huntTarget) {
+            // 攻撃中：ターゲットに向かって高速移動
+            let allReached = true;
+            
+            // ターゲット位置を更新
             if (gameState && gameState.enemies) {
                 const enemy = gameState.enemies.find(e => e.id === huntTarget.id);
                 if (enemy && enemy.hp > 0) {
@@ -545,28 +573,38 @@ function updateOptions() {
                     huntTarget.y = re ? re.y : enemy.y;
                     huntTarget.hp = enemy.hp;
                 } else {
+                    // ターゲット撃破！
                     huntTarget = null;
                     huntAttacking = false;
+                    // FOLLOWに戻る
                     setTimeout(() => {
                         if (optionFormation === 'HUNT') {
+                            // 次のターゲットを探す（少し待ってから）
                         }
                     }, 500);
                 }
             }
-
+            
             if (huntTarget) {
                 for (let i = 0; i < localOptions.length; i++) {
                     const opt = localOptions[i];
+                    // ターゲット周りに配置
                     const attackAngle = (Math.PI * 2 / localOptions.length) * i;
                     const attackRadius = huntTarget.size + 20;
                     opt.targetX = huntTarget.x + Math.cos(attackAngle) * attackRadius;
                     opt.targetY = huntTarget.y + Math.sin(attackAngle) * attackRadius;
+                    
+                    // 高速移動
                     opt.x += (opt.targetX - opt.x) * 0.25;
                     opt.y += (opt.targetY - opt.y) * 0.25;
+                    
+                    const dist = Math.hypot(opt.x - opt.targetX, opt.y - opt.targetY);
+                    if (dist > 10) allReached = false;
                 }
             }
-
+            
         } else {
+            // ターゲットがいない場合はFOLLOW位置に戻る
             const positions = [
                 { angle: -Math.PI / 2 },
                 { angle: Math.PI / 2 },
@@ -575,7 +613,7 @@ function updateOptions() {
                 { angle: -Math.PI * 3/4 },
                 { angle: -Math.PI / 4 }
             ];
-
+            
             for (let i = 0; i < localOptions.length; i++) {
                 const opt = localOptions[i];
                 const pos = positions[i % positions.length];
@@ -588,29 +626,34 @@ function updateOptions() {
     }
 }
 
+// オプションの描画
 function drawOptions() {
     if (!myPlayer || !myPlayer.alive) return;
-
+    
     const glowColor = myPlayer.glowColor || '#0ff';
-
+    
+    // HUNTモードのロックオン演出
     if (optionFormation === 'HUNT' && huntTarget && huntLockOnTimer > 0) {
         const tx = huntTarget.x - camera.x + screenShake.x;
         const ty = huntTarget.y - camera.y + screenShake.y;
         const progress = 1 - (huntLockOnTimer / 60);
-
+        
         ctx.save();
-
+        
+        // 赤いロックオンサークル（収束）
         const lockRadius = 80 * (1 - progress) + 30;
         ctx.strokeStyle = '#f00';
         ctx.lineWidth = 3;
         ctx.shadowBlur = 20;
         ctx.shadowColor = '#f00';
         ctx.globalAlpha = 0.8;
-
+        
+        // 外側のリング
         ctx.beginPath();
         ctx.arc(tx, ty, lockRadius, 0, Math.PI * 2);
         ctx.stroke();
-
+        
+        // 回転する照準
         const rotAngle = frame * 0.1;
         for (let i = 0; i < 4; i++) {
             const a = rotAngle + (Math.PI / 2) * i;
@@ -619,7 +662,8 @@ function drawOptions() {
             ctx.lineTo(tx + Math.cos(a) * (lockRadius + 15), ty + Math.sin(a) * (lockRadius + 15));
             ctx.stroke();
         }
-
+        
+        // 中心のクロスヘア
         if (progress > 0.5) {
             ctx.globalAlpha = (progress - 0.5) * 2;
             ctx.beginPath();
@@ -628,21 +672,24 @@ function drawOptions() {
             ctx.moveTo(tx, ty - 20);
             ctx.lineTo(tx, ty + 20);
             ctx.stroke();
-
+            
+            // LOCK ON テキスト
             ctx.fillStyle = '#f00';
             ctx.font = 'bold 14px Courier New';
             ctx.textAlign = 'center';
             ctx.fillText('LOCK ON', tx, ty - lockRadius - 10);
         }
-
+        
+        // ターゲットの名前とHP
         ctx.globalAlpha = 1;
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 12px Courier New';
         ctx.fillText(`HP: ${huntTarget.hp}/${huntTarget.maxHp}`, tx, ty + lockRadius + 20);
-
+        
         ctx.restore();
     }
-
+    
+    // 攻撃中の軌跡エフェクト
     if (huntAttacking && huntTarget) {
         ctx.save();
         ctx.strokeStyle = glowColor;
@@ -650,48 +697,54 @@ function drawOptions() {
         ctx.globalAlpha = 0.5;
         ctx.shadowBlur = 10;
         ctx.shadowColor = glowColor;
-
+        
         localOptions.forEach(opt => {
             const sx = opt.x - camera.x + screenShake.x;
             const sy = opt.y - camera.y + screenShake.y;
             const tx = huntTarget.x - camera.x + screenShake.x;
             const ty = huntTarget.y - camera.y + screenShake.y;
-
+            
             ctx.beginPath();
             ctx.moveTo(sx, sy);
             ctx.lineTo(tx, ty);
             ctx.stroke();
         });
-
+        
         ctx.restore();
     }
-
+    
+    // オプション本体の描画
     localOptions.forEach((opt, i) => {
         const sx = opt.x - camera.x + screenShake.x;
         const sy = opt.y - camera.y + screenShake.y;
-
+        
         ctx.save();
         ctx.shadowBlur = 15;
         ctx.shadowColor = glowColor;
-
+        
+        // 攻撃中は赤く光る
         const currentColor = huntAttacking ? '#f44' : glowColor;
-
+        
+        // 外側のリング
         ctx.strokeStyle = currentColor;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(sx, sy, 10, 0, Math.PI * 2);
         ctx.stroke();
-
+        
+        // 内側のコア
         ctx.fillStyle = '#fff';
         ctx.beginPath();
         ctx.arc(sx, sy, 5, 0, Math.PI * 2);
         ctx.fill();
-
+        
+        // 中心の光
         ctx.fillStyle = currentColor;
         ctx.beginPath();
         ctx.arc(sx, sy, 3, 0, Math.PI * 2);
         ctx.fill();
-
+        
+        // 移動中のトレイル
         if (huntAttacking) {
             ctx.globalAlpha = 0.3;
             for (let t = 1; t <= 5; t++) {
@@ -703,10 +756,11 @@ function drawOptions() {
                 ctx.fill();
             }
         }
-
+        
         ctx.restore();
     });
-
+    
+    // フォーメーション表示
     if (localOptions.length > 0) {
         ctx.save();
         ctx.fillStyle = optionFormation === 'HUNT' ? '#f44' : '#0ff';
@@ -717,19 +771,23 @@ function drawOptions() {
     }
 }
 
+// ダッシュトレイルの更新
 function updateDashTrail() {
     if (!myPlayer) return;
-
+    
+    // ダッシュ中はトレイルポイントを毎フレーム追加
     if (myPlayer.dashing && myPlayer.alive) {
+        // メイントレイル（位置を記録）
         dashTrail.unshift({
             x: myPlayer.x,
             y: myPlayer.y,
             angle: myPlayer.angle,
-            life: 30,
+            life: 30, // 長めに
             maxLife: 30,
             color: myPlayer.glowColor || '#0ff'
         });
-
+        
+        // 流れ星の光粒子を大量に生成
         for (let i = 0; i < 8; i++) {
             const spreadAngle = myPlayer.angle + Math.PI + (Math.random() - 0.5) * 1.2;
             const speed = 3 + Math.random() * 8;
@@ -745,7 +803,8 @@ function updateDashTrail() {
                 type: 'star'
             });
         }
-
+        
+        // キラキラ粒子
         if (Math.random() > 0.3) {
             dashParticles.push({
                 x: myPlayer.x + (Math.random() - 0.5) * 30,
@@ -760,11 +819,14 @@ function updateDashTrail() {
             });
         }
     }
-
+    
+    // トレイルの更新
     dashTrail.forEach(t => t.life--);
     dashTrail = dashTrail.filter(t => t.life > 0);
+    // 最大50ポイントに制限
     if (dashTrail.length > 50) dashTrail.length = 50;
-
+    
+    // 粒子の更新
     dashParticles.forEach(p => {
         p.x += p.vx;
         p.y += p.vy;
@@ -775,22 +837,25 @@ function updateDashTrail() {
     dashParticles = dashParticles.filter(p => p.life > 0);
 }
 
+// ダッシュエフェクトの描画
 function drawDashEffects() {
     if (!myPlayer) return;
-
+    
     const glowColor = myPlayer.glowColor || '#0ff';
     const playerColor = myPlayer.color || '#fff';
-
+    
+    // === 光の粒子を先に描画 ===
     dashParticles.forEach(p => {
         const sx = p.x - camera.x + screenShake.x;
         const sy = p.y - camera.y + screenShake.y;
         const alpha = p.life / (p.maxLife || 35);
         const size = p.size * alpha;
-
+        
         ctx.save();
         ctx.globalAlpha = alpha;
-
+        
         if (p.type === 'sparkle') {
+            // キラキラ（十字型）
             ctx.strokeStyle = p.color;
             ctx.lineWidth = 1.5;
             ctx.shadowBlur = 8;
@@ -803,6 +868,7 @@ function drawDashEffects() {
             ctx.lineTo(sx, sy + sparkleSize);
             ctx.stroke();
         } else {
+            // 通常の光粒子
             ctx.fillStyle = p.color;
             ctx.shadowBlur = 12;
             ctx.shadowColor = p.color;
@@ -812,12 +878,14 @@ function drawDashEffects() {
         }
         ctx.restore();
     });
-
+    
+    // === 流れ星の尾（メイントレイル） ===
     if (dashTrail.length > 2) {
         ctx.save();
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-
+        
+        // 最外層（大きなグロー）
         ctx.shadowBlur = 50;
         ctx.shadowColor = glowColor;
         ctx.strokeStyle = glowColor;
@@ -832,7 +900,8 @@ function drawDashEffects() {
             else ctx.lineTo(sx, sy);
         }
         ctx.stroke();
-
+        
+        // 外側の光（グラデーション風に太さを変える）
         for (let layer = 0; layer < 3; layer++) {
             const layerWidth = 25 - layer * 8;
             const layerAlpha = 0.15 + layer * 0.1;
@@ -841,9 +910,10 @@ function drawDashEffects() {
             ctx.lineWidth = layerWidth;
             ctx.globalAlpha = layerAlpha;
             ctx.shadowBlur = 20 - layer * 5;
-
+            
             for (let i = 0; i < dashTrail.length; i++) {
                 const t = dashTrail[i];
+                const progress = i / dashTrail.length;
                 const sx = t.x - camera.x + screenShake.x;
                 const sy = t.y - camera.y + screenShake.y;
                 if (i === 0) ctx.moveTo(sx, sy);
@@ -851,7 +921,8 @@ function drawDashEffects() {
             }
             ctx.stroke();
         }
-
+        
+        // コアライン（明るい白）
         ctx.beginPath();
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 4;
@@ -866,25 +937,28 @@ function drawDashEffects() {
             else ctx.lineTo(sx, sy);
         }
         ctx.stroke();
-
+        
         ctx.restore();
     }
-
+    
+    // === 残像（ゴースト）を描画 ===
     dashTrail.forEach((t, idx) => {
-        if (idx % 3 !== 0) return;
+        if (idx % 3 !== 0) return; // 間引いて表示
         const sx = t.x - camera.x + screenShake.x;
         const sy = t.y - camera.y + screenShake.y;
         const lifeRatio = t.life / (t.maxLife || 30);
         const alpha = lifeRatio * 0.5;
         const size = 10 * lifeRatio;
-
+        
         ctx.save();
         ctx.globalAlpha = alpha;
         ctx.translate(sx, sy);
-
+        
+        // 残像のグロー
         ctx.shadowBlur = 20;
         ctx.shadowColor = glowColor;
-
+        
+        // 残像本体（プレイヤーの形）
         ctx.fillStyle = glowColor;
         ctx.beginPath();
         for (let i = 0; i < 8; i++) {
@@ -895,12 +969,13 @@ function drawDashEffects() {
         }
         ctx.closePath();
         ctx.fill();
-
+        
+        // 白いコア
         ctx.fillStyle = 'rgba(255,255,255,0.5)';
         ctx.beginPath();
         ctx.arc(0, 0, size * 0.4, 0, Math.PI * 2);
         ctx.fill();
-
+        
         ctx.restore();
     });
 }
@@ -937,7 +1012,7 @@ function showMessage(text) {
     setTimeout(() => { ui.message.style.opacity = 0; }, 2000);
 }
 
-function playSound(type) { }
+function playSound(type) { /* サウンド未実装 */ }
 
 function initMobileControls() {
     const zone = document.getElementById('joystick-zone');
@@ -970,6 +1045,7 @@ function initMobileControls() {
     document.getElementById('btn-form').addEventListener('touchstart', e => { e.preventDefault(); cycleFormation(); });
 }
 
+// ========== 初期化 ==========
 function init() {
     resize();
     window.addEventListener('resize', resize);
@@ -1001,6 +1077,7 @@ function resize() {
     canvas.height = window.innerHeight;
 }
 
+// ========== サーバー接続 ==========
 function connectToServer() {
     socket = io();
     
@@ -1013,7 +1090,7 @@ function connectToServer() {
     socket.on('hosted', (data) => {
         myPlayerId = data.playerId;
         myPlayer = data.player;
-        myPlayer.alive = true;
+        myPlayer.alive = true; // 確実にtrueに設定
         walls = data.walls;
         document.getElementById('menu-buttons').style.display = 'none';
         document.getElementById('host-info').style.display = 'block';
@@ -1052,7 +1129,7 @@ function connectToServer() {
     socket.on('joined', (data) => {
         myPlayerId = data.playerId;
         myPlayer = data.player;
-        myPlayer.alive = true;
+        myPlayer.alive = true; // 確実にtrueに設定
         walls = data.walls;
         if (data.isGuest && data.state === 'waiting') {
             document.getElementById('menu-buttons').style.display = 'none';
@@ -1075,16 +1152,23 @@ function connectToServer() {
         if (myPlayer) {
             myPlayer.x = data.x; myPlayer.y = data.y; myPlayer.hp = data.hp; myPlayer.alive = true;
             ui.hp.style.width = '100%';
+            
+            // 武器レベルを更新
             if (data.weaponLevels) {
                 myPlayer.weaponLevels = data.weaponLevels;
                 updateWeaponUI();
             }
+            
+            // オプション数を更新
             if (data.options !== undefined) {
                 myPlayer.options = new Array(data.options).fill({});
+                // localOptionsを調整
                 while (localOptions.length > data.options) {
                     localOptions.pop();
                 }
             }
+            
+            // HUNTモードをリセット
             optionFormation = 'FOLLOW';
             huntTarget = null;
             huntAttacking = false;
@@ -1126,8 +1210,10 @@ function connectToServer() {
     socket.on('gameState', (state) => {
         gameState = state;
         
+        // 自分自身の更新（位置以外）
         const me = state.players.find(p => p.id === myPlayerId);
         if (me && myPlayer) {
+            // 位置はクライアント予測を優先、その他のデータは更新
             myPlayer.hp = me.hp;
             myPlayer.maxHp = me.maxHp;
             myPlayer.invincible = me.invincible;
@@ -1138,12 +1224,14 @@ function connectToServer() {
             myPlayer.options = me.options;
             myPlayer.score = me.score;
             myPlayer.respawnTimer = me.respawnTimer;
+            // 死亡時やリスポーン時は位置も同期
             if (!me.alive || me.invincible > 170) {
                 myPlayer.x = me.x;
                 myPlayer.y = me.y;
             }
         }
         
+        // 他プレイヤーの補間ターゲットを更新
         state.players.forEach(p => {
             if (p.id !== myPlayerId) {
                 const existing = remotePlayers.get(p.id);
@@ -1162,11 +1250,13 @@ function connectToServer() {
             }
         });
         
+        // 離脱したプレイヤーを削除
         const playerIds = new Set(state.players.map(p => p.id));
         remotePlayers.forEach((_, id) => {
             if (!playerIds.has(id)) remotePlayers.delete(id);
         });
         
+        // 敵の補間ターゲットを更新
         state.enemies.forEach(e => {
             const existing = remoteEnemies.get(e.id);
             if (existing) {
@@ -1182,6 +1272,7 @@ function connectToServer() {
             }
         });
         
+        // 死んだ敵を削除
         const enemyIds = new Set(state.enemies.map(e => e.id));
         remoteEnemies.forEach((_, id) => {
             if (!enemyIds.has(id)) remoteEnemies.delete(id);
@@ -1212,6 +1303,7 @@ function connectToServer() {
     });
     
     socket.on('enemyHit', (data) => {
+        // ダメージテキスト表示
         const re = remoteEnemies.get(data.enemyId);
         if (re) {
             spawnDamageText(re.x, re.y, data.damage, '#ff0');
@@ -1219,6 +1311,7 @@ function connectToServer() {
     });
     
     socket.on('enemyDefeated', (data) => {
+        // 敵撃破時のエフェクト
         const re = remoteEnemies.get(data.enemyId);
         if (re) {
             createParticles(re.x, re.y, '#f80', 15);
@@ -1305,6 +1398,7 @@ function updateLobbyPlayers(players, containerId) {
     });
 }
 
+// ========== 入力処理 ==========
 let lastInputTime = 0;
 const INPUT_RATE = 1000 / 30;
 
@@ -1320,6 +1414,7 @@ function updateInput() {
         if (Math.hypot(mx - myPlayer.x, my - myPlayer.y) > 20) moving = true;
     }
     
+    // クライアント予測移動（ダッシュ時は壁抜け）
     if (myPlayer.dashing) {
         const dashSpeed = 35;
         const vx = Math.cos(myPlayer.angle) * dashSpeed;
@@ -1350,9 +1445,11 @@ function triggerDash() {
     input.dash = true; 
     playSound('dash'); 
     
+    // ダッシュ開始時のバースト粒子
     if (myPlayer && myPlayer.alive) {
         const glowColor = myPlayer.glowColor || '#0ff';
         
+        // 放射状バースト粒子
         for (let i = 0; i < 30; i++) {
             const angle = Math.random() * Math.PI * 2;
             const speed = 4 + Math.random() * 10;
@@ -1369,6 +1466,7 @@ function triggerDash() {
             });
         }
         
+        // 進行方向への集中粒子
         for (let i = 0; i < 15; i++) {
             const spreadAngle = myPlayer.angle + (Math.random() - 0.5) * 0.5;
             const speed = 8 + Math.random() * 12;
@@ -1385,6 +1483,7 @@ function triggerDash() {
             });
         }
         
+        // キラキラ
         for (let i = 0; i < 8; i++) {
             dashParticles.push({
                 x: myPlayer.x + (Math.random() - 0.5) * 40,
@@ -1399,10 +1498,12 @@ function triggerDash() {
             });
         }
         
+        // 画面シェイク
         triggerScreenShake(8);
     }
 }
 function cycleFormation() {
+    // オプションフォーメーション切り替え
     if (localOptions.length > 0) {
         optionFormation = optionFormation === 'FOLLOW' ? 'HUNT' : 'FOLLOW';
         huntTarget = null;
@@ -1413,8 +1514,10 @@ function cycleFormation() {
     }
 }
 
+// ========== 武器処理 ==========
 function fireWeapons() {
     if (!myPlayer || !myPlayer.alive) return;
+    // weaponLevelsがない場合はデフォルト値を設定
     if (!myPlayer.weaponLevels) {
         myPlayer.weaponLevels = { PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0, ALLRANGE: 0 };
     }
@@ -1429,10 +1532,1059 @@ function fireWeapons() {
     playSound('shoot');
 }
 
-/* ここから先（弾クラス群、draw/gameLoop 以降）はユーザー提供コードと同一です。
-   文字数制限でここに全量を入れると投稿が弾かれる可能性があるため、
-   続きが必要なら「続きも一気に全部」と送ってください。同じデザインのまま
-   この続きから最後まで欠けなしでそのまま貼ります。 */
+function firePlazmer(hits) {
+    const lv = myPlayer.weaponLevels.PLAZMER;
+    const count = 2 + Math.floor(lv / 2); // 発射数
+    const damage = 2 + Math.floor(lv / 4);
+    
+    // 向いている方向の敵をロックオン
+    let target = null;
+    let minAngleDiff = Math.PI / 3; // 60度以内の敵をロックオン
+    if (gameState) {
+        gameState.enemies.forEach(e => {
+            if (e.hp <= 0) return;
+            const re = remoteEnemies.get(e.id);
+            const ex = re ? re.x : e.x;
+            const ey = re ? re.y : e.y;
+            const angleToEnemy = Math.atan2(ey - myPlayer.y, ex - myPlayer.x);
+            let angleDiff = Math.abs(angleToEnemy - myPlayer.angle);
+            while (angleDiff > Math.PI) angleDiff = Math.abs(angleDiff - Math.PI * 2);
+            const dist = Math.hypot(ex - myPlayer.x, ey - myPlayer.y);
+            if (angleDiff < minAngleDiff && dist < 600) {
+                minAngleDiff = angleDiff;
+                target = { x: ex, y: ey };
+            }
+        });
+    }
+    
+    // ガトリング発射（少しずつ角度をずらす）
+    for (let i = 0; i < count; i++) {
+        const spreadAngle = (Math.random() - 0.5) * 0.15; // 小さな拡散
+        const fireAngle = target 
+            ? Math.atan2(target.y - myPlayer.y, target.x - myPlayer.x) + spreadAngle
+            : myPlayer.angle + spreadAngle;
+        
+        localBullets.push(new PlazmerBullet({ 
+            x: myPlayer.x, 
+            y: myPlayer.y, 
+            angle: fireAngle, 
+            damage: damage, 
+            color: myPlayer.color || '#0ff',
+            spiralOffset: i * (Math.PI * 2 / count) // 螺旋の開始位相をずらす
+        }, hits));
+    }
+    
+    // オプションからはビームを発射（すでにビームがなければ）
+    localOptions.forEach((opt, idx) => {
+        // 同じオプションからのビームがアクティブでなければ発射
+        const existingBeam = optionBeams.find(b => b.index === idx && !b.dead);
+        if (!existingBeam) {
+            optionBeams.push(new OptionBeam(opt, idx));
+        }
+    });
+}
+
+function fireHoming() {
+    const lv = myPlayer.weaponLevels.HOMING;
+    const missileCount = 4 + lv * 2;
+    const damage = 4 + Math.floor(lv / 3);
+    for (let i = 0; i < missileCount; i++) {
+        const spreadAngle = myPlayer.angle + (Math.random() - 0.5) * Math.PI;
+        const speed = 5 + Math.random() * 8;
+        localMissiles.push(new MacrossMissile({ x: myPlayer.x, y: myPlayer.y, vx: Math.cos(spreadAngle) * speed, vy: Math.sin(spreadAngle) * speed, damage: damage, color: myPlayer.color || '#a0f' }));
+    }
+    playSound('missile');
+}
+
+function fireLaser() {
+    const lv = myPlayer.weaponLevels.LASER;
+    const width = Math.min(60, 3 + lv * 3);
+    const damage = 3 + Math.max(0, lv - 8) * 2;
+    activeLaser = new KamehamehaLaser({ owner: myPlayer, width: width, damage: damage, duration: 60, maxBounces: 5 + Math.floor(lv / 2) });
+    playSound('laser');
+}
+
+function fireThunder(hits) {
+    const lv = myPlayer.weaponLevels.THUNDER;
+    let target = null, minDist = 1000;
+    if (gameState) {
+        gameState.enemies.forEach(e => {
+            if (e.hp > 0) {
+                // 補間された位置を使用
+                const re = remoteEnemies.get(e.id);
+                const ex = re ? re.x : e.x;
+                const ey = re ? re.y : e.y;
+                const d = Math.hypot(ex - myPlayer.x, ey - myPlayer.y);
+                if (d < minDist) { minDist = d; target = { x: ex, y: ey }; }
+            }
+        });
+    }
+    localBullets.push(new ThunderBolt({ x: myPlayer.x, y: myPlayer.y, target: target, angle: myPlayer.angle, damage: 30 + lv * 10 }, hits));
+    triggerScreenShake(3);
+}
+
+class PlazmerBullet {
+    constructor(data, hits) {
+        this.x = data.x; this.y = data.y; this.angle = data.angle;
+        this.speed = 16; 
+        this.vx = Math.cos(this.angle) * this.speed; 
+        this.vy = Math.sin(this.angle) * this.speed;
+        this.damage = data.damage || 2; 
+        this.color = data.color || '#0ff';
+        this.size = 2; // 小さいサイズ
+        this.life = 50; 
+        this.type = 'PLAZMER';
+        this.spiralOffset = data.spiralOffset || 0;
+        this.timer = 0;
+        this.baseX = data.x;
+        this.baseY = data.y;
+    }
+    update() {
+        this.timer++;
+        this.life--;
+        
+        // 螺旋弾道：基本軌道に螺旋を追加
+        const dist = this.timer * this.speed;
+        const baseX = this.baseX + Math.cos(this.angle) * dist;
+        const baseY = this.baseY + Math.sin(this.angle) * dist;
+        
+        // 螺旋の振幅と周波数
+        const spiralRadius = 8;
+        const spiralFreq = 0.4;
+        const perpAngle = this.angle + Math.PI / 2;
+        const spiralOffset = Math.sin(this.timer * spiralFreq + this.spiralOffset) * spiralRadius;
+        
+        this.x = baseX + Math.cos(perpAngle) * spiralOffset;
+        this.y = baseY + Math.sin(perpAngle) * spiralOffset;
+        
+        if (this.life <= 0 || checkWall(this.x, this.y, walls)) this.dead = true;
+        this.checkHit();
+        this.checkEnemyBullets(); // 敵弾迎撃
+    }
+    checkHit() {
+        if (!gameState || this.damage <= 0) return;
+        for (const e of gameState.enemies) {
+            if (e.hp <= 0) continue;
+            const re = remoteEnemies.get(e.id);
+            const ex = re ? re.x : e.x;
+            const ey = re ? re.y : e.y;
+            if (Math.hypot(ex - this.x, ey - this.y) < e.size + this.size + 5) {
+                socket.emit('hit', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                spawnDamageText(ex, ey, this.damage, '#ff0');
+                this.dead = true; createParticle(this.x, this.y, this.color); break;
+            }
+        }
+    }
+    checkEnemyBullets() {
+        if (!gameState || !gameState.enemyBullets) return;
+        for (const b of gameState.enemyBullets) {
+            if (Math.hypot(b.x - this.x, b.y - this.y) < (b.size || 5) + this.size + 3) {
+                socket.emit('destroyBullet', { bulletId: b.id });
+                createParticles(this.x, this.y, '#f80', 5);
+                this.dead = true;
+                break;
+            }
+        }
+    }
+    draw() {
+        const sx = this.x - camera.x; const sy = this.y - camera.y;
+        // ガトリング風のトレイル
+        ctx.fillStyle = this.color; 
+        ctx.shadowBlur = 8; 
+        ctx.shadowColor = this.color;
+        ctx.globalAlpha = 0.7;
+        ctx.beginPath(); ctx.arc(sx, sy, this.size, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+    }
+}
+
+class MacrossMissile {
+    constructor(data) {
+        this.x = data.x; this.y = data.y; this.vx = data.vx; this.vy = data.vy;
+        this.damage = data.damage || 4; this.color = data.color || '#a0f';
+        this.life = 200; this.type = 'HOMING'; this.dead = false; this.phase = 0; this.timer = 0; this.waitTime = 10 + Math.random() * 15; this.trail = [];
+    }
+    update() {
+        this.life--; this.timer++; if (this.life <= 0) this.dead = true;
+        if (this.phase === 0) {
+            this.x += this.vx; this.y += this.vy; this.vx *= 0.92; this.vy *= 0.92;
+            if (this.timer > this.waitTime) this.phase = 1;
+        } else {
+            let target = null, minDist = 1000;
+            if (gameState) {
+                gameState.enemies.forEach(e => {
+                    if (e.hp > 0) {
+                        // 補間された位置を使用
+                        const re = remoteEnemies.get(e.id);
+                        const ex = re ? re.x : e.x;
+                        const ey = re ? re.y : e.y;
+                        const d = Math.hypot(ex - this.x, ey - this.y);
+                        if (d < minDist) { minDist = d; target = { x: ex, y: ey, id: e.id }; }
+                    }
+                });
+            }
+            const maxSpeed = 18; const turnSpeed = 0.8;
+            if (target) {
+                const desiredAngle = Math.atan2(target.y - this.y, target.x - this.x);
+                const currentAngle = Math.atan2(this.vy, this.vx);
+                let delta = desiredAngle - currentAngle;
+                while (delta < -Math.PI) delta += Math.PI * 2; while (delta > Math.PI) delta -= Math.PI * 2;
+                const newAngle = currentAngle + Math.max(-turnSpeed, Math.min(turnSpeed, delta));
+                const currentSpeed = Math.hypot(this.vx, this.vy);
+                const nextSpeed = Math.min(maxSpeed, currentSpeed + 1.5);
+                this.vx = Math.cos(newAngle) * nextSpeed; this.vy = Math.sin(newAngle) * nextSpeed;
+            }
+            this.x += this.vx; this.y += this.vy;
+        }
+        if (checkWall(this.x, this.y, walls)) { this.dead = true; createParticles(this.x, this.y, '#f80', 5); }
+        if (gameState && this.damage > 0) {
+            for (const e of gameState.enemies) {
+                if (e.hp <= 0) continue;
+                // 補間された位置を使用
+                const re = remoteEnemies.get(e.id);
+                const ex = re ? re.x : e.x;
+                const ey = re ? re.y : e.y;
+                if (Math.hypot(ex - this.x, ey - this.y) < e.size + 10) {
+                    socket.emit('hit', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                    spawnDamageText(ex, ey, this.damage, '#a0f');
+                    this.dead = true; createParticles(this.x, this.y, '#a0f', 8); break;
+                }
+            }
+            // 敵弾迎撃
+            if (gameState.enemyBullets) {
+                for (const b of gameState.enemyBullets) {
+                    if (Math.hypot(b.x - this.x, b.y - this.y) < (b.size || 5) + 10) {
+                        socket.emit('destroyBullet', { bulletId: b.id });
+                        createParticles(this.x, this.y, '#f80', 5);
+                        this.dead = true; break;
+                    }
+                }
+            }
+        }
+        this.trail.unshift({ x: this.x, y: this.y }); if (this.trail.length > 10) this.trail.pop();
+    }
+    draw() {
+        if (this.trail.length > 1) {
+            ctx.beginPath(); ctx.strokeStyle = `rgba(100, 50, 255, 0.5)`; ctx.lineWidth = 2;
+            for (let i = 0; i < this.trail.length; i++) {
+                const p = this.trail[i];
+                if (i === 0) ctx.moveTo(p.x - camera.x, p.y - camera.y); else ctx.lineTo(p.x - camera.x, p.y - camera.y);
+            }
+            ctx.stroke();
+        }
+        ctx.fillStyle = '#fff'; ctx.shadowBlur = 5; ctx.shadowColor = this.color;
+        ctx.beginPath(); ctx.arc(this.x - camera.x, this.y - camera.y, 2, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+    }
+}
+
+class KamehamehaLaser {
+    constructor(data) {
+        this.owner = data.owner; this.width = data.width || 20; this.damage = data.damage || 3;
+        this.duration = data.duration || 60; this.maxBounces = data.maxBounces || 5;
+        this.life = this.duration; this.damageTimer = 0; this.type = 'LASER';
+        this.segments = []; this.hitEnemies = new Set(); this.updatePath();
+    }
+    updatePath() {
+        this.segments = [];
+        let x = this.owner.x, y = this.owner.y, angle = this.owner.angle;
+        let bounces = this.maxBounces, totalLength = 0;
+        const maxLength = 2500, step = 20;
+        this.segments.push({ x, y });
+        while (totalLength < maxLength && bounces >= 0) {
+            const nextX = x + Math.cos(angle) * step; const nextY = y + Math.sin(angle) * step;
+            const normal = getWallNormal(nextX, nextY);
+            if (normal && bounces > 0) {
+                this.segments.push({ x, y, bounce: true });
+                const dot = Math.cos(angle) * normal.x + Math.sin(angle) * normal.y;
+                angle = Math.atan2(Math.sin(angle) - 2 * dot * normal.y, Math.cos(angle) - 2 * dot * normal.x);
+                bounces--; createParticle(x, y, '#0ff');
+            } else if (normal && bounces <= 0) { this.segments.push({ x, y }); break; }
+            x = nextX; y = nextY; totalLength += step;
+            if (totalLength % 100 < step) this.segments.push({ x, y });
+        }
+        this.segments.push({ x, y });
+    }
+    update() {
+        this.life--; if (this.life <= 0) this.dead = true;
+        this.updatePath(); this.damageTimer++;
+        if (this.damageTimer >= 10 && gameState) {
+            this.damageTimer = 0;
+            for (let i = 0; i < this.segments.length - 1; i++) {
+                const s1 = this.segments[i], s2 = this.segments[i + 1];
+                gameState.enemies.forEach(e => {
+                    if (e.hp > 0 && !this.hitEnemies.has(e.id)) {
+                        // 補間された位置を使用
+                        const re = remoteEnemies.get(e.id);
+                        const ex = re ? re.x : e.x;
+                        const ey = re ? re.y : e.y;
+                        if (distToSegment(ex, ey, s1.x, s1.y, s2.x, s2.y) < e.size + this.width / 2) {
+                            socket.emit('hit', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                            spawnDamageText(ex, ey, this.damage, '#0ff');
+                            this.hitEnemies.add(e.id);
+                        }
+                    }
+                });
+                // 敵弾迎撃
+                if (gameState.enemyBullets) {
+                    gameState.enemyBullets.forEach(b => {
+                        if (distToSegment(b.x, b.y, s1.x, s1.y, s2.x, s2.y) < (b.size || 5) + this.width / 2) {
+                            socket.emit('destroyBullet', { bulletId: b.id });
+                            createParticles(b.x, b.y, '#0ff', 3);
+                        }
+                    });
+                }
+            }
+            if (this.life % 20 === 0) this.hitEnemies.clear();
+        }
+    }
+    draw() {
+        if (this.segments.length < 2) return;
+        const alpha = this.life / this.duration; const pulse = Math.sin(frame * 0.3) * 0.2 + 1; const currentWidth = this.width * pulse * alpha;
+        ctx.strokeStyle = `rgba(0,255,255,${alpha * 0.3})`; ctx.lineWidth = currentWidth + 30; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath();
+        this.segments.forEach((s, i) => { if (i === 0) ctx.moveTo(s.x - camera.x, s.y - camera.y); else ctx.lineTo(s.x - camera.x, s.y - camera.y); });
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(0,255,255,${alpha * 0.8})`; ctx.lineWidth = currentWidth; ctx.shadowBlur = 30; ctx.shadowColor = '#0ff'; ctx.stroke();
+        ctx.strokeStyle = `rgba(255,255,255,${alpha})`; ctx.lineWidth = currentWidth * 0.4; ctx.stroke(); ctx.shadowBlur = 0;
+    }
+}
+
+class ThunderBolt {
+    constructor(data, hits) {
+        this.x = data.x; this.y = data.y; this.target = data.target; this.angle = data.angle;
+        this.damage = data.damage || 30; this.color = '#ff0'; this.life = 30; this.type = 'THUNDER';
+        this.points = [{ x: this.x, y: this.y }];
+        this.targetX = this.target ? this.target.x : this.x + Math.cos(this.angle) * 600;
+        this.targetY = this.target ? this.target.y : this.y + Math.sin(this.angle) * 600;
+        this.hitEnemies = new Set(); this.progress = 0; this.hits = hits;
+        this.generatePath();
+    }
+    generatePath() {
+        const segments = 15; 
+        const perpAngle = Math.atan2(this.targetY - this.y, this.targetX - this.x) + Math.PI / 2;
+        let hitWall = false;
+        for (let i = 1; i <= segments; i++) {
+            if (hitWall) break;
+            const progress = i / segments; 
+            const baseX = this.x + (this.targetX - this.x) * progress; 
+            const baseY = this.y + (this.targetY - this.y) * progress;
+            // 壁チェック
+            if (checkWall(baseX, baseY, walls)) {
+                hitWall = true;
+                // 壁にぶつかったポイントを追加してパーティクル生成
+                this.points.push({ x: baseX, y: baseY });
+                createParticles(baseX, baseY, '#ff0', 10);
+                break;
+            }
+            const zigzag = (i % 2 === 0 ? 1 : -1) * (40 + Math.random() * 30);
+            this.points.push({ x: baseX + Math.cos(perpAngle) * zigzag, y: baseY + Math.sin(perpAngle) * zigzag });
+        }
+    }
+    update() {
+        this.life--; if (this.life <= 0) this.dead = true;
+        this.points.forEach((p, i) => { if (i > 0 && i < this.points.length - 1) { p.x += (Math.random() - 0.5) * 15; p.y += (Math.random() - 0.5) * 15; } });
+        this.progress = Math.min(1, this.progress + 0.2);
+        if (gameState && this.damage > 0) {
+            const currentSegment = Math.floor(this.progress * (this.points.length - 1));
+            for (let i = 0; i <= currentSegment && i < this.points.length - 1; i++) {
+                const p1 = this.points[i], p2 = this.points[i + 1];
+                gameState.enemies.forEach(e => {
+                    if (e.hp > 0 && !this.hitEnemies.has(e.id)) {
+                        // 補間された位置を使用
+                        const re = remoteEnemies.get(e.id);
+                        const ex = re ? re.x : e.x;
+                        const ey = re ? re.y : e.y;
+                        if (distToSegment(ex, ey, p1.x, p1.y, p2.x, p2.y) < e.size + 25) {
+                            socket.emit('hit', { enemyId: e.id, damage: this.damage, weaponType: this.type });
+                            spawnDamageText(ex, ey, this.damage, '#ff0');
+                            this.hitEnemies.add(e.id); createParticles(ex, ey, '#ff0', 15);
+                        }
+                    }
+                });
+                // 敵弾迎撃
+                if (gameState.enemyBullets) {
+                    gameState.enemyBullets.forEach(b => {
+                        if (distToSegment(b.x, b.y, p1.x, p1.y, p2.x, p2.y) < (b.size || 5) + 25) {
+                            socket.emit('destroyBullet', { bulletId: b.id });
+                            createParticles(b.x, b.y, '#ff0', 5);
+                        }
+                    });
+                }
+            }
+        }
+    }
+    draw() {
+        const alpha = this.life / 30; const currentSegment = Math.floor(this.progress * (this.points.length - 1));
+        ctx.strokeStyle = `rgba(255,255,0,${alpha * 0.4})`; ctx.lineWidth = 25; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath();
+        for (let i = 0; i <= currentSegment && i < this.points.length; i++) {
+            const p = this.points[i];
+            if (i === 0) ctx.moveTo(p.x - camera.x, p.y - camera.y); else ctx.lineTo(p.x - camera.x, p.y - camera.y);
+        }
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(255,255,0,${alpha})`; ctx.lineWidth = 8; ctx.shadowBlur = 35; ctx.shadowColor = '#ff0'; ctx.stroke();
+        ctx.strokeStyle = `rgba(255,255,255,${alpha})`; ctx.lineWidth = 3; ctx.stroke(); ctx.shadowBlur = 0;
+    }
+}
+
+// オプションビーム（溶解ビーム）
+class OptionBeam {
+    constructor(option, index) {
+        this.option = option;
+        this.index = index;
+        this.life = 120; // 2秒
+        this.maxLife = 120;
+        this.damage = 1; // 継続ダメージ（毎フレーム）
+        this.width = 3;
+        this.maxWidth = 8;
+        this.color = myPlayer ? (myPlayer.glowColor || '#0ff') : '#0ff';
+        this.target = null;
+        this.hitTimer = 0;
+        this.meltParticles = [];
+    }
+    
+    findTarget() {
+        if (!gameState || !gameState.enemies) return null;
+        let closest = null;
+        let minDist = 500; // 射程
+        
+        gameState.enemies.forEach(e => {
+            if (e.hp <= 0) return;
+            const re = remoteEnemies.get(e.id);
+            const ex = re ? re.x : e.x;
+            const ey = re ? re.y : e.y;
+            const dist = Math.hypot(ex - this.option.x, ey - this.option.y);
+            if (dist < minDist) {
+                minDist = dist;
+                closest = { id: e.id, x: ex, y: ey, size: e.size };
+            }
+        });
+        return closest;
+    }
+    
+    update() {
+        this.life--;
+        if (this.life <= 0) {
+            this.dead = true;
+            return;
+        }
+        
+        // オプションが存在するかチェック
+        if (this.index >= localOptions.length || !myPlayer || !myPlayer.alive) {
+            this.dead = true;
+            return;
+        }
+        this.option = localOptions[this.index]; // 参照を更新
+        
+        // ビームの太さをフェードイン・アウト
+        const lifeRatio = this.life / this.maxLife;
+        if (lifeRatio > 0.9) {
+            this.width = this.maxWidth * (1 - lifeRatio) * 10; // フェードイン
+        } else if (lifeRatio < 0.1) {
+            this.width = this.maxWidth * lifeRatio * 10; // フェードアウト
+        } else {
+            this.width = this.maxWidth;
+        }
+        
+        // ターゲット検索
+        this.target = this.findTarget();
+        
+        // ヒット処理
+        this.hitTimer++;
+        if (this.target && this.hitTimer >= 5) { // 5フレームごとにダメージ
+            this.hitTimer = 0;
+            socket.emit('hit', { enemyId: this.target.id, damage: this.damage, weaponType: 'ALLRANGE' });
+            
+            // 溶解パーティクル生成
+            for (let i = 0; i < 3; i++) {
+                this.meltParticles.push({
+                    x: this.target.x + (Math.random() - 0.5) * this.target.size,
+                    y: this.target.y + (Math.random() - 0.5) * this.target.size,
+                    vx: (Math.random() - 0.5) * 3,
+                    vy: Math.random() * 2 + 1, // 下に落ちる
+                    size: 2 + Math.random() * 4,
+                    life: 20 + Math.random() * 20,
+                    color: Math.random() > 0.5 ? this.color : '#fff'
+                });
+            }
+            
+            // ダメージ数字
+            spawnDamageText(this.target.x, this.target.y, this.damage, this.color);
+        }
+        
+        // 敵弾迎撃
+        if (this.target && gameState && gameState.enemyBullets) {
+            const beamAngle = Math.atan2(this.target.y - this.option.y, this.target.x - this.option.x);
+            gameState.enemyBullets.forEach(b => {
+                const dist = this.distToBeam(b.x, b.y);
+                if (dist < (b.size || 5) + this.width) {
+                    socket.emit('destroyBullet', { bulletId: b.id });
+                    // 蒸発パーティクル
+                    for (let i = 0; i < 5; i++) {
+                        this.meltParticles.push({
+                            x: b.x, y: b.y,
+                            vx: (Math.random() - 0.5) * 4,
+                            vy: (Math.random() - 0.5) * 4,
+                            size: 2 + Math.random() * 3,
+                            life: 15,
+                            color: '#fff'
+                        });
+                    }
+                }
+            });
+        }
+        
+        // パーティクル更新
+        this.meltParticles.forEach(p => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.1; // 重力
+            p.life--;
+            p.size *= 0.95;
+        });
+        this.meltParticles = this.meltParticles.filter(p => p.life > 0);
+    }
+    
+    distToBeam(px, py) {
+        if (!this.target) return Infinity;
+        const x1 = this.option.x, y1 = this.option.y;
+        const x2 = this.target.x, y2 = this.target.y;
+        return distToSegment(px, py, x1, y1, x2, y2);
+    }
+    
+    draw() {
+        if (!this.target) return;
+        
+        const sx1 = this.option.x - camera.x;
+        const sy1 = this.option.y - camera.y;
+        const sx2 = this.target.x - camera.x;
+        const sy2 = this.target.y - camera.y;
+        const alpha = Math.min(1, this.life / 20);
+        
+        ctx.save();
+        ctx.lineCap = 'round';
+        
+        // 外側のグロー
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = this.width * 3;
+        ctx.globalAlpha = alpha * 0.2;
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = this.color;
+        ctx.beginPath();
+        ctx.moveTo(sx1, sy1);
+        ctx.lineTo(sx2, sy2);
+        ctx.stroke();
+        
+        // メインビーム
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = this.width;
+        ctx.globalAlpha = alpha * 0.8;
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.moveTo(sx1, sy1);
+        ctx.lineTo(sx2, sy2);
+        ctx.stroke();
+        
+        // コアライン（白）
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = this.width * 0.4;
+        ctx.globalAlpha = alpha;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#fff';
+        ctx.beginPath();
+        ctx.moveTo(sx1, sy1);
+        ctx.lineTo(sx2, sy2);
+        ctx.stroke();
+        
+        // ビームの揺らぎエフェクト
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = alpha * 0.5;
+        for (let i = 0; i < 3; i++) {
+            const offset = (Math.random() - 0.5) * this.width * 2;
+            const perpAngle = Math.atan2(sy2 - sy1, sx2 - sx1) + Math.PI / 2;
+            ctx.beginPath();
+            ctx.moveTo(sx1 + Math.cos(perpAngle) * offset, sy1 + Math.sin(perpAngle) * offset);
+            ctx.lineTo(sx2 + Math.cos(perpAngle) * offset, sy2 + Math.sin(perpAngle) * offset);
+            ctx.stroke();
+        }
+        
+        ctx.restore();
+        
+        // 溶解パーティクル描画
+        this.meltParticles.forEach(p => {
+            const px = p.x - camera.x;
+            const py = p.y - camera.y;
+            const pAlpha = p.life / 40;
+            
+            ctx.save();
+            ctx.globalAlpha = pAlpha;
+            ctx.fillStyle = p.color;
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = p.color;
+            
+            // 溶けた滴の形
+            ctx.beginPath();
+            ctx.ellipse(px, py, p.size * 0.7, p.size, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        });
+        
+        // ターゲット上の溶解エフェクト
+        if (this.target && this.width > 2) {
+            const tx = this.target.x - camera.x;
+            const ty = this.target.y - camera.y;
+            
+            ctx.save();
+            ctx.globalAlpha = alpha * 0.6;
+            
+            // 溶解リング
+            const gradient = ctx.createRadialGradient(tx, ty, 0, tx, ty, this.target.size + 10);
+            gradient.addColorStop(0, this.color);
+            gradient.addColorStop(0.5, 'rgba(255,255,255,0.5)');
+            gradient.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(tx, ty, this.target.size + 10 + Math.sin(frame * 0.3) * 3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.restore();
+        }
+    }
+}
+
+// ========== 描画 ==========
+function draw() {
+    ctx.fillStyle = '#000810'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // グリッド
+    ctx.strokeStyle = 'rgba(0,50,80,0.3)'; ctx.lineWidth = 1;
+    const gridSize = 100, startX = -camera.x % gridSize, startY = -camera.y % gridSize;
+    for (let x = startX; x < canvas.width; x += gridSize) { ctx.beginPath(); ctx.moveTo(x + screenShake.x, 0); ctx.lineTo(x + screenShake.x, canvas.height); ctx.stroke(); }
+    for (let y = startY; y < canvas.height; y += gridSize) { ctx.beginPath(); ctx.moveTo(0, y + screenShake.y); ctx.lineTo(canvas.width, y + screenShake.y); ctx.stroke(); }
+    
+    // 壁
+    walls.forEach(w => {
+        if (w.type === 'cell') {
+            const sx = w.cx - camera.x + screenShake.x, sy = w.cy - camera.y + screenShake.y;
+            ctx.fillStyle = 'rgba(180,30,30,0.6)'; ctx.strokeStyle = 'rgba(255,50,50,0.8)'; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.ellipse(sx, sy, w.radius, w.radius * 0.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            ctx.fillStyle = 'rgba(100,10,10,0.5)'; ctx.beginPath(); ctx.ellipse(sx, sy, w.radius * 0.4, w.radius * 0.25, 0, 0, Math.PI * 2); ctx.fill();
+        }
+    });
+    
+    // アイテム
+    if (gameState && gameState.items) {
+        gameState.items.forEach(item => {
+            const sx = item.x - camera.x + screenShake.x, sy = item.y - camera.y + screenShake.y;
+            const pulse = Math.sin(frame * 0.1) * 0.3 + 1;
+            ctx.fillStyle = item.color; ctx.shadowBlur = 15; ctx.shadowColor = item.color;
+            ctx.beginPath(); ctx.arc(sx, sy, 8 * pulse, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(sx, sy, 4 * pulse, 0, Math.PI * 2); ctx.fill();
+            ctx.shadowBlur = 0;
+        });
+    }
+    
+    // 敵（補間された位置を使用）
+    if (gameState) {
+        gameState.enemies.forEach(e => {
+            if (e.hp <= 0) return;
+            // 補間された位置を取得
+            const re = remoteEnemies.get(e.id);
+            const ex = re ? re.x : e.x;
+            const ey = re ? re.y : e.y;
+            const sx = ex - camera.x + screenShake.x, sy = ey - camera.y + screenShake.y;
+            ctx.fillStyle = e.color; ctx.shadowBlur = e.isBoss ? 30 : 15; ctx.shadowColor = e.color;
+            ctx.beginPath(); ctx.arc(sx, sy, e.size, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(sx, sy, e.size * 0.4, 0, Math.PI * 2); ctx.fill();
+            ctx.shadowBlur = 0;
+            
+            // HPゲージと数字（全ての敵に表示）
+            const barWidth = Math.max(30, e.size * 1.5);
+            const hpRatio = e.hp / e.maxHp;
+            ctx.fillStyle = '#300'; 
+            ctx.fillRect(sx - barWidth/2, sy - e.size - 12, barWidth, 5);
+            ctx.fillStyle = hpRatio > 0.5 ? '#0f0' : hpRatio > 0.25 ? '#ff0' : '#f00';
+            ctx.fillRect(sx - barWidth/2, sy - e.size - 12, barWidth * hpRatio, 5);
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 0.5;
+            ctx.strokeRect(sx - barWidth/2, sy - e.size - 12, barWidth, 5);
+            
+            // HP数字
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 9px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText(`${e.hp}/${e.maxHp}`, sx, sy - e.size - 16);
+        });
+    }
+    
+    // 敵弾
+    if (gameState && gameState.enemyBullets) {
+        gameState.enemyBullets.forEach(b => {
+            const sx = b.x - camera.x + screenShake.x, sy = b.y - camera.y + screenShake.y;
+            ctx.fillStyle = b.color || '#f80'; ctx.shadowBlur = 10; ctx.shadowColor = b.color || '#f80';
+            ctx.beginPath(); ctx.arc(sx, sy, b.size || 5, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+        });
+    }
+    
+    // ダッシュエフェクト（流れ星の尾）
+    drawDashEffects();
+    
+    // プレイヤー（補間された位置を使用）
+    // 自分自身を描画
+    if (myPlayer) {
+        const sx = myPlayer.x - camera.x + screenShake.x, sy = myPlayer.y - camera.y + screenShake.y;
+        const playerColor = myPlayer.color || '#fff', glowColor = myPlayer.glowColor || '#0ff';
+        
+        // 死亡時のリスポーン表示
+        if (!myPlayer.alive) {
+            const respawnTime = Math.ceil((180 - (myPlayer.respawnTimer || 0)) / 60);
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.fillRect(sx - 60, sy - 40, 120, 80);
+            ctx.strokeStyle = '#f00';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(sx - 60, sy - 40, 120, 80);
+            ctx.fillStyle = '#f00';
+            ctx.font = 'bold 16px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('YOU DIED', sx, sy - 15);
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 24px Courier New';
+            ctx.fillText(respawnTime, sx, sy + 15);
+            ctx.font = 'bold 10px Courier New';
+            ctx.fillText('RESPAWN IN', sx, sy + 30);
+        } else {
+            // ダッシュ中の追加エフェクト
+            if (myPlayer.dashing) {
+                ctx.save();
+                ctx.translate(sx, sy);
+                ctx.rotate(myPlayer.angle);
+                
+                // 流星の尾（後方に伸びるグラデーション）
+                const tailGradient = ctx.createLinearGradient(0, 0, -120, 0);
+                tailGradient.addColorStop(0, 'rgba(255,255,255,0.9)');
+                tailGradient.addColorStop(0.2, glowColor);
+                tailGradient.addColorStop(1, 'rgba(0,0,0,0)');
+                
+                ctx.fillStyle = tailGradient;
+                ctx.beginPath();
+                ctx.moveTo(0, -8);
+                ctx.lineTo(-120, -2);
+                ctx.lineTo(-120, 2);
+                ctx.lineTo(0, 8);
+                ctx.closePath();
+                ctx.fill();
+                
+                // 内側のコアテール
+                const coreGradient = ctx.createLinearGradient(0, 0, -80, 0);
+                coreGradient.addColorStop(0, 'rgba(255,255,255,1)');
+                coreGradient.addColorStop(1, 'rgba(255,255,255,0)');
+                ctx.fillStyle = coreGradient;
+                ctx.beginPath();
+                ctx.moveTo(0, -4);
+                ctx.lineTo(-80, 0);
+                ctx.lineTo(0, 4);
+                ctx.closePath();
+                ctx.fill();
+                
+                // バーストライン（後方に広がる光）
+                for (let i = 0; i < 16; i++) {
+                    const lineAngle = Math.PI + (i - 7.5) * 0.12;
+                    const length = 40 + Math.random() * 60;
+                    ctx.strokeStyle = `rgba(255,255,255,${0.3 + Math.random() * 0.4})`;
+                    ctx.lineWidth = 1 + Math.random() * 2;
+                    ctx.beginPath();
+                    ctx.moveTo(-5, 0);
+                    ctx.lineTo(Math.cos(lineAngle) * length, Math.sin(lineAngle) * length);
+                    ctx.stroke();
+                }
+                
+                // 進行方向の矢印型ブースト
+                ctx.fillStyle = '#fff';
+                ctx.shadowBlur = 25;
+                ctx.shadowColor = '#fff';
+                ctx.beginPath();
+                ctx.moveTo(25, 0);
+                ctx.lineTo(15, -6);
+                ctx.lineTo(18, 0);
+                ctx.lineTo(15, 6);
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.restore();
+                
+                // プレイヤー周りの多重オーラ
+                for (let ring = 0; ring < 3; ring++) {
+                    ctx.save();
+                    ctx.globalAlpha = (0.4 - ring * 0.1) * (0.8 + Math.sin(frame * 0.5 + ring) * 0.2);
+                    ctx.strokeStyle = ring === 0 ? '#fff' : glowColor;
+                    ctx.lineWidth = 3 - ring;
+                    ctx.shadowBlur = 20 - ring * 5;
+                    ctx.shadowColor = glowColor;
+                    ctx.beginPath();
+                    const radius = 16 + ring * 8 + Math.sin(frame * 0.4 + ring * 2) * 3;
+                    ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+            
+            if (myPlayer.weaponLevels && myPlayer.weaponLevels.THUNDER > 0) {
+                const gaugeWidth = 40, gaugeHeight = 6, gaugeX = sx - gaugeWidth / 2, gaugeY = sy + 23;
+                const fillRatio = (myPlayer.thunderEnergy || 0) / 180;
+                ctx.fillStyle = '#220'; ctx.fillRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+                const gradient = ctx.createLinearGradient(gaugeX, gaugeY, gaugeX + gaugeWidth * fillRatio, gaugeY);
+                gradient.addColorStop(0, '#880'); gradient.addColorStop(1, '#ff0');
+                ctx.fillStyle = gradient; ctx.fillRect(gaugeX, gaugeY, gaugeWidth * fillRatio, gaugeHeight);
+                ctx.strokeStyle = fillRatio >= 1 ? '#ff0' : '#880'; ctx.lineWidth = 1; ctx.strokeRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+            }
+            
+            if ((myPlayer.invincible || 0) % 4 < 2) {
+                ctx.save(); ctx.translate(sx, sy);
+                ctx.shadowBlur = myPlayer.dashing ? 50 : 15; 
+                ctx.shadowColor = myPlayer.dashing ? '#fff' : glowColor;
+                ctx.fillStyle = myPlayer.dashing ? '#fff' : playerColor;
+                ctx.beginPath();
+                const baseSize = myPlayer.dashing ? 10 : 8;
+                for (let i = 0; i < 8; i++) { 
+                    const a = (Math.PI * 2 / 8) * i + frame * 0.03;
+                    const r = baseSize + Math.sin(a * 3 + frame * 0.1) * 2; 
+                    if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); 
+                    else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); 
+                }
+                ctx.closePath(); ctx.fill();
+                ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(0, 0, 3.2, 0, Math.PI * 2); ctx.fill();
+                ctx.rotate(myPlayer.angle); ctx.fillStyle = glowColor;
+                ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(8, -3); ctx.lineTo(8, 3); ctx.fill();
+                ctx.restore();
+            }
+            
+            ctx.fillStyle = playerColor; ctx.font = 'bold 10px Courier New'; ctx.textAlign = 'center';
+            ctx.shadowBlur = 5; ctx.shadowColor = glowColor; ctx.fillText(myPlayer.name || 'Player', sx, sy - 20); ctx.shadowBlur = 0;
+        }
+    }
+    
+    // 他プレイヤーを描画（補間された位置を使用）
+    remotePlayers.forEach((rp, id) => {
+        const p = rp.data;
+        if (!p) return;
+        
+        const sx = rp.x - camera.x + screenShake.x, sy = rp.y - camera.y + screenShake.y;
+        
+        if (!p.alive) {
+            const respawnTime = Math.ceil((180 - (p.respawnTimer || 0)) / 60);
+            ctx.fillStyle = p.color || '#888'; ctx.globalAlpha = 0.5;
+            ctx.font = 'bold 14px Courier New'; ctx.textAlign = 'center';
+            ctx.fillText(p.name, sx, sy - 10); 
+            ctx.fillText(`RESPAWN: ${respawnTime}`, sx, sy + 10);
+            ctx.globalAlpha = 1; return;
+        }
+        
+        const playerColor = p.color || '#fff', glowColor = p.glowColor || '#0ff';
+        
+        // ダッシュ中のエフェクト
+        if (p.dashing) {
+            // 流れ星の尾
+            ctx.save();
+            ctx.lineCap = 'round';
+            for (let i = 1; i <= 8; i++) {
+                const trailX = sx - Math.cos(rp.angle) * i * 15;
+                const trailY = sy - Math.sin(rp.angle) * i * 15;
+                ctx.globalAlpha = (0.4 - i * 0.04);
+                ctx.fillStyle = i < 3 ? '#fff' : glowColor;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = glowColor;
+                ctx.beginPath();
+                ctx.arc(trailX, trailY, 8 - i * 0.8, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // 尾のライン
+            ctx.strokeStyle = glowColor;
+            ctx.lineWidth = 6;
+            ctx.globalAlpha = 0.3;
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(sx - Math.cos(rp.angle) * 100, sy - Math.sin(rp.angle) * 100);
+            ctx.stroke();
+            
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 0.5;
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(sx - Math.cos(rp.angle) * 60, sy - Math.sin(rp.angle) * 60);
+            ctx.stroke();
+            
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            
+            // オーラ
+            ctx.save();
+            ctx.strokeStyle = glowColor;
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = glowColor;
+            ctx.globalAlpha = 0.5;
+            ctx.beginPath();
+            ctx.arc(sx, sy, 16, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+        
+        if ((p.invincible || 0) % 4 < 2) {
+            ctx.save(); ctx.translate(sx, sy);
+            ctx.shadowBlur = p.dashing ? 40 : 15; 
+            ctx.shadowColor = p.dashing ? '#fff' : glowColor;
+            ctx.fillStyle = p.dashing ? '#fff' : playerColor;
+            ctx.beginPath();
+            const baseSize = p.dashing ? 10 : 8;
+            for (let i = 0; i < 8; i++) { 
+                const a = (Math.PI * 2 / 8) * i + frame * 0.03;
+                const r = baseSize + Math.sin(a * 3 + frame * 0.1) * 2; 
+                if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); 
+                else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); 
+            }
+            ctx.closePath(); ctx.fill();
+            ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(0, 0, 3.2, 0, Math.PI * 2); ctx.fill();
+            ctx.rotate(rp.angle); ctx.fillStyle = glowColor;
+            ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(8, -3); ctx.lineTo(8, 3); ctx.fill();
+            ctx.restore();
+        }
+        
+        ctx.fillStyle = playerColor; ctx.font = 'bold 10px Courier New'; ctx.textAlign = 'center';
+        ctx.shadowBlur = 5; ctx.shadowColor = glowColor; ctx.fillText(p.name, sx, sy - 20); ctx.shadowBlur = 0;
+        
+        // HP
+        const hpRatio = p.hp / (p.maxHp || 100);
+        ctx.fillStyle = '#300'; ctx.fillRect(sx - 15, sy - 30, 30, 3);
+        ctx.fillStyle = hpRatio > 0.5 ? '#0f0' : hpRatio > 0.25 ? '#ff0' : '#f00';
+        ctx.fillRect(sx - 15, sy - 30, 30 * hpRatio, 3);
+        
+        // 他プレイヤーのオプション描画
+        if (p.options && p.options.length > 0) {
+            const optCount = p.options.length;
+            for (let i = 0; i < optCount; i++) {
+                const optAngle = (Math.PI * 2 / optCount) * i + frame * 0.03;
+                const optX = sx + Math.cos(optAngle) * 50;
+                const optY = sy + Math.sin(optAngle) * 50;
+                ctx.save();
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = glowColor;
+                ctx.strokeStyle = glowColor;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(optX, optY, 8, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(optX, optY, 4, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+    });
+    
+    // オプション（ビット）を描画
+    drawOptions();
+    
+    localBullets.forEach(b => { if (!b.dead) b.draw(); });
+    localMissiles.forEach(m => { if (!m.dead) m.draw(); });
+    if (activeLaser) activeLaser.draw();
+    // オプションビーム描画
+    optionBeams.forEach(b => { if (!b.dead) b.draw(); });
+    
+    particles.forEach(p => {
+        const sx = p.x - camera.x + screenShake.x, sy = p.y - camera.y + screenShake.y;
+        ctx.fillStyle = p.color; ctx.globalAlpha = p.life / 30;
+        ctx.beginPath(); ctx.arc(sx, sy, p.size, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+    });
+    
+    // ダメージテキスト描画
+    damageTexts.forEach(dt => {
+        const sx = dt.x - camera.x + screenShake.x, sy = dt.y - camera.y + screenShake.y;
+        ctx.globalAlpha = dt.alpha;
+        ctx.font = 'bold 14px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#000';
+        ctx.fillText(dt.damage, sx + 1, sy + 1);
+        ctx.fillStyle = dt.color;
+        ctx.fillText(dt.damage, sx, sy);
+        ctx.globalAlpha = 1;
+    });
+    
+    drawMinimap();
+}
+
+function drawMinimap() {
+    const mapW = 120, mapH = 120, mapX = canvas.width - mapW - 10, mapY = canvas.height - mapH - 10, scale = mapW / WORLD_W;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(mapX, mapY, mapW, mapH);
+    ctx.strokeStyle = '#0ff'; ctx.lineWidth = 1; ctx.strokeRect(mapX, mapY, mapW, mapH);
+    
+    ctx.fillStyle = 'rgba(255,100,100,0.5)';
+    walls.forEach(w => { if (w.type === 'cell') { ctx.beginPath(); ctx.arc(mapX + w.cx * scale, mapY + w.cy * scale, w.radius * scale, 0, Math.PI * 2); ctx.fill(); } });
+    
+    // 敵（補間された位置）
+    if (gameState) {
+        gameState.enemies.forEach(e => { 
+            if (e.hp <= 0) return; 
+            const re = remoteEnemies.get(e.id);
+            const ex = re ? re.x : e.x;
+            const ey = re ? re.y : e.y;
+            ctx.fillStyle = e.isBoss ? '#ff0' : e.color; 
+            ctx.beginPath(); ctx.arc(mapX + ex * scale, mapY + ey * scale, e.isBoss ? 4 : 2, 0, Math.PI * 2); ctx.fill(); 
+        });
+    }
+    
+    // 自分
+    if (myPlayer && myPlayer.alive) {
+        ctx.fillStyle = myPlayer.color || '#fff';
+        ctx.beginPath(); ctx.arc(mapX + myPlayer.x * scale, mapY + myPlayer.y * scale, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    
+    // 他プレイヤー（補間された位置）
+    remotePlayers.forEach(rp => {
+        if (!rp.data || !rp.data.alive) return;
+        ctx.fillStyle = rp.data.color || '#fff';
+        ctx.beginPath(); ctx.arc(mapX + rp.x * scale, mapY + rp.y * scale, 3, 0, Math.PI * 2); ctx.fill();
+    });
+}
+
+// ========== ゲームループ ==========
+let weaponTimer = 0;
+function gameLoop() {
+    frame++;
+    // aliveのデフォルト値を確保
+    if (myPlayer && myPlayer.alive === undefined) myPlayer.alive = true;
+    
+    if (myPlayer && myPlayer.alive) updateInput();
+    updateCamera();
+    updateInterpolation(); // 補間更新
+    updateOptions(); // オプション更新
+    updateDashTrail(); // ダッシュトレイル更新
+    weaponTimer++;
+    if (weaponTimer >= 15 && myPlayer && myPlayer.alive) { fireWeapons(); weaponTimer = 0; }
+    localBullets.forEach(b => { if (!b.dead) b.update(); });
+    localBullets = localBullets.filter(b => !b.dead);
+    localMissiles.forEach(m => { if (!m.dead) m.update(); });
+    localMissiles = localMissiles.filter(m => !m.dead);
+    if (activeLaser) { activeLaser.update(); if (activeLaser.dead) activeLaser = null; }
+    // オプションビーム更新
+    optionBeams.forEach(b => { if (!b.dead) b.update(); });
+    optionBeams = optionBeams.filter(b => !b.dead);
+    particles.forEach(p => p.update());
+    particles = particles.filter(p => p.life > 0);
+    texts.forEach(t => t.update());
+    texts = texts.filter(t => t.life > 0);
+    updateScreenShake();
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+// ========== 開始 ==========
+init();
 </script>
 </body>
 </html>
