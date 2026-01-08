@@ -182,7 +182,7 @@ class GameRoom {
             angle: 0,
             hp: 100,
             maxHp: 100,
-            speed: 6,
+            speed: 4.5,
             invincible: 60,
             dashing: false,
             dashTimer: 0,
@@ -444,7 +444,7 @@ class GameRoom {
         // リスポーン処理
         if (!player.alive) {
             player.respawnTimer++;
-            if (player.respawnTimer >= 180) { // 3秒でリスポーン
+            if (player.respawnTimer >= 300) { // 5秒でリスポーン
                 this.respawnPlayer(player);
             }
             return;
