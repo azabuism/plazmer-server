@@ -429,8 +429,18 @@ class GameRoom {
             
             io.to(this.id).emit('bossDefeated', { wave: this.wave, score: this.score });
             
+            // 武器選択画面に遷移
             setTimeout(() => {
-                if (this.state === 'playing') this.startWave();
+                if (this.state === 'playing') {
+                    this.state = 'weaponSelect';
+                    this.playersReady = new Set();
+                    io.to(this.id).emit('weaponSelect', { 
+                        nextWave: this.wave + 1,
+                        players: Array.from(this.players.values()).map(p => ({
+                            id: p.id, name: p.name, loadoutReady: false
+                        }))
+                    });
+                }
             }, 3000);
         }
         
@@ -466,6 +476,32 @@ class GameRoom {
             player.y += vy;
             player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
             player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
+            
+            // DASH中の敵へのダメージ
+            this.enemies.forEach(e => {
+                if (e.hp <= 0) return;
+                const dist = Math.hypot(e.x - player.x, e.y - player.y);
+                if (dist < e.size + 20) {
+                    // ダッシュ攻撃ダメージ
+                    const damage = 15;
+                    e.hp -= damage;
+                    io.to(this.id).emit('enemyDamaged', { 
+                        enemyId: e.id, damage, 
+                        x: e.x, y: e.y, 
+                        weaponType: 'DASH' 
+                    });
+                    if (e.hp <= 0) {
+                        this.score += e.score || 100;
+                        io.to(this.id).emit('enemyDefeated', { 
+                            enemyId: e.id, 
+                            x: e.x, y: e.y, 
+                            isBoss: e.isBoss 
+                        });
+                        this.dropItems(e.x, e.y, e.isBoss);
+                    }
+                }
+            });
+            
             if (player.dashTimer <= 0) {
                 player.dashing = false;
                 // ダッシュ終了時に壁の中にいたら脱出
@@ -555,6 +591,16 @@ class GameRoom {
         this.enemies.forEach(enemy => {
             if (enemy.hp <= 0) return;
             enemy.timer++;
+            
+            // ANCHOR状態の処理
+            if (enemy.anchored) {
+                enemy.anchorTimer--;
+                if (enemy.anchorTimer <= 0) {
+                    enemy.anchored = false;
+                }
+                // 固定中は移動しない
+                return;
+            }
             
             if (this.checkWall(enemy.x, enemy.y)) {
                 this.escapeFromWall(enemy);
@@ -1269,6 +1315,37 @@ io.on('connection', (socket) => {
         console.log(`Game started in room ${currentRoom.id}`);
     });
     
+    // 武器選択完了
+    socket.on('loadoutReady', (data) => {
+        if (!currentRoom || currentRoom.state !== 'weaponSelect') return;
+        
+        const player = currentRoom.players.get(socket.id);
+        if (!player) return;
+        
+        player.loadout = data.loadout;
+        player.loadoutReady = true;
+        
+        // 全員に通知
+        io.to(currentRoom.id).emit('loadoutReadyUpdate', {
+            playerId: socket.id,
+            players: Array.from(currentRoom.players.values()).map(p => ({
+                id: p.id, name: p.name, loadoutReady: p.loadoutReady || false
+            }))
+        });
+        
+        // 全員準備完了チェック
+        const allReady = Array.from(currentRoom.players.values()).every(p => p.loadoutReady);
+        if (allReady) {
+            // 全員準備完了 → 次のWAVE開始
+            setTimeout(() => {
+                currentRoom.players.forEach(p => p.loadoutReady = false);
+                currentRoom.state = 'playing';
+                currentRoom.startWave();
+                io.to(currentRoom.id).emit('waveStarting');
+            }, 1000);
+        }
+    });
+    
     // ホストがキャンセル
     socket.on('cancelHost', () => {
         if (currentRoom) {
@@ -1307,6 +1384,39 @@ io.on('connection', (socket) => {
             const idx = currentRoom.enemyBullets.findIndex(b => b.id === data.bulletId);
             if (idx !== -1) {
                 currentRoom.enemyBullets.splice(idx, 1);
+            }
+        }
+    });
+    
+    // ANCHOR - 敵を固定
+    socket.on('anchorEnemy', (data) => {
+        if (currentRoom) {
+            const enemy = currentRoom.enemies.find(e => e.id === data.enemyId);
+            if (enemy) {
+                enemy.anchored = true;
+                enemy.anchorTimer = 180; // 3秒固定
+                io.to(currentRoom.id).emit('enemyAnchored', { enemyId: data.enemyId });
+            }
+        }
+    });
+    
+    // REFLECT - 敵弾反射
+    socket.on('reflectBullet', (data) => {
+        if (currentRoom) {
+            const bullet = currentRoom.enemyBullets.find(b => b.id === data.bulletId);
+            if (bullet) {
+                // 弾を反射（プレイヤー弾として敵に向かう）
+                const speed = Math.hypot(bullet.vx, bullet.vy) * 1.5;
+                bullet.vx = Math.cos(data.newAngle) * speed;
+                bullet.vy = Math.sin(data.newAngle) * speed;
+                bullet.reflected = true;
+                bullet.color = '#0af';
+                
+                // 反射弾で敵にダメージ（敵弾リストから削除してダメージを与える）
+                io.to(currentRoom.id).emit('bulletReflected', { 
+                    bulletId: data.bulletId,
+                    angle: data.newAngle
+                });
             }
         }
     });
