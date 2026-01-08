@@ -319,9 +319,55 @@ const MUSIC_TRACKS = [
     'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/PulsefireDrift.mp3',
     'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/QuantumCrossfire.mp3'
 ];
-let bgMusic = null;
+let bgmA = null;
+let bgmB = null;
 let currentMusicIndex = -1;
 let musicVolume = 0.4;
+let musicInitialized = false;
+
+// 敵弾補間用
+let remoteEnemyBullets = new Map();
+
+// 宇宙背景
+let stars = [];
+let nebulaClouds = [];
+let currentWaveTheme = 0;
+let damageFlash = 0; // ダメージ時の赤フラッシュ
+let overloadReady = false; // OVERLOAD発動可能
+let overloadAlertPulse = 0; // アラートの点滅
+const WAVE_THEMES = [
+    { bg1: '#000810', bg2: '#001020', nebula: '#0066ff', stars: '#fff' },
+    { bg1: '#100008', bg2: '#200010', nebula: '#ff0066', stars: '#ffa' },
+    { bg1: '#080010', bg2: '#100020', nebula: '#aa00ff', stars: '#aaf' },
+    { bg1: '#001008', bg2: '#002010', nebula: '#00ff66', stars: '#afa' },
+    { bg1: '#100800', bg2: '#201000', nebula: '#ff6600', stars: '#ffa' },
+    { bg1: '#000808', bg2: '#001818', nebula: '#00ffff', stars: '#aff' }
+];
+
+function initBackground() {
+    // 星を生成
+    stars = [];
+    for (let i = 0; i < 300; i++) {
+        stars.push({
+            x: Math.random() * WORLD_W * 1.5,
+            y: Math.random() * WORLD_H * 1.5,
+            size: 0.5 + Math.random() * 2,
+            brightness: 0.3 + Math.random() * 0.7,
+            twinkle: Math.random() * Math.PI * 2,
+            speed: 0.5 + Math.random() * 1.5
+        });
+    }
+    // 星雲を生成
+    nebulaClouds = [];
+    for (let i = 0; i < 8; i++) {
+        nebulaClouds.push({
+            x: Math.random() * WORLD_W,
+            y: Math.random() * WORLD_H,
+            radius: 150 + Math.random() * 300,
+            intensity: 0.05 + Math.random() * 0.1
+        });
+    }
+}
 
 // 入力
 let input = { x: 0, y: 0, angle: 0, moving: false, dash: false, hasMoved: false };
@@ -1030,40 +1076,68 @@ function showMessage(text) {
 
 function playSound(type) { /* サウンド未実装 */ }
 
-// BGM再生関数
+// BGMクロスフェード再生
+function crossFade(from, to, duration) {
+    const start = performance.now();
+    function step(now) {
+        const t = Math.min((now - start) / duration, 1);
+        if (from) from.volume = musicVolume * (1 - t);
+        to.volume = musicVolume * t;
+        if (t < 1) {
+            requestAnimationFrame(step);
+        } else {
+            if (from) from.pause();
+            bgmA = to;
+            bgmB = null;
+        }
+    }
+    requestAnimationFrame(step);
+}
+
+function fadeIn(bgm, duration) {
+    const start = performance.now();
+    function step(now) {
+        const t = Math.min((now - start) / duration, 1);
+        bgm.volume = musicVolume * t;
+        if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+}
+
+function playBGM(url, fadeTime = 1500) {
+    const newBGM = new Audio(url);
+    newBGM.loop = true;
+    newBGM.volume = 0;
+    newBGM.play().catch(() => console.log('Autoplay blocked'));
+    
+    if (!bgmA) {
+        bgmA = newBGM;
+        fadeIn(bgmA, fadeTime);
+        return;
+    }
+    bgmB = newBGM;
+    crossFade(bgmA, bgmB, fadeTime);
+}
+
 function playRandomMusic() {
-    // 新しいランダムトラックを選択（前回と違うものを選ぶ）
     let newIndex;
     do {
         newIndex = Math.floor(Math.random() * MUSIC_TRACKS.length);
     } while (newIndex === currentMusicIndex && MUSIC_TRACKS.length > 1);
     currentMusicIndex = newIndex;
-    
-    // 既存の音楽を停止
-    if (bgMusic) {
-        bgMusic.pause();
-        bgMusic = null;
-    }
-    
-    // 新しい音楽を再生
-    bgMusic = new Audio(MUSIC_TRACKS[currentMusicIndex]);
-    bgMusic.volume = musicVolume;
-    bgMusic.loop = true;
-    bgMusic.play().catch(e => console.log('Music autoplay blocked:', e));
-    
+    playBGM(MUSIC_TRACKS[currentMusicIndex], 1500);
     console.log('Playing:', MUSIC_TRACKS[currentMusicIndex].split('/').pop());
 }
 
 function stopMusic() {
-    if (bgMusic) {
-        bgMusic.pause();
-        bgMusic = null;
-    }
+    if (bgmA) { bgmA.pause(); bgmA = null; }
+    if (bgmB) { bgmB.pause(); bgmB = null; }
 }
 
 function setMusicVolume(vol) {
     musicVolume = Math.max(0, Math.min(1, vol));
-    if (bgMusic) bgMusic.volume = musicVolume;
+    if (bgmA) bgmA.volume = musicVolume;
+    if (bgmB) bgmB.volume = musicVolume;
 }
 
 function initMobileControls() {
@@ -1133,6 +1207,7 @@ function init() {
     
     initMobileControls();
     connectToServer();
+    initBackground(); // 宇宙背景を初期化
     requestAnimationFrame(gameLoop);
 }
 
@@ -1186,8 +1261,11 @@ function connectToServer() {
         }
         updateWeaponUI();
         showMessage('◆ GAME START ◆');
-        // ゲーム開始時に音楽を再生
-        playRandomMusic();
+        // ゲスト側も音楽開始（まだ開始していなければ）
+        if (!musicInitialized) {
+            musicInitialized = true;
+            playRandomMusic();
+        }
     });
     
     socket.on('gameStart', () => { showMessage('◆ GET READY ◆'); });
@@ -1251,16 +1329,33 @@ function connectToServer() {
     socket.on('waveStart', (data) => { 
         walls = data.walls; 
         showMessage(`◆ WAVE ${data.wave} ◆`); 
-        // WAVEごとにランダムな音楽を再生
-        playRandomMusic();
+        // WAVEごとに背景テーマを変更
+        currentWaveTheme = (data.wave - 1) % WAVE_THEMES.length;
+        // WAVEごとにランダムな音楽を再生（クロスフェード、音楽初期化済みの場合のみ）
+        if (musicInitialized && bgmA) {
+            playRandomMusic();
+        }
     });
     socket.on('bossSpawn', (data) => { showMessage(`◆ ${data.boss.name} APPEARED ◆`); triggerScreenShake(5); });
     socket.on('bossDefeated', () => { showMessage('◆ PATHOGEN ELIMINATED ◆'); triggerScreenShake(8); });
     socket.on('enemyDefeated', (data) => { playSound(data.isBoss ? 'bossDefeat' : 'enemyDefeat'); });
     
     socket.on('playerDamaged', (data) => {
-        if (myPlayer) { myPlayer.hp = data.hp; ui.hp.style.width = Math.max(0, (myPlayer.hp / (myPlayer.maxHp || 100)) * 100) + '%'; }
-        triggerScreenShake(3);
+        if (myPlayer) { 
+            myPlayer.hp = data.hp; 
+            ui.hp.style.width = Math.max(0, (myPlayer.hp / (myPlayer.maxHp || 100)) * 100) + '%'; 
+            
+            // ダメージフラッシュ
+            damageFlash = 15;
+            
+            // OVERLOAD発動可能チェック（HP50%以下）
+            const hpRatio = myPlayer.hp / (myPlayer.maxHp || 100);
+            if (hpRatio <= 0.5 && !overloadReady) {
+                overloadReady = true;
+                showMessage('⚠ OVERLOAD READY! ⚠');
+            }
+        }
+        triggerScreenShake(5);
     });
     
     socket.on('playerDied', (data) => {
@@ -1449,12 +1544,23 @@ function showMainMenu() {
 }
 function cancelHost() { socket.emit('cancelHost'); location.reload(); }
 function leaveRoom() { location.reload(); }
-function startHostedGame() { socket.emit('startGame'); }
+function startHostedGame() { 
+    socket.emit('startGame');
+    // ユーザー操作時に音楽を初期化（ブラウザのAutoplay Policy対策）
+    if (!musicInitialized) {
+        musicInitialized = true;
+        playRandomMusic();
+    }
+}
 function sendReady() {
     socket.emit('playerReady');
     document.getElementById('ready-btn').textContent = 'READY!';
     document.getElementById('ready-btn').classList.add('ready-sent');
     document.getElementById('waiting-for-host').style.display = 'block';
+    // ゲスト側も音楽初期化（ボタン押下時）
+    if (!musicInitialized) {
+        musicInitialized = true;
+    }
 }
 function updateLobbyPlayers(players, containerId) {
     const container = document.getElementById(containerId);
@@ -1495,7 +1601,7 @@ function updateInput() {
         myPlayer.x = Math.max(60, Math.min(WORLD_W - 60, myPlayer.x));
         myPlayer.y = Math.max(60, Math.min(WORLD_H - 60, myPlayer.y));
     } else if (moving) {
-        const speed = myPlayer.speed || 6;
+        const speed = myPlayer.speed || 4.5;
         const vx = Math.cos(angle) * speed; const vy = Math.sin(angle) * speed;
         if (!checkWall(myPlayer.x + vx, myPlayer.y, walls)) myPlayer.x += vx;
         if (!checkWall(myPlayer.x, myPlayer.y + vy, walls)) myPlayer.y += vy;
@@ -2227,10 +2333,63 @@ class OptionBeam {
 
 // ========== 描画 ==========
 function draw() {
-    ctx.fillStyle = '#000810'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const theme = WAVE_THEMES[currentWaveTheme % WAVE_THEMES.length];
     
-    // グリッド
-    ctx.strokeStyle = 'rgba(0,50,80,0.3)'; ctx.lineWidth = 1;
+    // 宇宙背景グラデーション
+    const bgGrad = ctx.createRadialGradient(
+        canvas.width / 2, canvas.height / 2, 0,
+        canvas.width / 2, canvas.height / 2, canvas.width
+    );
+    bgGrad.addColorStop(0, theme.bg2);
+    bgGrad.addColorStop(1, theme.bg1);
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // 星雲（ネビュラ）
+    nebulaClouds.forEach(cloud => {
+        const sx = cloud.x - camera.x * 0.3 + screenShake.x;
+        const sy = cloud.y - camera.y * 0.3 + screenShake.y;
+        const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, cloud.radius);
+        grad.addColorStop(0, theme.nebula + '30');
+        grad.addColorStop(0.5, theme.nebula + '15');
+        grad.addColorStop(1, 'transparent');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(sx, sy, cloud.radius, 0, Math.PI * 2);
+        ctx.fill();
+    });
+    
+    // 星（パララックス効果）
+    stars.forEach(star => {
+        const parallax = 0.2 + star.size * 0.1;
+        const sx = (star.x - camera.x * parallax + WORLD_W) % (WORLD_W * 1.5) - WORLD_W * 0.25 + screenShake.x;
+        const sy = (star.y - camera.y * parallax + WORLD_H) % (WORLD_H * 1.5) - WORLD_H * 0.25 + screenShake.y;
+        
+        if (sx < -10 || sx > canvas.width + 10 || sy < -10 || sy > canvas.height + 10) return;
+        
+        const twinkle = Math.sin(frame * 0.05 * star.speed + star.twinkle) * 0.3 + 0.7;
+        ctx.globalAlpha = star.brightness * twinkle;
+        ctx.fillStyle = theme.stars;
+        ctx.beginPath();
+        ctx.arc(sx, sy, star.size, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 大きい星は十字の光芒
+        if (star.size > 1.5) {
+            ctx.strokeStyle = theme.stars;
+            ctx.lineWidth = 0.5;
+            ctx.globalAlpha = star.brightness * twinkle * 0.5;
+            const len = star.size * 3;
+            ctx.beginPath();
+            ctx.moveTo(sx - len, sy); ctx.lineTo(sx + len, sy);
+            ctx.moveTo(sx, sy - len); ctx.lineTo(sx, sy + len);
+            ctx.stroke();
+        }
+    });
+    ctx.globalAlpha = 1;
+    
+    // グリッド（薄く）
+    ctx.strokeStyle = 'rgba(0,100,150,0.15)'; ctx.lineWidth = 1;
     const gridSize = 100, startX = -camera.x % gridSize, startY = -camera.y % gridSize;
     for (let x = startX; x < canvas.width; x += gridSize) { ctx.beginPath(); ctx.moveTo(x + screenShake.x, 0); ctx.lineTo(x + screenShake.x, canvas.height); ctx.stroke(); }
     for (let y = startY; y < canvas.height; y += gridSize) { ctx.beginPath(); ctx.moveTo(0, y + screenShake.y); ctx.lineTo(canvas.width, y + screenShake.y); ctx.stroke(); }
@@ -2290,14 +2449,42 @@ function draw() {
         });
     }
     
-    // 敵弾
-    if (gameState && gameState.enemyBullets) {
-        gameState.enemyBullets.forEach(b => {
-            const sx = b.x - camera.x + screenShake.x, sy = b.y - camera.y + screenShake.y;
-            ctx.fillStyle = b.color || '#f80'; ctx.shadowBlur = 10; ctx.shadowColor = b.color || '#f80';
-            ctx.beginPath(); ctx.arc(sx, sy, b.size || 5, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
-        });
-    }
+    // 敵弾（補間描画）
+    const enemyBullets = (gameState && Array.isArray(gameState.enemyBullets)) ? gameState.enemyBullets : [];
+    // 補間データを更新
+    enemyBullets.forEach(b => {
+        const existing = remoteEnemyBullets.get(b.id);
+        if (existing) {
+            existing.tx = b.x;
+            existing.ty = b.y;
+            existing.size = b.size;
+            existing.color = b.color;
+        } else {
+            remoteEnemyBullets.set(b.id, {
+                x: b.x, y: b.y, tx: b.x, ty: b.y,
+                size: b.size || 5, color: b.color || '#f80'
+            });
+        }
+    });
+    // 消えた弾を削除
+    const bulletIds = new Set(enemyBullets.map(b => b.id));
+    remoteEnemyBullets.forEach((_, id) => {
+        if (!bulletIds.has(id)) remoteEnemyBullets.delete(id);
+    });
+    // 補間して描画
+    remoteEnemyBullets.forEach(b => {
+        b.x += (b.tx - b.x) * 0.4;
+        b.y += (b.ty - b.y) * 0.4;
+        const sx = b.x - camera.x + screenShake.x;
+        const sy = b.y - camera.y + screenShake.y;
+        ctx.fillStyle = b.color; 
+        ctx.shadowBlur = 12; 
+        ctx.shadowColor = b.color;
+        ctx.beginPath(); 
+        ctx.arc(sx, sy, b.size, 0, Math.PI * 2); 
+        ctx.fill(); 
+        ctx.shadowBlur = 0;
+    });
     
     // ダッシュエフェクト（流れ星の尾）
     drawDashEffects();
@@ -2310,7 +2497,7 @@ function draw() {
         
         // 死亡時のリスポーン表示
         if (!myPlayer.alive) {
-            const respawnTime = Math.ceil((180 - (myPlayer.respawnTimer || 0)) / 60);
+            const respawnTime = Math.ceil((300 - (myPlayer.respawnTimer || 0)) / 60);
             ctx.fillStyle = 'rgba(0,0,0,0.5)';
             ctx.fillRect(sx - 60, sy - 40, 120, 80);
             ctx.strokeStyle = '#f00';
@@ -2444,7 +2631,7 @@ function draw() {
         const sx = rp.x - camera.x + screenShake.x, sy = rp.y - camera.y + screenShake.y;
         
         if (!p.alive) {
-            const respawnTime = Math.ceil((180 - (p.respawnTimer || 0)) / 60);
+            const respawnTime = Math.ceil((300 - (p.respawnTimer || 0)) / 60);
             ctx.fillStyle = p.color || '#888'; ctx.globalAlpha = 0.5;
             ctx.font = 'bold 14px Courier New'; ctx.textAlign = 'center';
             ctx.fillText(p.name, sx, sy - 10); 
@@ -2585,6 +2772,48 @@ function draw() {
         ctx.fillText(dt.damage, sx, sy);
         ctx.globalAlpha = 1;
     });
+    
+    // ダメージフラッシュ（画面が赤く点滅）
+    if (damageFlash > 0) {
+        ctx.fillStyle = `rgba(255, 0, 0, ${damageFlash / 30})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        damageFlash--;
+    }
+    
+    // OVERLOADアラート（HP50%以下で点滅）
+    if (myPlayer && myPlayer.alive) {
+        const hpRatio = myPlayer.hp / (myPlayer.maxHp || 100);
+        if (hpRatio <= 0.5) {
+            overloadReady = true;
+            overloadAlertPulse += 0.15;
+            const pulse = Math.sin(overloadAlertPulse) * 0.5 + 0.5;
+            
+            // 画面端の警告エフェクト
+            ctx.save();
+            const alertGrad = ctx.createRadialGradient(
+                canvas.width / 2, canvas.height / 2, canvas.width * 0.3,
+                canvas.width / 2, canvas.height / 2, canvas.width * 0.7
+            );
+            alertGrad.addColorStop(0, 'transparent');
+            alertGrad.addColorStop(1, `rgba(255, 0, 0, ${0.15 * pulse})`);
+            ctx.fillStyle = alertGrad;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // OVERLOAD READYテキスト
+            if (pulse > 0.7) {
+                ctx.fillStyle = `rgba(255, 50, 50, ${pulse})`;
+                ctx.font = 'bold 18px Courier New';
+                ctx.textAlign = 'center';
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = '#f00';
+                ctx.fillText('⚠ OVERLOAD READY ⚠', canvas.width / 2, 80);
+                ctx.shadowBlur = 0;
+            }
+            ctx.restore();
+        } else {
+            overloadReady = false;
+        }
+    }
     
     drawMinimap();
 }
