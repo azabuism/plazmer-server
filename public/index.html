@@ -1436,7 +1436,40 @@ function showMessage(text) {
     setTimeout(() => { ui.message.style.opacity = 0; }, 2000);
 }
 
-function playSound(type) { /* サウンド未実装 */ }
+// サウンド再生（クールダウン付き）
+const soundCooldowns = {};
+const SOUND_COOLDOWN = {
+    shoot: 3,      // 3フレーム
+    missile: 10,
+    laser: 30,
+    thunder: 20,
+    dash: 15,
+    intercept: 5,
+    anchor: 30,
+    rift: 60,
+    pierce: 30,
+    overload: 480,
+    hit: 2,
+    explosion: 5
+};
+
+function playSound(type) {
+    // クールダウンチェック
+    if (soundCooldowns[type] && soundCooldowns[type] > 0) return;
+    soundCooldowns[type] = SOUND_COOLDOWN[type] || 5;
+    
+    // 将来のオーディオ実装用
+    // const sound = new Audio(`sounds/${type}.mp3`);
+    // sound.volume = 0.3;
+    // sound.play().catch(() => {});
+}
+
+// サウンドクールダウン更新（gameLoopで呼ぶ）
+function updateSoundCooldowns() {
+    Object.keys(soundCooldowns).forEach(key => {
+        if (soundCooldowns[key] > 0) soundCooldowns[key]--;
+    });
+}
 
 // BGMクロスフェード再生
 function crossFade(from, to, duration) {
@@ -4067,6 +4100,9 @@ function draw() {
                 ctx.shadowBlur = 20;
                 ctx.shadowColor = '#f00';
                 ctx.fillText('⚠ OVERLOAD READY ⚠', canvas.width / 2, 80);
+                ctx.font = 'bold 14px Courier New';
+                ctx.fillStyle = `rgba(255, 255, 255, ${pulse})`;
+                ctx.fillText('Press [X] to Activate', canvas.width / 2, 100);
                 ctx.shadowBlur = 0;
             }
             ctx.restore();
@@ -4114,6 +4150,10 @@ function drawMinimap() {
 
 // ========== ゲームループ ==========
 let weaponTimer = 0;
+const MAX_PARTICLES = 500;
+const MAX_TEXTS = 100;
+const MAX_DAMAGE_TEXTS = 50;
+
 function gameLoop() {
     frame++;
     // aliveのデフォルト値を確保
@@ -4129,6 +4169,8 @@ function gameLoop() {
     updateOptions(); // オプション更新
     updateDashTrail(); // ダッシュトレイル更新
     updateNewWeapons(); // 新武器更新
+    updateOverloadUI(); // OVERLOAD UI更新
+    updateSoundCooldowns(); // サウンドクールダウン更新
     weaponTimer++;
     if (weaponTimer >= 15 && myPlayer && myPlayer.alive && !weaponSelectMode) { fireWeapons(); weaponTimer = 0; }
     localBullets.forEach(b => { if (!b.dead) b.update(); });
@@ -4143,9 +4185,34 @@ function gameLoop() {
     particles = particles.filter(p => p.life > 0);
     texts.forEach(t => t.update());
     texts = texts.filter(t => t.life > 0);
+    
+    // メモリリーク対策：上限を超えたら古いものから削除
+    if (particles.length > MAX_PARTICLES) particles.splice(0, particles.length - MAX_PARTICLES);
+    if (texts.length > MAX_TEXTS) texts.splice(0, texts.length - MAX_TEXTS);
+    if (damageTexts.length > MAX_DAMAGE_TEXTS) damageTexts.splice(0, damageTexts.length - MAX_DAMAGE_TEXTS);
+    if (dashParticles.length > MAX_PARTICLES) dashParticles.splice(0, dashParticles.length - MAX_PARTICLES);
+    
     updateScreenShake();
     draw();
     requestAnimationFrame(gameLoop);
+}
+
+// OVERLOAD UI更新
+function updateOverloadUI() {
+    if (!myPlayer || !myPlayer.alive) return;
+    
+    // OVERLOAD発動可能時のUI更新
+    if (overloadState.available) {
+        // 全武器スロットを点滅させる
+        const pulse = Math.sin(frame * 0.1) * 0.5 + 0.5;
+        document.querySelectorAll('.weapon-slot').forEach(el => {
+            el.style.boxShadow = `0 0 ${10 + pulse * 20}px #fff`;
+        });
+    } else {
+        document.querySelectorAll('.weapon-slot').forEach(el => {
+            el.style.boxShadow = '';
+        });
+    }
 }
 
 // ========== 開始 ==========
