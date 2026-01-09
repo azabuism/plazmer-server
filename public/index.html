@@ -2170,28 +2170,39 @@ function fireWeapons() {
         myPlayer.weaponLevels = { ...DEFAULT_WEAPON_LEVELS };
     }
     
+    // OVERLOAD中の効果
+    const overloadBonus = overloadState.active ? {
+        damageMultiplier: 2.0,  // ダメージ2倍
+        fireRateBoost: true     // 発射レート上昇（weaponTimer短縮）
+    } : {
+        damageMultiplier: 1.0,
+        fireRateBoost: false
+    };
+    
     const hits = [];
     
     // パッシブ武器の発動（装備しているもののみ）
     if (isEquipped('PLAZMER')) {
-        socket.emit('fire', { type: 'PLAZMER', angle: myPlayer.angle });
-        firePlazmer(hits);
+        socket.emit('fire', { type: 'PLAZMER', angle: myPlayer.angle, overload: overloadState.active });
+        firePlazmer(hits, overloadBonus.damageMultiplier);
     }
     
     if (isEquipped('HOMING') && myPlayer.weaponLevels.HOMING > 0) {
-        fireHoming();
-        socket.emit('fire', { type: 'HOMING', angle: myPlayer.angle });
+        fireHoming(overloadBonus.damageMultiplier);
+        socket.emit('fire', { type: 'HOMING', angle: myPlayer.angle, overload: overloadState.active });
     }
     
     if (isEquipped('LASER') && myPlayer.weaponLevels.LASER > 0 && !activeLaser) {
-        fireLaser();
+        fireLaser(overloadBonus.damageMultiplier);
     }
     
     if (isEquipped('THUNDER') && myPlayer.weaponLevels.THUNDER > 0) {
-        if ((myPlayer.thunderEnergy || 0) >= 180) {
-            fireThunder(hits);
+        // OVERLOAD中はエネルギー要件緩和
+        const energyRequired = overloadState.active ? 90 : 180;
+        if ((myPlayer.thunderEnergy || 0) >= energyRequired) {
+            fireThunder(hits, overloadBonus.damageMultiplier);
             myPlayer.thunderEnergy = 0;
-            socket.emit('fire', { type: 'THUNDER', angle: myPlayer.angle });
+            socket.emit('fire', { type: 'THUNDER', angle: myPlayer.angle, overload: overloadState.active });
         }
     }
     
@@ -2249,6 +2260,7 @@ function fireIntercept() {
 
 // ANCHOR発射（手動・Qキー）
 function fireAnchor() {
+    if (weaponSelectMode) return; // 武器選択中は発射不可
     if (!myPlayer || !myPlayer.alive) return;
     if (!isEquipped('ANCHOR') && equippedWeapons.active !== 'ANCHOR') return;
     if (weaponCooldowns.ANCHOR > 0) return;
@@ -2261,6 +2273,7 @@ function fireAnchor() {
 
 // RIFT発射（手動・Eキー）
 function fireRift() {
+    if (weaponSelectMode) return; // 武器選択中は発射不可
     if (!myPlayer || !myPlayer.alive) return;
     if (!isEquipped('RIFT') && equippedWeapons.active !== 'RIFT') return;
     if (weaponCooldowns.RIFT > 0) return;
@@ -2277,6 +2290,7 @@ function fireRift() {
 
 // PIERCE発射（手動・Rキー）
 function firePierce() {
+    if (weaponSelectMode) return; // 武器選択中は発射不可
     if (!myPlayer || !myPlayer.alive) return;
     if (!isEquipped('PIERCE') && equippedWeapons.active !== 'PIERCE') return;
     if (weaponCooldowns.PIERCE > 0) return;
@@ -2310,6 +2324,7 @@ function firePierce() {
 
 // OVERLOAD発動（手動・Xキー、条件付き）
 function fireOverload() {
+    if (weaponSelectMode) return; // 武器選択中は発射不可
     if (!myPlayer || !myPlayer.alive) return;
     if (overloadState.usedThisStage) return; // このステージで使用済み
     if (overloadState.active) return; // 発動中
@@ -3239,6 +3254,7 @@ class ReflectShield {
         this.radius = 50;
         this.reflectCount = 0;
         this.hitEffects = [];
+        this.reflectedBullets = new Set(); // 多重反射防止
     }
     update() {
         if (!myPlayer || !myPlayer.alive) {
@@ -3250,6 +3266,9 @@ class ReflectShield {
         // 敵弾との判定
         if (gameState && gameState.enemyBullets) {
             gameState.enemyBullets.forEach(b => {
+                // 既に反射済みの弾はスキップ
+                if (this.reflectedBullets.has(b.id)) return;
+                
                 const dx = b.x - myPlayer.x;
                 const dy = b.y - myPlayer.y;
                 const dist = Math.hypot(dx, dy);
@@ -3266,11 +3285,20 @@ class ReflectShield {
                         bulletId: b.id, 
                         newAngle: this.angle + Math.PI + (Math.random() - 0.5) * 0.5
                     });
+                    this.reflectedBullets.add(b.id); // 反射済みとしてマーク
                     this.reflectCount++;
                     this.hitEffects.push({
                         x: b.x, y: b.y,
                         life: 15
                     });
+                }
+            });
+            
+            // 古い反射記録をクリア（弾が消えたら）
+            const currentBulletIds = new Set(gameState.enemyBullets.map(b => b.id));
+            this.reflectedBullets.forEach(id => {
+                if (!currentBulletIds.has(id)) {
+                    this.reflectedBullets.delete(id);
                 }
             });
         }
@@ -4172,7 +4200,9 @@ function gameLoop() {
     updateOverloadUI(); // OVERLOAD UI更新
     updateSoundCooldowns(); // サウンドクールダウン更新
     weaponTimer++;
-    if (weaponTimer >= 15 && myPlayer && myPlayer.alive && !weaponSelectMode) { fireWeapons(); weaponTimer = 0; }
+    // OVERLOAD中は発射レート2倍（間隔半分）
+    const fireInterval = overloadState.active ? 7 : 15;
+    if (weaponTimer >= fireInterval && myPlayer && myPlayer.alive && !weaponSelectMode) { fireWeapons(); weaponTimer = 0; }
     localBullets.forEach(b => { if (!b.dead) b.update(); });
     localBullets = localBullets.filter(b => !b.dead);
     localMissiles.forEach(m => { if (!m.dead) m.update(); });
