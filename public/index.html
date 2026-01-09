@@ -320,7 +320,7 @@
         <div id="cd-pierce" style="color:#f44">PIERCE: READY</div>
     </div>
     
-    <div id="formation-display" style="display:none;">FORMATION: FOLLOW</div>
+    <div id="formation-display" style="display:none;">PHALANX: DEFENSE</div>
     
     <!-- 武器選択画面 -->
     <div id="weapon-select" style="display:none;">
@@ -402,11 +402,10 @@ let localOptions = []; // オプション（ビット）の位置データ
 let dashTrail = []; // ダッシュの軌跡
 let dashParticles = []; // ダッシュ時の光粒子
 let optionBeams = []; // オプションビーム
-let optionFormation = 'FOLLOW'; // FOLLOW or HUNT
-let huntTarget = null; // HUNTモードのターゲット
-let huntLockOnTimer = 0; // ロックオン演出タイマー
-let huntAttacking = false; // 攻撃中フラグ
-const FORMATIONS = ['FOLLOW', 'HUNT'];
+let phalanxFormation = 'defense'; // 'defense' or 'offense'
+let offenseTarget = null; // オフェンスモードのターゲット
+let offenseLockOnTimer = 0; // オフェンスロックオン演出タイマー
+let offenseAttacking = false; // オフェンス攻撃中フラグ
 
 // ゲームミュージック
 const MUSIC_TRACKS = [
@@ -450,45 +449,148 @@ let pierceGrab = null; // PIERCE掴み
 // 武器定義テーブル（完全版）
 const WEAPON_DEFS = {
     // 攻撃武器（パッシブ）
-    PLAZMER: { name: 'PLAZMER', type: 'attack', color: '#0ff', desc: '連射弾', unlockWave: 1 },
-    HOMING: { name: 'HOMING', type: 'attack', color: '#a0f', desc: '追尾ミサイル', unlockWave: 3 },
-    LASER: { name: 'LASER', type: 'attack', color: '#0ff', desc: '反射レーザー', unlockWave: 7 },
-    THUNDER: { name: 'THUNDER', type: 'attack', color: '#ff0', desc: '雷撃', unlockWave: 13 },
-    // 防御武器（パッシブ）
-    INTERCEPT: { name: 'INTERCEPT', type: 'defense', color: '#0f0', desc: '自動迎撃', unlockWave: 5 },
-    PHALANX: { name: 'PHALANX', type: 'defense', color: '#0f0', desc: '防御陣形ビット', unlockWave: 9 },
-    REFLECT: { name: 'REFLECT', type: 'defense', color: '#08f', desc: '弾反射シールド', unlockWave: 11 },
-    // 制圧武器（アクティブ・手動発動）
-    ANCHOR: { name: 'ANCHOR', type: 'control', color: '#808', desc: '重力拘束 [Q]', unlockWave: 15, cooldown: 300 },
-    RIFT: { name: 'RIFT', type: 'control', color: '#a0f', desc: '空間裂け目 [E]', unlockWave: 17, cooldown: 480 },
-    PIERCE: { name: 'PIERCE', type: 'control', color: '#f44', desc: '捕食投擲 [R]', unlockWave: 20, cooldown: 180 },
-    // 切り札
-    OVERLOAD: { name: 'OVERLOAD', type: 'ultimate', color: '#fff', desc: '超必殺 [X]', unlockWave: 22 }
+    // ========== 武器カラー定義 ==========
+const WEAPON_COLORS = {
+    PLAZMER:   '#00FFFF',
+    PHALANX:   '#00FF66',
+    HOMING:    '#AA66FF',
+    INTERCEPT: '#66CCFF',
+    LASER:     '#00CCFF',
+    REFLECT:   '#CCFFFF',
+    RIFT:      '#FF44CC',
+    ANCHOR:    '#663399',
+    THUNDER:   '#FFFF33',
+    DASH:      '#FF9933',
+    PIERCE:    '#CC3333',
+    OVERLOAD:  '#FFFFFF'
 };
 
-// デフォルト武器レベル（完全版）
+// ========== 武器定義（完全版） ==========
+const WEAPON_DEFS = {
+    // メイン火力（MAIN）- 必ず1つ選ぶ
+    PLAZMER: { 
+        name: 'PLAZMER', 
+        type: 'main', 
+        color: WEAPON_COLORS.PLAZMER, 
+        desc: '拡散エネルギー弾。扱いやすい万能型', 
+        unlockWave: 1 
+    },
+    HOMING: { 
+        name: 'HOMING', 
+        type: 'main', 
+        color: WEAPON_COLORS.HOMING, 
+        desc: '自動追尾ミサイル。数が多いほど強い', 
+        unlockWave: 3 
+    },
+    LASER: { 
+        name: 'LASER', 
+        type: 'main', 
+        color: WEAPON_COLORS.LASER, 
+        desc: '貫通ビーム。直線処理と集中火力', 
+        unlockWave: 6 
+    },
+    THUNDER: { 
+        name: 'THUNDER', 
+        type: 'main', 
+        color: WEAPON_COLORS.THUNDER, 
+        desc: '範囲雷撃。溜めて一気に制圧', 
+        unlockWave: 12 
+    },
+    
+    // オールレンジ（ALLRANGE）- 1つだけ装備可能
+    PHALANX: { 
+        name: 'PHALANX', 
+        type: 'allrange', 
+        color: WEAPON_COLORS.PHALANX, 
+        desc: 'ビットが陣形を組み自動迎撃と攻撃', 
+        unlockWave: 1 
+    },
+    INTERCEPT: { 
+        name: 'INTERCEPT', 
+        type: 'allrange', 
+        color: WEAPON_COLORS.INTERCEPT, 
+        desc: '敵弾を迎撃し爆風で周囲も排除', 
+        unlockWave: 4 
+    },
+    REFLECT: { 
+        name: 'REFLECT', 
+        type: 'allrange', 
+        color: WEAPON_COLORS.REFLECT, 
+        desc: '正面に展開し敵弾を跳ね返す', 
+        unlockWave: 7 
+    },
+    RIFT: { 
+        name: 'RIFT', 
+        type: 'allrange', 
+        color: WEAPON_COLORS.RIFT, 
+        desc: '空間を歪め敵・弾を吸引破壊', 
+        unlockWave: 8,
+        cooldown: 480 
+    },
+    
+    // 戦術スキル（TACTICAL）- 1つだけ選択
+    ANCHOR: { 
+        name: 'ANCHOR', 
+        type: 'tactical', 
+        color: WEAPON_COLORS.ANCHOR, 
+        desc: '敵や弾を固定し戦場を支配 [Q]', 
+        unlockWave: 10, 
+        cooldown: 300 
+    },
+    DASH: { 
+        name: 'DASH', 
+        type: 'tactical', 
+        color: WEAPON_COLORS.DASH, 
+        desc: '高速移動＋通過斬撃 [SPACE]', 
+        unlockWave: 14 
+    },
+    PIERCE: { 
+        name: 'PIERCE', 
+        type: 'tactical', 
+        color: WEAPON_COLORS.PIERCE, 
+        desc: '槍で貫き捕食投げ [R]', 
+        unlockWave: 16, 
+        cooldown: 180 
+    },
+    
+    // 切り札（ULTIMATE）- 0 or 1
+    OVERLOAD: { 
+        name: 'OVERLOAD', 
+        type: 'ultimate', 
+        color: WEAPON_COLORS.OVERLOAD, 
+        desc: '全武器暴走 HP50%以下で[X]', 
+        unlockWave: 20 
+    }
+};
+
+// デフォルト武器レベル
 const DEFAULT_WEAPON_LEVELS = {
     PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0,
-    PHALANX: 0, INTERCEPT: 0, REFLECT: 0,
-    ANCHOR: 0, RIFT: 0, PIERCE: 0, OVERLOAD: 0
+    PHALANX: 1, INTERCEPT: 0, REFLECT: 0, RIFT: 0,
+    ANCHOR: 0, DASH: 1, PIERCE: 0, OVERLOAD: 0
 };
 
 // ゲームフェーズ
 let gamePhase = 'normal'; // 'normal' | 'boss' | 'overload' | 'weaponSelect'
 
-// 装備システム
+// 装備システム（新カテゴリ対応）
 let equippedWeapons = {
-    passive: ['PLAZMER', 'HOMING', 'INTERCEPT'], // 常時発動（最大3）
-    active: null // 手動発動（1つ）
+    main: 'PLAZMER',      // メイン火力（1つ）
+    allrange: 'PHALANX',  // オールレンジ（1つ）
+    tactical: 'DASH',     // 戦術スキル（1つ）
+    ultimate: null        // 切り札（0 or 1）
 };
+
+// PHALANXフォーメーション
+let phalanxFormation = 'defense'; // 'defense' | 'offense'
 
 // OVERLOAD状態管理
 let overloadState = {
-    available: false,  // 発動可能か
-    active: false,     // 発動中か
-    usedThisStage: false, // このステージで使用済みか
-    timer: 0,          // 発動中タイマー
-    maxTimer: 480      // 8秒間
+    available: false,
+    active: false,
+    usedThisStage: false,
+    timer: 0,
+    maxTimer: 480
 };
 
 // 武器クールダウン管理
@@ -496,7 +598,8 @@ let weaponCooldowns = {
     INTERCEPT: 0,
     ANCHOR: 0,
     RIFT: 0,
-    PIERCE: 0
+    PIERCE: 0,
+    DASH: 0
 };
 const WAVE_THEMES = [
     { bg1: '#000810', bg2: '#001020', nebula: '#0066ff', stars: '#fff' },
@@ -700,6 +803,8 @@ function spawnDamageText(x, y, damage, color) {
 // オプション（ビット）の更新
 function updateOptions() {
     if (!myPlayer || !myPlayer.options || !myPlayer.alive) return;
+    if (!isEquipped('PHALANX')) return; // PHALANX装備時のみ
+    
     const optionCount = myPlayer.options.length;
     if (optionCount === 0) return;
     
@@ -711,45 +816,72 @@ function updateOptions() {
             y: myPlayer.y,
             targetX: myPlayer.x,
             targetY: myPlayer.y,
-            baseAngle: (Math.PI / 2) * i // 上下左右
+            baseAngle: (Math.PI * 2 / 6) * i,
+            rotationOffset: 0
         });
     }
     while (localOptions.length > optionCount) {
         localOptions.pop();
     }
     
-    const radius = 60; // プレイヤーからの距離
+    const radius = 70; // プレイヤーからの距離
     
-    if (optionFormation === 'FOLLOW') {
-        // FOLLOWモード：プレイヤーの上下左右に配置
-        const positions = [
-            { angle: -Math.PI / 2 }, // 上
-            { angle: Math.PI / 2 },  // 下
-            { angle: Math.PI },      // 左
-            { angle: 0 },            // 右
-            { angle: -Math.PI * 3/4 }, // 左上
-            { angle: -Math.PI / 4 }   // 右上
-        ];
+    if (phalanxFormation === 'defense') {
+        // ========== DEFENSE MODE（緑）==========
+        // プレイヤーの周りを回転しながら配置
+        const rotationSpeed = 0.02;
         
         for (let i = 0; i < localOptions.length; i++) {
             const opt = localOptions[i];
-            const pos = positions[i % positions.length];
-            opt.targetX = myPlayer.x + Math.cos(pos.angle) * radius;
-            opt.targetY = myPlayer.y + Math.sin(pos.angle) * radius;
+            opt.rotationOffset += rotationSpeed;
+            const angle = (Math.PI * 2 / localOptions.length) * i + opt.rotationOffset;
+            opt.targetX = myPlayer.x + Math.cos(angle) * radius;
+            opt.targetY = myPlayer.y + Math.sin(angle) * radius;
+            
             // 滑らかに移動
-            opt.x += (opt.targetX - opt.x) * 0.12;
-            opt.y += (opt.targetY - opt.y) * 0.12;
+            opt.x += (opt.targetX - opt.x) * 0.15;
+            opt.y += (opt.targetY - opt.y) * 0.15;
+            
+            // 近くの敵弾を自動迎撃
+            if (gameState && Array.isArray(gameState.enemyBullets)) {
+                gameState.enemyBullets.forEach(b => {
+                    const dist = Math.hypot(b.x - opt.x, b.y - opt.y);
+                    if (dist < 40) {
+                        socket.emit('destroyBullet', { bulletId: b.id });
+                        // 迎撃エフェクト
+                        particles.push({
+                            x: b.x, y: b.y,
+                            vx: 0, vy: 0,
+                            life: 10,
+                            color: WEAPON_COLORS.PHALANX,
+                            size: 8,
+                            update() { this.life--; this.size *= 0.9; }
+                        });
+                    }
+                });
+            }
         }
         
-        huntTarget = null;
-        huntLockOnTimer = 0;
-        huntAttacking = false;
+        offenseTarget = null;
+        offenseLockOnTimer = 0;
+        offenseAttacking = false;
         
-    } else if (optionFormation === 'HUNT') {
-        // HUNTモード：敵をロックオンして攻撃
+    } else if (phalanxFormation === 'offense') {
+        // ========== OFFENSE MODE（赤）==========
+        // プレイヤー前方に一列整列 → 敵に向かって攻撃
         
-        if (!huntAttacking && !huntTarget) {
-            // ターゲットを探す
+        if (!offenseAttacking && !offenseTarget) {
+            // 一列にプレイヤー前方に整列
+            for (let i = 0; i < localOptions.length; i++) {
+                const opt = localOptions[i];
+                const offsetY = (i - (localOptions.length - 1) / 2) * 25;
+                opt.targetX = myPlayer.x + Math.cos(myPlayer.angle) * 50;
+                opt.targetY = myPlayer.y + Math.sin(myPlayer.angle) * 50 + offsetY;
+                opt.x += (opt.targetX - opt.x) * 0.15;
+                opt.y += (opt.targetY - opt.y) * 0.15;
+            }
+            
+            // ターゲットを探す（最もHPが高い敵）
             let bestTarget = null;
             let maxHp = 0;
             if (gameState && gameState.enemies) {
@@ -759,7 +891,7 @@ function updateOptions() {
                         const ex = re ? re.x : e.x;
                         const ey = re ? re.y : e.y;
                         const dist = Math.hypot(ex - myPlayer.x, ey - myPlayer.y);
-                        if (dist < 600) {
+                        if (dist < 500) {
                             maxHp = e.hp;
                             bestTarget = { id: e.id, x: ex, y: ey, hp: e.hp, maxHp: e.maxHp, size: e.size };
                         }
@@ -768,91 +900,84 @@ function updateOptions() {
             }
             
             if (bestTarget) {
-                huntTarget = bestTarget;
-                huntLockOnTimer = 60; // 1秒ロックオン演出
+                offenseTarget = bestTarget;
+                offenseLockOnTimer = 30; // 0.5秒ロックオン
             }
-        }
-        
-        if (huntTarget && huntLockOnTimer > 0) {
-            // ロックオン演出中：その場で待機
-            huntLockOnTimer--;
             
-            // ターゲット位置を更新
+        } else if (offenseTarget && offenseLockOnTimer > 0) {
+            // ロックオン演出中
+            offenseLockOnTimer--;
+            
+            // ターゲット位置更新
             if (gameState && gameState.enemies) {
-                const enemy = gameState.enemies.find(e => e.id === huntTarget.id);
+                const enemy = gameState.enemies.find(e => e.id === offenseTarget.id);
                 if (enemy && enemy.hp > 0) {
                     const re = remoteEnemies.get(enemy.id);
-                    huntTarget.x = re ? re.x : enemy.x;
-                    huntTarget.y = re ? re.y : enemy.y;
-                    huntTarget.hp = enemy.hp;
+                    offenseTarget.x = re ? re.x : enemy.x;
+                    offenseTarget.y = re ? re.y : enemy.y;
+                    offenseTarget.hp = enemy.hp;
                 } else {
-                    huntTarget = null; // ターゲットが死んだ
+                    offenseTarget = null;
                 }
             }
             
-            if (huntLockOnTimer === 0 && huntTarget) {
-                huntAttacking = true; // 攻撃開始！
+            if (offenseLockOnTimer === 0 && offenseTarget) {
+                offenseAttacking = true;
             }
             
-        } else if (huntAttacking && huntTarget) {
-            // 攻撃中：ターゲットに向かって高速移動
-            let allReached = true;
+        } else if (offenseAttacking && offenseTarget) {
+            // 攻撃中：バラバラに動きながらターゲットを包囲
             
-            // ターゲット位置を更新
+            // ターゲット位置更新
             if (gameState && gameState.enemies) {
-                const enemy = gameState.enemies.find(e => e.id === huntTarget.id);
+                const enemy = gameState.enemies.find(e => e.id === offenseTarget.id);
                 if (enemy && enemy.hp > 0) {
                     const re = remoteEnemies.get(enemy.id);
-                    huntTarget.x = re ? re.x : enemy.x;
-                    huntTarget.y = re ? re.y : enemy.y;
-                    huntTarget.hp = enemy.hp;
+                    offenseTarget.x = re ? re.x : enemy.x;
+                    offenseTarget.y = re ? re.y : enemy.y;
+                    offenseTarget.hp = enemy.hp;
                 } else {
-                    // ターゲット撃破！
-                    huntTarget = null;
-                    huntAttacking = false;
-                    // FOLLOWに戻る
-                    setTimeout(() => {
-                        if (optionFormation === 'HUNT') {
-                            // 次のターゲットを探す（少し待ってから）
-                        }
-                    }, 500);
+                    // ターゲット撃破！次を探す
+                    offenseTarget = null;
+                    offenseAttacking = false;
                 }
             }
             
-            if (huntTarget) {
+            if (offenseTarget) {
                 for (let i = 0; i < localOptions.length; i++) {
                     const opt = localOptions[i];
-                    // ターゲット周りに配置
-                    const attackAngle = (Math.PI * 2 / localOptions.length) * i;
-                    const attackRadius = huntTarget.size + 20;
-                    opt.targetX = huntTarget.x + Math.cos(attackAngle) * attackRadius;
-                    opt.targetY = huntTarget.y + Math.sin(attackAngle) * attackRadius;
+                    // バラバラに動きながらターゲット周囲に
+                    const wobble = Math.sin(frame * 0.1 + i * 2) * 30;
+                    const attackAngle = (Math.PI * 2 / localOptions.length) * i + frame * 0.03;
+                    const attackRadius = offenseTarget.size + 40 + wobble;
+                    opt.targetX = offenseTarget.x + Math.cos(attackAngle) * attackRadius;
+                    opt.targetY = offenseTarget.y + Math.sin(attackAngle) * attackRadius;
                     
                     // 高速移動
-                    opt.x += (opt.targetX - opt.x) * 0.25;
-                    opt.y += (opt.targetY - opt.y) * 0.25;
-                    
-                    const dist = Math.hypot(opt.x - opt.targetX, opt.y - opt.targetY);
-                    if (dist > 10) allReached = false;
+                    opt.x += (opt.targetX - opt.x) * 0.2;
+                    opt.y += (opt.targetY - opt.y) * 0.2;
+                }
+                
+                // 敵弾も破壊しながら進む
+                if (gameState && Array.isArray(gameState.enemyBullets)) {
+                    localOptions.forEach(opt => {
+                        gameState.enemyBullets.forEach(b => {
+                            const dist = Math.hypot(b.x - opt.x, b.y - opt.y);
+                            if (dist < 30) {
+                                socket.emit('destroyBullet', { bulletId: b.id });
+                            }
+                        });
+                    });
                 }
             }
             
         } else {
-            // ターゲットがいない場合はFOLLOW位置に戻る
-            const positions = [
-                { angle: -Math.PI / 2 },
-                { angle: Math.PI / 2 },
-                { angle: Math.PI },
-                { angle: 0 },
-                { angle: -Math.PI * 3/4 },
-                { angle: -Math.PI / 4 }
-            ];
-            
+            // ターゲットなし：プレイヤー前方に戻る
             for (let i = 0; i < localOptions.length; i++) {
                 const opt = localOptions[i];
-                const pos = positions[i % positions.length];
-                opt.targetX = myPlayer.x + Math.cos(pos.angle) * radius;
-                opt.targetY = myPlayer.y + Math.sin(pos.angle) * radius;
+                const offsetY = (i - (localOptions.length - 1) / 2) * 25;
+                opt.targetX = myPlayer.x + Math.cos(myPlayer.angle) * 50;
+                opt.targetY = myPlayer.y + Math.sin(myPlayer.angle) * 50 + offsetY;
                 opt.x += (opt.targetX - opt.x) * 0.1;
                 opt.y += (opt.targetY - opt.y) * 0.1;
             }
@@ -867,10 +992,10 @@ function drawOptions() {
     const glowColor = myPlayer.glowColor || '#0ff';
     
     // HUNTモードのロックオン演出
-    if (optionFormation === 'HUNT' && huntTarget && huntLockOnTimer > 0) {
-        const tx = huntTarget.x - camera.x + screenShake.x;
-        const ty = huntTarget.y - camera.y + screenShake.y;
-        const progress = 1 - (huntLockOnTimer / 60);
+    if (phalanxFormation === 'offense' && offenseTarget && offenseLockOnTimer > 0) {
+        const tx = offenseTarget.x - camera.x + screenShake.x;
+        const ty = offenseTarget.y - camera.y + screenShake.y;
+        const progress = 1 - (offenseLockOnTimer / 60);
         
         ctx.save();
         
@@ -918,13 +1043,13 @@ function drawOptions() {
         ctx.globalAlpha = 1;
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 12px Courier New';
-        ctx.fillText(`HP: ${huntTarget.hp}/${huntTarget.maxHp}`, tx, ty + lockRadius + 20);
+        ctx.fillText(`HP: ${offenseTarget.hp}/${offenseTarget.maxHp}`, tx, ty + lockRadius + 20);
         
         ctx.restore();
     }
     
     // 攻撃中の軌跡エフェクト
-    if (huntAttacking && huntTarget) {
+    if (offenseAttacking && offenseTarget) {
         ctx.save();
         ctx.strokeStyle = glowColor;
         ctx.lineWidth = 2;
@@ -935,8 +1060,8 @@ function drawOptions() {
         localOptions.forEach(opt => {
             const sx = opt.x - camera.x + screenShake.x;
             const sy = opt.y - camera.y + screenShake.y;
-            const tx = huntTarget.x - camera.x + screenShake.x;
-            const ty = huntTarget.y - camera.y + screenShake.y;
+            const tx = offenseTarget.x - camera.x + screenShake.x;
+            const ty = offenseTarget.y - camera.y + screenShake.y;
             
             ctx.beginPath();
             ctx.moveTo(sx, sy);
@@ -953,11 +1078,13 @@ function drawOptions() {
         const sy = opt.y - camera.y + screenShake.y;
         
         ctx.save();
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = glowColor;
         
-        // 攻撃中は赤く光る
-        const currentColor = huntAttacking ? '#f44' : glowColor;
+        // フォーメーションに応じた色（Defense=緑、Offense=赤）
+        const formationColor = phalanxFormation === 'defense' ? WEAPON_COLORS.PHALANX : '#FF3333';
+        const currentColor = offenseAttacking ? '#FF0000' : formationColor;
+        
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = currentColor;
         
         // 外側のリング
         ctx.strokeStyle = currentColor;
@@ -979,7 +1106,7 @@ function drawOptions() {
         ctx.fill();
         
         // 移動中のトレイル
-        if (huntAttacking) {
+        if (offenseAttacking) {
             ctx.globalAlpha = 0.3;
             for (let t = 1; t <= 5; t++) {
                 const trailX = sx - (opt.x - opt.targetX) * 0.1 * t;
@@ -997,10 +1124,14 @@ function drawOptions() {
     // フォーメーション表示
     if (localOptions.length > 0) {
         ctx.save();
-        ctx.fillStyle = optionFormation === 'HUNT' ? '#f44' : '#0ff';
-        ctx.font = 'bold 10px Courier New';
+        const formColor = phalanxFormation === 'offense' ? '#FF3333' : '#00FF66';
+        const formName = phalanxFormation === 'offense' ? 'OFFENSE' : 'DEFENSE';
+        ctx.fillStyle = formColor;
+        ctx.font = 'bold 12px Courier New';
         ctx.textAlign = 'left';
-        ctx.fillText(`FORMATION: ${optionFormation}`, 10, canvas.height - 60);
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = formColor;
+        ctx.fillText(`PHALANX: ${formName}`, 10, canvas.height - 60);
         ctx.restore();
     }
 }
@@ -1731,9 +1862,9 @@ function connectToServer() {
             }
             
             // HUNTモードをリセット
-            optionFormation = 'FOLLOW';
-            huntTarget = null;
-            huntAttacking = false;
+            phalanxFormation = 'FOLLOW';
+            offenseTarget = null;
+            offenseAttacking = false;
         }
         showMessage('RESPAWN! (Weapons halved)');
     });
@@ -1787,8 +1918,39 @@ function connectToServer() {
             myPlayer.hp = data.hp; 
             ui.hp.style.width = Math.max(0, (myPlayer.hp / (myPlayer.maxHp || 100)) * 100) + '%'; 
             
-            // ダメージフラッシュ
-            damageFlash = 15;
+            // ダメージフラッシュ（強化）
+            damageFlash = 30; // 15→30に増加
+            
+            // ダメージ数字表示
+            if (data.damage) {
+                damageTexts.push({
+                    x: myPlayer.x,
+                    y: myPlayer.y - 20,
+                    text: `-${data.damage}`,
+                    color: '#f00',
+                    life: 60,
+                    vy: -2
+                });
+            }
+            
+            // ダメージパーティクル（赤い粒子を散らす）
+            for (let i = 0; i < 10; i++) {
+                particles.push({
+                    x: myPlayer.x,
+                    y: myPlayer.y,
+                    vx: (Math.random() - 0.5) * 8,
+                    vy: (Math.random() - 0.5) * 8,
+                    life: 30,
+                    color: '#f00',
+                    size: 3 + Math.random() * 3,
+                    update() {
+                        this.x += this.vx;
+                        this.y += this.vy;
+                        this.life--;
+                        this.size *= 0.95;
+                    }
+                });
+            }
             
             // OVERLOAD発動可能チェック（HP50%以下）
             const hpRatio = myPlayer.hp / (myPlayer.maxHp || 100);
@@ -1797,7 +1959,8 @@ function connectToServer() {
                 showMessage('⚠ OVERLOAD READY! ⚠');
             }
         }
-        triggerScreenShake(5);
+        triggerScreenShake(12); // 5→12に増加（ダメージ時のシェイク強化）
+        playSound('hit');
     });
     
     socket.on('playerDied', (data) => {
@@ -2122,13 +2285,14 @@ function triggerDash() {
     }
 }
 function cycleFormation() {
-    // オプションフォーメーション切り替え
+    // PHALANXフォーメーション切り替え（Defense ↔ Offense）
     if (localOptions.length > 0) {
-        optionFormation = optionFormation === 'FOLLOW' ? 'HUNT' : 'FOLLOW';
-        huntTarget = null;
-        huntLockOnTimer = 0;
-        huntAttacking = false;
-        showMessage(`FORMATION: ${optionFormation}`);
+        phalanxFormation = phalanxFormation === 'defense' ? 'offense' : 'defense';
+        offenseTarget = null;
+        offenseAttacking = false;
+        
+        const formationName = phalanxFormation === 'defense' ? 'DEFENSE (緑)' : 'OFFENSE (赤)';
+        showMessage(`PHALANX: ${formationName}`);
         playSound('switch');
     }
 }
@@ -2137,7 +2301,10 @@ function cycleFormation() {
 
 // 武器が装備されているかチェック
 function isEquipped(weaponName) {
-    return equippedWeapons.passive.includes(weaponName) || equippedWeapons.active === weaponName;
+    return equippedWeapons.main === weaponName || 
+           equippedWeapons.allrange === weaponName || 
+           equippedWeapons.tactical === weaponName ||
+           equippedWeapons.ultimate === weaponName;
 }
 
 // 武器相性チェック（隠し合体）
@@ -3072,11 +3239,64 @@ class InterceptLaser {
         this.targetX = bulletX;
         this.targetY = bulletY;
         this.bulletId = bulletId;
-        this.life = 10;
-        this.color = '#0f0';
+        this.life = 20; // 10→20に延長
+        this.color = WEAPON_COLORS.INTERCEPT;
+        this.exploded = false;
+        this.explosionRadius = 60; // 爆風範囲
+        this.explosionParticles = [];
     }
     update() {
         this.life--;
+        
+        // 着弾時に爆風発生（1回のみ）
+        if (this.life === 15 && !this.exploded) {
+            this.exploded = true;
+            
+            // 爆風エフェクト
+            for (let i = 0; i < 12; i++) {
+                const angle = (Math.PI * 2 / 12) * i;
+                this.explosionParticles.push({
+                    x: this.targetX,
+                    y: this.targetY,
+                    vx: Math.cos(angle) * 4,
+                    vy: Math.sin(angle) * 4,
+                    life: 15,
+                    size: 5
+                });
+            }
+            
+            // 爆風で周囲の敵にダメージ
+            if (gameState && gameState.enemies) {
+                gameState.enemies.forEach(e => {
+                    if (e.hp > 0) {
+                        const re = remoteEnemies.get(e.id);
+                        const ex = re ? re.x : e.x;
+                        const ey = re ? re.y : e.y;
+                        const dist = Math.hypot(ex - this.targetX, ey - this.targetY);
+                        if (dist < this.explosionRadius) {
+                            const damage = Math.floor(8 * (1 - dist / this.explosionRadius)); // 距離に応じてダメージ減衰
+                            if (damage > 0) {
+                                socket.emit('hit', { enemyId: e.id, damage: damage, weaponType: 'INTERCEPT' });
+                                spawnDamageText(ex, ey, damage, this.color);
+                            }
+                        }
+                    }
+                });
+            }
+            
+            // 爆風で周囲の敵弾も消す
+            socket.emit('interceptExplosion', { x: this.targetX, y: this.targetY, radius: this.explosionRadius });
+        }
+        
+        // パーティクル更新
+        this.explosionParticles.forEach(p => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life--;
+            p.size *= 0.9;
+        });
+        this.explosionParticles = this.explosionParticles.filter(p => p.life > 0);
+        
         if (this.life <= 0) this.dead = true;
     }
     draw() {
@@ -3086,15 +3306,44 @@ class InterceptLaser {
         const ty = this.targetY - camera.y + screenShake.y;
         
         ctx.save();
-        ctx.strokeStyle = this.color;
-        ctx.lineWidth = 2;
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = this.color;
-        ctx.globalAlpha = this.life / 10;
-        ctx.beginPath();
-        ctx.moveTo(sx, sy);
-        ctx.lineTo(tx, ty);
-        ctx.stroke();
+        
+        // レーザー
+        if (this.life > 10) {
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = 3;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = this.color;
+            ctx.globalAlpha = (this.life - 10) / 10;
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(tx, ty);
+            ctx.stroke();
+        }
+        
+        // 爆風エフェクト
+        if (this.exploded) {
+            // 爆風リング
+            const explosionProgress = (20 - this.life) / 20;
+            const ringRadius = this.explosionRadius * explosionProgress;
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = 3 * (1 - explosionProgress);
+            ctx.globalAlpha = 0.5 * (1 - explosionProgress);
+            ctx.beginPath();
+            ctx.arc(tx, ty, ringRadius, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // パーティクル
+            this.explosionParticles.forEach(p => {
+                const px = p.x - camera.x + screenShake.x;
+                const py = p.y - camera.y + screenShake.y;
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = p.life / 15;
+                ctx.beginPath();
+                ctx.arc(px, py, p.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+        
         ctx.restore();
     }
 }
@@ -3767,7 +4016,7 @@ function draw() {
         });
     }
     
-    // 敵弾（補間描画）
+    // 敵弾（補間描画・可視性強化）
     const enemyBullets = (gameState && Array.isArray(gameState.enemyBullets)) ? gameState.enemyBullets : [];
     // 補間データを更新
     enemyBullets.forEach(b => {
@@ -3789,20 +4038,90 @@ function draw() {
     remoteEnemyBullets.forEach((_, id) => {
         if (!bulletIds.has(id)) remoteEnemyBullets.delete(id);
     });
-    // 補間して描画
+    // 補間して描画（可視性強化）
+    let nearestBulletDist = Infinity;
     remoteEnemyBullets.forEach(b => {
         b.x += (b.tx - b.x) * 0.4;
         b.y += (b.ty - b.y) * 0.4;
         const sx = b.x - camera.x + screenShake.x;
         const sy = b.y - camera.y + screenShake.y;
-        ctx.fillStyle = b.color; 
-        ctx.shadowBlur = 12; 
-        ctx.shadowColor = b.color;
+        
+        // プレイヤーとの距離
+        let distToPlayer = Infinity;
+        if (myPlayer && myPlayer.alive) {
+            distToPlayer = Math.hypot(b.x - myPlayer.x, b.y - myPlayer.y);
+            if (distToPlayer < nearestBulletDist) nearestBulletDist = distToPlayer;
+        }
+        
+        // 弾のサイズ（近いほど大きく見せる）
+        const visualSize = (b.size || 5) * 1.5 + (distToPlayer < 150 ? (150 - distToPlayer) / 20 : 0); // サイズ1.5倍、警告範囲拡大
+        
+        // 危険なほど赤く点滅
+        const dangerPulse = distToPlayer < 100 ? Math.sin(frame * 0.4) * 0.5 + 0.5 : 0;
+        
+        // 外側のグローリング（さらに大きく）
+        ctx.beginPath();
+        ctx.arc(sx, sy, visualSize + 8, 0, Math.PI * 2);
+        const glowAlpha = 0.4 + Math.sin(frame * 0.2) * 0.1 + dangerPulse * 0.3;
+        ctx.fillStyle = distToPlayer < 100 
+            ? `rgba(255, ${Math.floor(128 - dangerPulse * 128)}, 0, ${glowAlpha})`
+            : `rgba(255, 128, 0, ${glowAlpha})`;
+        ctx.fill();
+        
+        // メイン弾（より大きく）
+        ctx.fillStyle = b.color || '#f80';
+        ctx.shadowBlur = 25; // さらに増加
+        ctx.shadowColor = distToPlayer < 100 ? '#f00' : (b.color || '#f80');
         ctx.beginPath(); 
-        ctx.arc(sx, sy, b.size, 0, Math.PI * 2); 
-        ctx.fill(); 
+        ctx.arc(sx, sy, visualSize, 0, Math.PI * 2); 
+        ctx.fill();
+        
+        // 中心の明るいコア（より目立つ）
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(sx, sy, visualSize * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        
         ctx.shadowBlur = 0;
     });
+    
+    // 危険警告（敵弾が近いとき - より大きな範囲で警告）
+    if (myPlayer && myPlayer.alive && nearestBulletDist < 120) {
+        const dangerLevel = 1 - (nearestBulletDist / 120);
+        const pulse = Math.sin(frame * 0.4) * 0.3 + 0.7;
+        ctx.save();
+        
+        const px = myPlayer.x - camera.x + screenShake.x;
+        const py = myPlayer.y - camera.y + screenShake.y;
+        
+        // 外側の警告リング
+        ctx.strokeStyle = `rgba(255, 0, 0, ${dangerLevel * pulse * 0.7})`;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(px, py, 50 + dangerLevel * 30, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // 内側の点滅リング
+        if (nearestBulletDist < 60) {
+            ctx.strokeStyle = `rgba(255, 255, 0, ${dangerLevel * pulse})`;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.arc(px, py, 30, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+        
+        // 警告テキスト
+        if (nearestBulletDist < 50) {
+            ctx.fillStyle = `rgba(255, 0, 0, ${pulse})`;
+            ctx.font = 'bold 14px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('DANGER!', px, py - 50);
+        }
+        
+        ctx.restore();
+    }
     
     // ダッシュエフェクト（流れ星の尾）
     drawDashEffects();
@@ -3815,7 +4134,7 @@ function draw() {
         
         // 死亡時のリスポーン表示
         if (!myPlayer.alive) {
-            const respawnTime = Math.ceil((300 - (myPlayer.respawnTimer || 0)) / 60);
+            const respawnTime = Math.ceil((180 - (myPlayer.respawnTimer || 0)) / 60);
             ctx.fillStyle = 'rgba(0,0,0,0.5)';
             ctx.fillRect(sx - 60, sy - 40, 120, 80);
             ctx.strokeStyle = '#f00';
@@ -3949,7 +4268,7 @@ function draw() {
         const sx = rp.x - camera.x + screenShake.x, sy = rp.y - camera.y + screenShake.y;
         
         if (!p.alive) {
-            const respawnTime = Math.ceil((300 - (p.respawnTimer || 0)) / 60);
+            const respawnTime = Math.ceil((180 - (p.respawnTimer || 0)) / 60);
             ctx.fillStyle = p.color || '#888'; ctx.globalAlpha = 0.5;
             ctx.font = 'bold 14px Courier New'; ctx.textAlign = 'center';
             ctx.fillText(p.name, sx, sy - 10); 
