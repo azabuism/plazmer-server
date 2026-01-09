@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { v4: uuidv4 } = require('uuid');
+// uuidv4は未使用のため削除
 
 const app = express();
 const server = http.createServer(app);
@@ -15,6 +15,7 @@ app.use(express.static('public'));
 const WORLD_W = 3000, WORLD_H = 3000;
 const TICK_RATE = 60;
 const TICK_INTERVAL = 1000 / TICK_RATE;
+const MAX_ENEMY_BULLETS = 500; // 敵弾上限
 
 // 武器レベルのデフォルト値（クライアントと同期）
 const DEFAULT_WEAPON_LEVELS = {
@@ -392,9 +393,37 @@ class GameRoom {
     }
     
     update() {
-        if (this.state !== 'playing') return;
+        // 完全停止はwaitingのみ
+        if (this.state === 'waiting') return;
         
         this.frame++;
+        
+        // weaponSelect中でも最低限更新するもの
+        this.players.forEach(player => {
+            // invincible / overload.timer は常に更新
+            if (player.invincible > 0) player.invincible--;
+            if (player.overload && player.overload.active) {
+                player.overload.timer--;
+                if (player.overload.timer <= 0) {
+                    player.overload.active = false;
+                }
+            }
+            // リスポーンタイマー
+            if (!player.alive && player.respawnTimer !== undefined) {
+                player.respawnTimer++;
+                if (player.respawnTimer >= 300) {
+                    this.respawnPlayer(player);
+                }
+            }
+        });
+        
+        // weaponSelect中はここで終了
+        if (this.state === 'weaponSelect') {
+            this.broadcastState();
+            return;
+        }
+        
+        // playing中のみ実行
         this.waveTimer++;
         this.mobTimer++;
         
@@ -409,7 +438,7 @@ class GameRoom {
             this.spawnMobs();
         }
         
-        // プレイヤー更新
+        // プレイヤー更新（alive状態）
         this.players.forEach(player => {
             if (!player.alive) return;
             this.updatePlayer(player);
@@ -442,7 +471,8 @@ class GameRoom {
             setTimeout(() => {
                 if (this.state === 'playing') {
                     this.state = 'weaponSelect';
-                    this.playersReady = new Set();
+                    // 全プレイヤーのloadoutReadyをリセット
+                    this.players.forEach(p => p.loadoutReady = false);
                     io.to(this.id).emit('weaponSelect', { 
                         nextWave: this.wave + 1,
                         players: Array.from(this.players.values()).map(p => ({
@@ -469,15 +499,7 @@ class GameRoom {
             return;
         }
         
-        if (player.invincible > 0) player.invincible--;
-        
-        // OVERLOADタイマー更新
-        if (player.overload && player.overload.active) {
-            player.overload.timer--;
-            if (player.overload.timer <= 0) {
-                player.overload.active = false;
-            }
-        }
+        // invincibleとoverloadはupdate()で既に更新済み
         
         // 壁脱出
         if (this.checkWall(player.x, player.y) && !player.dashing) {
@@ -494,13 +516,18 @@ class GameRoom {
             player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
             player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
             
-            // DASH中の敵へのダメージ
+            // DASH中の敵へのダメージ（1敵1回のみ）
+            if (!player.dashHitEnemies) player.dashHitEnemies = new Set();
+            
             this.enemies.forEach(e => {
                 if (e.hp <= 0) return;
+                if (player.dashHitEnemies.has(e.id)) return; // 既にヒット済み
+                
                 const dist = Math.hypot(e.x - player.x, e.y - player.y);
                 if (dist < e.size + 20) {
-                    // ダッシュ攻撃ダメージ
+                    // ダッシュ攻撃ダメージ（1回のみ）
                     const damage = 15;
+                    player.dashHitEnemies.add(e.id); // ヒット記録
                     e.hp -= damage;
                     io.to(this.id).emit('enemyDamaged', { 
                         enemyId: e.id, damage, 
@@ -521,6 +548,7 @@ class GameRoom {
             
             if (player.dashTimer <= 0) {
                 player.dashing = false;
+                player.dashHitEnemies.clear(); // DASH終了時にクリア
                 // ダッシュ終了時に壁の中にいたら脱出
                 if (this.checkWall(player.x, player.y)) {
                     this.escapeFromWall(player);
@@ -915,6 +943,11 @@ class GameRoom {
         });
         
         this.enemyBullets = this.enemyBullets.filter(b => !b.dead);
+        
+        // 上限を超えた場合、古い弾から削除
+        if (this.enemyBullets.length > MAX_ENEMY_BULLETS) {
+            this.enemyBullets = this.enemyBullets.slice(-MAX_ENEMY_BULLETS);
+        }
     }
     
     updateItems() {
@@ -1339,7 +1372,13 @@ io.on('connection', (socket) => {
         const player = currentRoom.players.get(socket.id);
         if (!player) return;
         
-        player.loadout = data.loadout;
+        // loadoutを実際の装備に反映
+        if (data.passive && Array.isArray(data.passive)) {
+            player.equipped = {
+                passive: data.passive,
+                active: data.active || null
+            };
+        }
         player.loadoutReady = true;
         
         // 全員に通知
