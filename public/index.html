@@ -305,7 +305,7 @@
         <div class="weapon-slot locked" id="w-homing">HOMING</div>
         <div class="weapon-slot locked" id="w-laser">LASER</div>
         <div class="weapon-slot locked" id="w-thunder">THUNDER</div>
-        <div class="weapon-slot locked" id="w-allrange">ALL-RANGE</div>
+        <div class="weapon-slot locked" id="w-phalanx">PHALANX</div>
     </div>
     
     <div id="formation-display" style="display:none;">FORMATION: FOLLOW</div>
@@ -550,7 +550,7 @@ const ui = {
         homing: document.getElementById('w-homing'),
         laser: document.getElementById('w-laser'),
         thunder: document.getElementById('w-thunder'),
-        allrange: document.getElementById('w-allrange')
+        phalanx: document.getElementById('w-phalanx')
     }
 };
 
@@ -1202,7 +1202,7 @@ function updateWeaponUI() {
     if (wl.HOMING > 0) { ui.weaponSlots.homing.textContent = `HOMING Lv${wl.HOMING}`; ui.weaponSlots.homing.classList.remove('locked'); ui.weaponSlots.homing.classList.add('active'); }
     if (wl.LASER > 0) { ui.weaponSlots.laser.textContent = `LASER Lv${wl.LASER}`; ui.weaponSlots.laser.classList.remove('locked'); ui.weaponSlots.laser.classList.add('active'); }
     if (wl.THUNDER > 0) { ui.weaponSlots.thunder.textContent = `THUNDER Lv${wl.THUNDER}`; ui.weaponSlots.thunder.classList.remove('locked'); ui.weaponSlots.thunder.classList.add('active'); }
-    if (wl.ALLRANGE > 0) { ui.weaponSlots.allrange.textContent = `PHALANX Lv${wl.ALLRANGE}`; ui.weaponSlots.allrange.classList.remove('locked'); ui.weaponSlots.allrange.classList.add('active'); }
+    if (wl.PHALANX > 0) { ui.weaponSlots.phalanx.textContent = `PHALANX Lv${wl.PHALANX}`; ui.weaponSlots.phalanx.classList.remove('locked'); ui.weaponSlots.phalanx.classList.add('active'); }
 }
 
 // ========== 武器選択システム ==========
@@ -1659,6 +1659,16 @@ function connectToServer() {
     });
     socket.on('bossSpawn', (data) => { showMessage(`◆ ${data.boss.name} APPEARED ◆`); triggerScreenShake(5); });
     socket.on('bossDefeated', () => { showMessage('◆ PATHOGEN ELIMINATED ◆'); triggerScreenShake(8); });
+    
+    // OVERLOAD発動通知
+    socket.on('overloadActivated', (data) => {
+        if (data.playerId === myPlayerId) {
+            showMessage('⚡ OVERLOAD MAXIMUM ⚡');
+        } else {
+            showMessage(`⚡ ${data.playerName} OVERLOAD! ⚡`);
+        }
+        triggerScreenShake(20);
+    });
     
     // 武器選択画面
     socket.on('weaponSelect', (data) => {
@@ -2751,7 +2761,7 @@ class OptionBeam {
         this.hitTimer++;
         if (this.target && this.hitTimer >= 5) { // 5フレームごとにダメージ
             this.hitTimer = 0;
-            socket.emit('hit', { enemyId: this.target.id, damage: this.damage, weaponType: 'ALLRANGE' });
+            socket.emit('hit', { enemyId: this.target.id, damage: this.damage, weaponType: 'PHALANX' });
             
             // 溶解パーティクル生成
             for (let i = 0; i < 3; i++) {
@@ -3995,6 +4005,10 @@ function gameLoop() {
     frame++;
     // aliveのデフォルト値を確保
     if (myPlayer && myPlayer.alive === undefined) myPlayer.alive = true;
+    // weaponLevelsのデフォルト値を確保
+    if (myPlayer && !myPlayer.weaponLevels) {
+        myPlayer.weaponLevels = { ...DEFAULT_WEAPON_LEVELS };
+    }
     
     if (myPlayer && myPlayer.alive) updateInput();
     updateCamera();
