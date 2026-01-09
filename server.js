@@ -16,6 +16,13 @@ const WORLD_W = 3000, WORLD_H = 3000;
 const TICK_RATE = 60;
 const TICK_INTERVAL = 1000 / TICK_RATE;
 
+// 武器レベルのデフォルト値（クライアントと同期）
+const DEFAULT_WEAPON_LEVELS = {
+    PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0,
+    PHALANX: 0, INTERCEPT: 0, REFLECT: 0,
+    ANCHOR: 0, RIFT: 0, PIERCE: 0, OVERLOAD: 0
+};
+
 // ========== 敵テンプレート ==========
 const ENEMY_TYPES = {
     virus: { hp: 3, speed: 1.8, size: 10, color: '#0f0', score: 50 },
@@ -186,7 +193,9 @@ class GameRoom {
             invincible: 60,
             dashing: false,
             dashTimer: 0,
-            weaponLevels: { PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0, ALLRANGE: 0 },
+            weaponLevels: { ...DEFAULT_WEAPON_LEVELS },
+            equipped: { passive: ['PLAZMER', 'HOMING', 'INTERCEPT'], active: null },
+            overload: { available: false, active: false, used: false, timer: 0 },
             thunderEnergy: 0,
             options: [],
             formation: 0,
@@ -462,6 +471,14 @@ class GameRoom {
         
         if (player.invincible > 0) player.invincible--;
         
+        // OVERLOADタイマー更新
+        if (player.overload && player.overload.active) {
+            player.overload.timer--;
+            if (player.overload.timer <= 0) {
+                player.overload.active = false;
+            }
+        }
+        
         // 壁脱出
         if (this.checkWall(player.x, player.y) && !player.dashing) {
             this.escapeFromWall(player);
@@ -556,7 +573,7 @@ class GameRoom {
         player.weaponLevels.HOMING = Math.floor(player.weaponLevels.HOMING / 2);
         player.weaponLevels.LASER = Math.floor(player.weaponLevels.LASER / 2);
         player.weaponLevels.THUNDER = Math.floor(player.weaponLevels.THUNDER / 2);
-        player.weaponLevels.ALLRANGE = Math.floor(player.weaponLevels.ALLRANGE / 2);
+        player.weaponLevels.PHALANX = Math.floor(player.weaponLevels.PHALANX / 2);
         
         // オプション数も半減
         const newOptionCount = Math.floor(player.options.length / 2);
@@ -943,11 +960,11 @@ class GameRoom {
     collectItem(player, item) {
         if (item.type === 'H') {
             player.hp = Math.min(player.maxHp, player.hp + 30);
-        } else if (item.type === 'ALLRANGE') {
+        } else if (item.type === 'PHALANX') {
             if (player.options.length < 6) {
                 player.options.push({ x: player.x, y: player.y, angle: 0 });
             }
-            player.weaponLevels.ALLRANGE++;
+            player.weaponLevels.PHALANX++;
         } else {
             player.weaponLevels[item.type] = (player.weaponLevels[item.type] || 0) + 1;
         }
@@ -1023,7 +1040,7 @@ class GameRoom {
             HOMING: '#a0f',   // 紫（ホーミングミサイルと同じ）
             LASER: '#0ff',    // シアン（レーザーと同じ）
             THUNDER: '#ff0',  // 黄色（サンダーと同じ）
-            ALLRANGE: '#0f0', // 緑（オールレンジと同じ）
+            PHALANX: '#0f0', // 緑（オールレンジと同じ）
             H: '#f44'         // 赤（HP回復）
         };
         
@@ -1047,7 +1064,7 @@ class GameRoom {
         
         if (isBoss) {
             const count = 5 + Math.floor(Math.random() * 3);
-            const types = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER', 'ALLRANGE', 'H'];
+            const types = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER', 'PHALANX', 'H'];
             for (let i = 0; i < count; i++) {
                 const a = (Math.PI * 2 / count) * i;
                 const type = types[Math.floor(Math.random() * types.length)];
@@ -1081,7 +1098,7 @@ class GameRoom {
                 const pos = findSafeItemPos(x, y);
                 this.items.push({
                     id: 'item_' + this.enemyIdCounter++,
-                    x: pos.x, y: pos.y, type: 'ALLRANGE', color: '#0f0'
+                    x: pos.x, y: pos.y, type: 'PHALANX', color: '#0f0'
                 });
             }
         }
@@ -1439,6 +1456,47 @@ io.on('connection', (socket) => {
                 });
             }
         }
+    });
+    
+    // OVERLOAD発動
+    socket.on('overloadActivate', () => {
+        if (!currentRoom) return;
+        const player = currentRoom.players.get(socket.id);
+        if (!player || !player.alive) return;
+        
+        // 発動条件チェック
+        const hpRatio = player.hp / (player.maxHp || 100);
+        if (hpRatio > 0.5) return;
+        if (player.overload.used) return;
+        if (currentRoom.wave < 22) return;
+        
+        // OVERLOAD発動
+        player.overload.active = true;
+        player.overload.used = true;
+        player.overload.timer = 480; // 8秒
+        player.invincible = 480; // 8秒無敵
+        
+        // 全敵に大ダメージ
+        currentRoom.enemies.forEach(e => {
+            if (e.hp > 0) {
+                const damage = e.isBoss ? Math.floor(e.maxHp * 0.3) : 999; // ボスには30%、雑魚は即死
+                e.hp -= damage;
+                if (e.hp <= 0) {
+                    currentRoom.score += e.score || 100;
+                }
+            }
+        });
+        
+        // 全敵弾を消去
+        currentRoom.enemyBullets = [];
+        
+        // 全員に通知
+        io.to(currentRoom.id).emit('overloadActivated', {
+            playerId: socket.id,
+            playerName: player.name
+        });
+        
+        console.log(`${player.name} activated OVERLOAD!`);
     });
     
     socket.on('formation', (data) => {
