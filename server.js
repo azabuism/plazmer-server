@@ -20,8 +20,8 @@ const MAX_ENEMY_BULLETS = 500; // 敵弾上限
 // 武器レベルのデフォルト値（クライアントと同期）
 const DEFAULT_WEAPON_LEVELS = {
     PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0,
-    PHALANX: 0, INTERCEPT: 0, REFLECT: 0,
-    ANCHOR: 0, RIFT: 0, PIERCE: 0, OVERLOAD: 0
+    PHALANX: 1, INTERCEPT: 0, REFLECT: 0, RIFT: 0,
+    ANCHOR: 0, DASH: 1, PIERCE: 0, OVERLOAD: 0
 };
 
 // ========== 敵テンプレート ==========
@@ -39,16 +39,16 @@ const ENEMY_TYPES = {
 };
 
 const BOSS_TYPES = [
-    { name: 'VIRUS-α', color: '#0f0', baseHp: 200, size: 50, pattern: 'radial', speed: 2 },
-    { name: 'BACTERIA-β', color: '#08f', baseHp: 400, size: 55, pattern: 'spiral', speed: 2.5 },
-    { name: 'INFECTION-γ', color: '#f80', baseHp: 600, size: 60, pattern: 'burst', speed: 3 },
-    { name: 'CANCER-δ', color: '#f00', baseHp: 900, size: 70, pattern: 'divide', speed: 2 },
-    { name: 'PLAGUE-ε', color: '#f0f', baseHp: 1200, size: 75, pattern: 'swarm', speed: 3.5 },
-    { name: 'NECROSIS-ζ', color: '#888', baseHp: 1600, size: 80, pattern: 'laser', speed: 2 },
-    { name: 'PANDEMIC-η', color: '#ff0', baseHp: 2000, size: 85, pattern: 'chaos', speed: 4 },
-    { name: 'NIGHTMARE-θ', color: '#f44', baseHp: 2500, size: 90, pattern: 'nightmare', speed: 3 },
-    { name: 'APOCALYPSE-ι', color: '#a0f', baseHp: 3000, size: 95, pattern: 'apocalypse', speed: 3.5 },
-    { name: 'OMEGA-CELL', color: '#fff', baseHp: 4000, size: 120, pattern: 'all', speed: 4 }
+    { name: 'VIRUS-α', color: '#0f0', baseHp: 100, size: 50, pattern: 'radial', speed: 1.5 },  // HP200→100, 速度低下
+    { name: 'BACTERIA-β', color: '#08f', baseHp: 200, size: 55, pattern: 'spiral', speed: 2 }, // HP400→200
+    { name: 'INFECTION-γ', color: '#f80', baseHp: 350, size: 60, pattern: 'burst', speed: 2.5 }, // HP600→350
+    { name: 'CANCER-δ', color: '#f00', baseHp: 500, size: 70, pattern: 'divide', speed: 2 },  // HP900→500
+    { name: 'PLAGUE-ε', color: '#f0f', baseHp: 700, size: 75, pattern: 'swarm', speed: 3 },   // HP1200→700
+    { name: 'NECROSIS-ζ', color: '#888', baseHp: 1000, size: 80, pattern: 'laser', speed: 2 }, // HP1600→1000
+    { name: 'PANDEMIC-η', color: '#ff0', baseHp: 1400, size: 85, pattern: 'chaos', speed: 3.5 }, // HP2000→1400
+    { name: 'NIGHTMARE-θ', color: '#f44', baseHp: 1800, size: 90, pattern: 'nightmare', speed: 3 }, // HP2500→1800
+    { name: 'APOCALYPSE-ι', color: '#a0f', baseHp: 2200, size: 95, pattern: 'apocalypse', speed: 3 }, // HP3000→2200
+    { name: 'OMEGA-CELL', color: '#fff', baseHp: 3000, size: 120, pattern: 'all', speed: 3.5 } // HP4000→3000
 ];
 
 // ========== ルーム管理 ==========
@@ -188,18 +188,24 @@ class GameRoom {
             x: WORLD_W / 2 + (Math.random() - 0.5) * 200,
             y: WORLD_H / 2 + (Math.random() - 0.5) * 200,
             angle: 0,
-            hp: 100,
-            maxHp: 100,
+            hp: 150,     // 100→150に増加
+            maxHp: 150,  // 100→150に増加
             speed: 4.5,
             invincible: 60,
             dashing: false,
             dashTimer: 0,
             weaponLevels: { ...DEFAULT_WEAPON_LEVELS },
-            equipped: { passive: ['PLAZMER', 'HOMING', 'INTERCEPT'], active: null },
+            // 新カテゴリ対応
+            equipped: { 
+                main: 'PLAZMER',      // メイン火力
+                allrange: 'PHALANX',  // オールレンジ
+                tactical: 'DASH',     // 戦術（初期はDASH固定）
+                ultimate: null        // 切り札
+            },
             overload: { available: false, active: false, used: false, timer: 0 },
             thunderEnergy: 0,
             options: [],
-            formation: 0,
+            phalanxFormation: 'defense', // PHALANXフォーメーション
             score: 0,
             alive: true,
             lastInput: { x: 0, y: 0, angle: 0, dash: false },
@@ -411,7 +417,7 @@ class GameRoom {
             // リスポーンタイマー
             if (!player.alive && player.respawnTimer !== undefined) {
                 player.respawnTimer++;
-                if (player.respawnTimer >= 300) {
+                if (player.respawnTimer >= 180) { // 5秒→3秒に短縮
                     this.respawnPlayer(player);
                 }
             }
@@ -973,14 +979,14 @@ class GameRoom {
                 
                 // アイテム吸引（さらに範囲拡大・強化）
                 const dist = Math.hypot(player.x - item.x, player.y - item.y);
-                if (dist < 250) {
-                    const pullStrength = 0.2;
+                if (dist < 400) { // 250→400に拡大
+                    const pullStrength = 0.15 + (1 - dist / 400) * 0.2; // 距離に応じて吸引力UP
                     item.x += (player.x - item.x) * pullStrength;
                     item.y += (player.y - item.y) * pullStrength;
                 }
                 
                 // アイテム取得（さらに範囲拡大）
-                if (dist < 50) {
+                if (dist < 80) { // 50→80に拡大
                     this.collectItem(player, item);
                     item.collected = true;
                 }
@@ -1067,20 +1073,51 @@ class GameRoom {
     }
     
     dropItems(x, y, isBoss) {
-        // 武器と同じ色に合わせる
-        const itemColors = { 
-            PLAZMER: '#0ff',  // シアン（PLAZMER弾と同じ）
-            HOMING: '#a0f',   // 紫（ホーミングミサイルと同じ）
-            LASER: '#0ff',    // シアン（レーザーと同じ）
-            THUNDER: '#ff0',  // 黄色（サンダーと同じ）
-            PHALANX: '#0f0', // 緑（オールレンジと同じ）
-            H: '#f44'         // 赤（HP回復）
+        // 武器カラー定義（新仕様）
+        const WEAPON_COLORS = {
+            PLAZMER:   '#00FFFF',
+            PHALANX:   '#00FF66',
+            HOMING:    '#AA66FF',
+            INTERCEPT: '#66CCFF',
+            LASER:     '#00CCFF',
+            REFLECT:   '#CCFFFF',
+            RIFT:      '#FF44CC',
+            ANCHOR:    '#663399',
+            THUNDER:   '#FFFF33',
+            DASH:      '#FF9933',
+            PIERCE:    '#CC3333',
+            H:         '#FF6666'
+        };
+        
+        // Wave別解放武器マップ
+        const WAVE_UNLOCK = {
+            1: ['PLAZMER', 'PHALANX'],
+            3: ['HOMING'],
+            4: ['INTERCEPT'],
+            6: ['LASER'],
+            7: ['REFLECT'],
+            8: ['RIFT'],
+            10: ['ANCHOR'],
+            12: ['THUNDER'],
+            14: ['DASH'],
+            16: ['PIERCE'],
+            20: ['OVERLOAD']
+        };
+        
+        // 現在のWaveで解放される武器を取得
+        const getUnlockedWeapons = () => {
+            const unlocked = [];
+            for (let w = 1; w <= this.wave; w++) {
+                if (WAVE_UNLOCK[w]) {
+                    unlocked.push(...WAVE_UNLOCK[w]);
+                }
+            }
+            return unlocked.filter(w => w !== 'OVERLOAD'); // OVERLOADはドロップしない
         };
         
         // 安全なアイテム位置を見つける関数
         const findSafeItemPos = (baseX, baseY) => {
             if (!this.checkWall(baseX, baseY)) return { x: baseX, y: baseY };
-            // 壁の中なら周囲を探す
             for (let dist = 20; dist < 150; dist += 20) {
                 for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) {
                     const testX = baseX + Math.cos(a) * dist;
@@ -1092,47 +1129,84 @@ class GameRoom {
                     }
                 }
             }
-            return { x: baseX, y: baseY }; // 見つからなければ元の位置
+            return { x: baseX, y: baseY };
         };
         
         if (isBoss) {
-            const count = 5 + Math.floor(Math.random() * 3);
-            const types = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER', 'PHALANX', 'H'];
-            for (let i = 0; i < count; i++) {
-                const a = (Math.PI * 2 / count) * i;
-                const type = types[Math.floor(Math.random() * types.length)];
-                const pos = findSafeItemPos(x + Math.cos(a) * 60, y + Math.sin(a) * 60);
+            // ボス撃破時：このWaveで解放される武器をドロップ
+            const newWeapons = WAVE_UNLOCK[this.wave] || [];
+            const unlockedWeapons = getUnlockedWeapons();
+            
+            // 新武器をドロップ
+            newWeapons.forEach((type, i) => {
+                if (type === 'OVERLOAD') return; // OVERLOADはドロップしない
+                const a = (Math.PI * 2 / Math.max(1, newWeapons.length)) * i;
+                const pos = findSafeItemPos(x + Math.cos(a) * 50, y + Math.sin(a) * 50);
                 this.items.push({
                     id: 'item_' + this.enemyIdCounter++,
-                    x: pos.x,
-                    y: pos.y,
-                    type,
-                    color: itemColors[type]
+                    x: pos.x, y: pos.y,
+                    type: type,
+                    color: WEAPON_COLORS[type] || '#fff',
+                    isNew: true // 新武器フラグ
+                });
+            });
+            
+            // HP回復も複数ドロップ
+            const hpCount = 3 + Math.floor(this.wave / 5);
+            for (let i = 0; i < hpCount; i++) {
+                const a = Math.random() * Math.PI * 2;
+                const dist = 30 + Math.random() * 80;
+                const pos = findSafeItemPos(x + Math.cos(a) * dist, y + Math.sin(a) * dist);
+                this.items.push({
+                    id: 'item_' + this.enemyIdCounter++,
+                    x: pos.x, y: pos.y,
+                    type: 'H',
+                    color: WEAPON_COLORS.H
+                });
+            }
+            
+            // ランダムで解放済み武器のレベルアップアイテムも
+            const upgradeCount = 2 + Math.floor(Math.random() * 3);
+            for (let i = 0; i < upgradeCount; i++) {
+                const type = unlockedWeapons[Math.floor(Math.random() * unlockedWeapons.length)];
+                if (!type) continue;
+                const a = Math.random() * Math.PI * 2;
+                const dist = 60 + Math.random() * 60;
+                const pos = findSafeItemPos(x + Math.cos(a) * dist, y + Math.sin(a) * dist);
+                this.items.push({
+                    id: 'item_' + this.enemyIdCounter++,
+                    x: pos.x, y: pos.y,
+                    type: type,
+                    color: WEAPON_COLORS[type] || '#fff'
                 });
             }
         } else {
-            if (Math.random() < 0.10) {
-                const types = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'];
-                const type = types[Math.floor(Math.random() * types.length)];
+            // 雑魚撃破時：HP回復中心、たまに武器レベルアップ
+            
+            // HP回復（確率高め）
+            if (Math.random() < 0.20) { // 20%でHP回復
                 const pos = findSafeItemPos(x, y);
                 this.items.push({
                     id: 'item_' + this.enemyIdCounter++,
-                    x: pos.x, y: pos.y, type, color: itemColors[type]
+                    x: pos.x, y: pos.y,
+                    type: 'H',
+                    color: WEAPON_COLORS.H
                 });
             }
-            if (Math.random() < 0.04) {
-                const pos = findSafeItemPos(x, y);
-                this.items.push({
-                    id: 'item_' + this.enemyIdCounter++,
-                    x: pos.x, y: pos.y, type: 'H', color: '#f06'
-                });
-            }
-            if (Math.random() < 0.03) {
-                const pos = findSafeItemPos(x, y);
-                this.items.push({
-                    id: 'item_' + this.enemyIdCounter++,
-                    x: pos.x, y: pos.y, type: 'PHALANX', color: '#0f0'
-                });
+            
+            // 解放済み武器のレベルアップ（低確率）
+            if (Math.random() < 0.08) {
+                const unlockedWeapons = getUnlockedWeapons();
+                const type = unlockedWeapons[Math.floor(Math.random() * unlockedWeapons.length)];
+                if (type) {
+                    const pos = findSafeItemPos(x, y);
+                    this.items.push({
+                        id: 'item_' + this.enemyIdCounter++,
+                        x: pos.x, y: pos.y,
+                        type: type,
+                        color: WEAPON_COLORS[type] || '#fff'
+                    });
+                }
             }
         }
     }
@@ -1441,6 +1515,17 @@ io.on('connection', (socket) => {
             if (idx !== -1) {
                 currentRoom.enemyBullets.splice(idx, 1);
             }
+        }
+    });
+    
+    // INTERCEPT爆風 - 範囲内の敵弾を消す
+    socket.on('interceptExplosion', (data) => {
+        if (currentRoom) {
+            // 爆風範囲内の敵弾を消す
+            currentRoom.enemyBullets = currentRoom.enemyBullets.filter(b => {
+                const dist = Math.hypot(b.x - data.x, b.y - data.y);
+                return dist > data.radius;
+            });
         }
     });
     
