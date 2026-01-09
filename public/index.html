@@ -306,6 +306,18 @@
         <div class="weapon-slot locked" id="w-laser">LASER</div>
         <div class="weapon-slot locked" id="w-thunder">THUNDER</div>
         <div class="weapon-slot locked" id="w-phalanx">PHALANX</div>
+        <div class="weapon-slot locked" id="w-intercept">INTERCEPT</div>
+        <div class="weapon-slot locked" id="w-reflect">REFLECT</div>
+        <div class="weapon-slot locked" id="w-anchor">ANCHOR</div>
+        <div class="weapon-slot locked" id="w-rift">RIFT</div>
+        <div class="weapon-slot locked" id="w-pierce">PIERCE</div>
+    </div>
+    
+    <!-- クールダウン表示 -->
+    <div id="cooldown-display" style="display:none; position:fixed; bottom:80px; right:20px; color:#fff; font-size:12px; text-align:right;">
+        <div id="cd-anchor" style="color:#808">ANCHOR: READY</div>
+        <div id="cd-rift" style="color:#a0f">RIFT: READY</div>
+        <div id="cd-pierce" style="color:#f44">PIERCE: READY</div>
     </div>
     
     <div id="formation-display" style="display:none;">FORMATION: FOLLOW</div>
@@ -420,10 +432,8 @@ let stars = [];
 let nebulaClouds = [];
 let currentWaveTheme = 0;
 let damageFlash = 0; // ダメージ時の赤フラッシュ
-let overloadReady = false; // OVERLOAD発動可能
+// OVERLOAD状態はoverloadStateに統一（下記参照）
 let overloadAlertPulse = 0; // アラートの点滅
-let overloadActive = false; // OVERLOAD発動中
-let overloadUsedThisStage = false; // このステージでOVERLOAD使用済み
 
 // 武器選択システム
 let weaponSelectMode = false; // 武器選択画面表示中
@@ -439,20 +449,21 @@ let pierceGrab = null; // PIERCE掴み
 
 // 武器定義テーブル（完全版）
 const WEAPON_DEFS = {
-    // パッシブ武器（常時発動）
-    PLAZMER: { name: 'PLAZMER', type: 'passive', color: '#0ff', desc: '連射弾', unlockWave: 1 },
-    HOMING: { name: 'HOMING', type: 'passive', color: '#a0f', desc: '追尾ミサイル', unlockWave: 3 },
-    LASER: { name: 'LASER', type: 'passive', color: '#0ff', desc: '反射レーザー', unlockWave: 7 },
-    THUNDER: { name: 'THUNDER', type: 'passive', color: '#ff0', desc: '雷撃', unlockWave: 13 },
-    INTERCEPT: { name: 'INTERCEPT', type: 'passive', color: '#0f0', desc: '自動迎撃', unlockWave: 5 },
-    PHALANX: { name: 'PHALANX', type: 'passive', color: '#0f0', desc: '防御陣形ビット', unlockWave: 9 },
-    REFLECT: { name: 'REFLECT', type: 'passive', color: '#08f', desc: '弾反射シールド', unlockWave: 11 },
-    // アクティブ武器（手動発動）
-    ANCHOR: { name: 'ANCHOR', type: 'active', color: '#808', desc: '重力拘束', unlockWave: 15, cooldown: 300 },
-    RIFT: { name: 'RIFT', type: 'active', color: '#a0f', desc: '空間裂け目', unlockWave: 17, cooldown: 480 },
-    PIERCE: { name: 'PIERCE', type: 'active', color: '#f44', desc: '捕食投擲', unlockWave: 20, cooldown: 180 },
+    // 攻撃武器（パッシブ）
+    PLAZMER: { name: 'PLAZMER', type: 'attack', color: '#0ff', desc: '連射弾', unlockWave: 1 },
+    HOMING: { name: 'HOMING', type: 'attack', color: '#a0f', desc: '追尾ミサイル', unlockWave: 3 },
+    LASER: { name: 'LASER', type: 'attack', color: '#0ff', desc: '反射レーザー', unlockWave: 7 },
+    THUNDER: { name: 'THUNDER', type: 'attack', color: '#ff0', desc: '雷撃', unlockWave: 13 },
+    // 防御武器（パッシブ）
+    INTERCEPT: { name: 'INTERCEPT', type: 'defense', color: '#0f0', desc: '自動迎撃', unlockWave: 5 },
+    PHALANX: { name: 'PHALANX', type: 'defense', color: '#0f0', desc: '防御陣形ビット', unlockWave: 9 },
+    REFLECT: { name: 'REFLECT', type: 'defense', color: '#08f', desc: '弾反射シールド', unlockWave: 11 },
+    // 制圧武器（アクティブ・手動発動）
+    ANCHOR: { name: 'ANCHOR', type: 'control', color: '#808', desc: '重力拘束 [Q]', unlockWave: 15, cooldown: 300 },
+    RIFT: { name: 'RIFT', type: 'control', color: '#a0f', desc: '空間裂け目 [E]', unlockWave: 17, cooldown: 480 },
+    PIERCE: { name: 'PIERCE', type: 'control', color: '#f44', desc: '捕食投擲 [R]', unlockWave: 20, cooldown: 180 },
     // 切り札
-    OVERLOAD: { name: 'OVERLOAD', type: 'ultimate', color: '#fff', desc: '超必殺', unlockWave: 22 }
+    OVERLOAD: { name: 'OVERLOAD', type: 'ultimate', color: '#fff', desc: '超必殺 [X]', unlockWave: 22 }
 };
 
 // デフォルト武器レベル（完全版）
@@ -550,8 +561,17 @@ const ui = {
         homing: document.getElementById('w-homing'),
         laser: document.getElementById('w-laser'),
         thunder: document.getElementById('w-thunder'),
-        phalanx: document.getElementById('w-phalanx')
-    }
+        phalanx: document.getElementById('w-phalanx'),
+        intercept: document.getElementById('w-intercept'),
+        reflect: document.getElementById('w-reflect'),
+        anchor: document.getElementById('w-anchor'),
+        rift: document.getElementById('w-rift'),
+        pierce: document.getElementById('w-pierce')
+    },
+    cooldownDisplay: document.getElementById('cooldown-display'),
+    cdAnchor: document.getElementById('cd-anchor'),
+    cdRift: document.getElementById('cd-rift'),
+    cdPierce: document.getElementById('cd-pierce')
 };
 
 // ========== ユーティリティ関数 ==========
@@ -1197,12 +1217,56 @@ function drawDashEffects() {
 function updateWeaponUI() {
     if (!myPlayer || !myPlayer.weaponLevels) return;
     const wl = myPlayer.weaponLevels;
+    
+    // 基本武器
     ui.weaponSlots.plazmer.textContent = `PLAZMER Lv${wl.PLAZMER}`;
     ui.weaponSlots.plazmer.classList.add('active');
     if (wl.HOMING > 0) { ui.weaponSlots.homing.textContent = `HOMING Lv${wl.HOMING}`; ui.weaponSlots.homing.classList.remove('locked'); ui.weaponSlots.homing.classList.add('active'); }
     if (wl.LASER > 0) { ui.weaponSlots.laser.textContent = `LASER Lv${wl.LASER}`; ui.weaponSlots.laser.classList.remove('locked'); ui.weaponSlots.laser.classList.add('active'); }
     if (wl.THUNDER > 0) { ui.weaponSlots.thunder.textContent = `THUNDER Lv${wl.THUNDER}`; ui.weaponSlots.thunder.classList.remove('locked'); ui.weaponSlots.thunder.classList.add('active'); }
     if (wl.PHALANX > 0) { ui.weaponSlots.phalanx.textContent = `PHALANX Lv${wl.PHALANX}`; ui.weaponSlots.phalanx.classList.remove('locked'); ui.weaponSlots.phalanx.classList.add('active'); }
+    
+    // 新武器（装備状態で表示）
+    const updateSlot = (slot, name, equipped) => {
+        if (equipped) {
+            slot.textContent = name;
+            slot.classList.remove('locked');
+            slot.classList.add('active');
+        }
+    };
+    updateSlot(ui.weaponSlots.intercept, 'INTERCEPT', isEquipped('INTERCEPT'));
+    updateSlot(ui.weaponSlots.reflect, 'REFLECT', isEquipped('REFLECT'));
+    updateSlot(ui.weaponSlots.anchor, 'ANCHOR [Q]', isEquipped('ANCHOR') || equippedWeapons.active === 'ANCHOR');
+    updateSlot(ui.weaponSlots.rift, 'RIFT [E]', isEquipped('RIFT') || equippedWeapons.active === 'RIFT');
+    updateSlot(ui.weaponSlots.pierce, 'PIERCE [R]', isEquipped('PIERCE') || equippedWeapons.active === 'PIERCE');
+}
+
+// クールダウンUI更新
+function updateCooldownUI() {
+    if (!ui.cooldownDisplay) return;
+    
+    const hasActiveWeapon = equippedWeapons.active || 
+        isEquipped('ANCHOR') || isEquipped('RIFT') || isEquipped('PIERCE');
+    
+    ui.cooldownDisplay.style.display = hasActiveWeapon ? 'block' : 'none';
+    
+    const formatCD = (cd, maxCd) => {
+        if (cd <= 0) return 'READY';
+        return `${(cd / 60).toFixed(1)}s`;
+    };
+    
+    if (isEquipped('ANCHOR') || equippedWeapons.active === 'ANCHOR') {
+        ui.cdAnchor.textContent = `ANCHOR: ${formatCD(weaponCooldowns.ANCHOR, 300)}`;
+        ui.cdAnchor.style.opacity = weaponCooldowns.ANCHOR <= 0 ? '1' : '0.5';
+    }
+    if (isEquipped('RIFT') || equippedWeapons.active === 'RIFT') {
+        ui.cdRift.textContent = `RIFT: ${formatCD(weaponCooldowns.RIFT, 480)}`;
+        ui.cdRift.style.opacity = weaponCooldowns.RIFT <= 0 ? '1' : '0.5';
+    }
+    if (isEquipped('PIERCE') || equippedWeapons.active === 'PIERCE') {
+        ui.cdPierce.textContent = `PIERCE: ${formatCD(weaponCooldowns.PIERCE, 180)}`;
+        ui.cdPierce.style.opacity = weaponCooldowns.PIERCE <= 0 ? '1' : '0.5';
+    }
 }
 
 // ========== 武器選択システム ==========
@@ -1227,11 +1291,11 @@ function hideWeaponSelect() {
 }
 
 function populateWeaponOptions(currentWave) {
-    const passiveContainer = document.getElementById('attack-weapons');
+    const attackContainer = document.getElementById('attack-weapons');
     const defenseContainer = document.getElementById('defense-weapons');
     const controlContainer = document.getElementById('control-weapons');
     
-    passiveContainer.innerHTML = '';
+    attackContainer.innerHTML = '';
     defenseContainer.innerHTML = '';
     controlContainer.innerHTML = '';
     
@@ -1252,32 +1316,32 @@ function populateWeaponOptions(currentWave) {
         div.innerHTML = `
             <div class="weapon-name" style="color:${weapon.color}">${weapon.name}</div>
             <div class="weapon-desc">${isUnlocked ? weapon.desc : `WAVE ${weapon.unlockWave}で解放`}</div>
-            <div class="weapon-type" style="font-size:9px;color:#666">${weapon.type.toUpperCase()}</div>
         `;
         
         if (isUnlocked) {
             div.onclick = () => toggleWeaponSelection(key, weapon.type);
         }
         
-        // パッシブ武器は攻撃欄に、アクティブは制御欄に
-        if (weapon.type === 'passive') passiveContainer.appendChild(div);
-        else if (weapon.type === 'active') controlContainer.appendChild(div);
+        // 3カテゴリに振り分け
+        if (weapon.type === 'attack') attackContainer.appendChild(div);
+        else if (weapon.type === 'defense') defenseContainer.appendChild(div);
+        else if (weapon.type === 'control') controlContainer.appendChild(div);
     });
 }
 
 function toggleWeaponSelection(weaponKey, weaponType) {
-    if (weaponType === 'passive') {
+    if (weaponType === 'attack' || weaponType === 'defense') {
+        // 攻撃・防御はパッシブ（最大3つ合計）
         const index = equippedWeapons.passive.indexOf(weaponKey);
         if (index > -1) {
             equippedWeapons.passive.splice(index, 1);
         } else {
-            // パッシブは最大3つ
             if (equippedWeapons.passive.length < 3) {
                 equippedWeapons.passive.push(weaponKey);
             }
         }
-    } else if (weaponType === 'active') {
-        // アクティブは1つだけ
+    } else if (weaponType === 'control') {
+        // 制圧はアクティブ（1つだけ）
         if (equippedWeapons.active === weaponKey) {
             equippedWeapons.active = null;
         } else {
@@ -1695,8 +1759,8 @@ function connectToServer() {
             
             // OVERLOAD発動可能チェック（HP50%以下）
             const hpRatio = myPlayer.hp / (myPlayer.maxHp || 100);
-            if (hpRatio <= 0.5 && !overloadReady) {
-                overloadReady = true;
+            if (hpRatio <= 0.5 && !overloadState.available) {
+                overloadState.available = true;
                 showMessage('⚠ OVERLOAD READY! ⚠');
             }
         }
@@ -2242,6 +2306,13 @@ function updateNewWeapons() {
         if (weaponCooldowns[key] > 0) weaponCooldowns[key]--;
     });
     
+    // クールダウンUI更新
+    updateCooldownUI();
+    
+    // 武器シナジーチェック
+    const synergies = checkWeaponSynergy();
+    applySynergyEffects(synergies);
+    
     // INTERCEPT更新
     interceptLasers.forEach(l => l.update());
     interceptLasers = interceptLasers.filter(l => !l.dead);
@@ -2285,6 +2356,48 @@ function updateNewWeapons() {
         const hpRatio = myPlayer.hp / (myPlayer.maxHp || 100);
         const currentWave = gameState ? (gameState.wave || 1) : 1;
         overloadState.available = (hpRatio <= 0.5 && currentWave >= 22 && !overloadState.usedThisStage && !overloadState.active);
+    }
+}
+
+// シナジー効果を適用
+let activeSynergies = [];
+function applySynergyEffects(synergies) {
+    // 新しいシナジーが発動したら通知
+    synergies.forEach(syn => {
+        if (!activeSynergies.includes(syn)) {
+            activeSynergies.push(syn);
+            // シナジー発動通知（初回のみ）
+            if (syn === 'JUDGMENT_SPIRE') {
+                showMessage('⚡ JUDGMENT SPIRE ⚡');
+            } else if (syn === 'SUPERNOVA_MAW') {
+                showMessage('💥 SUPERNOVA MAW 💥');
+            } else if (syn === 'DEVOURER') {
+                showMessage('🌀 DEVOURER 🌀');
+            }
+        }
+    });
+    
+    // JUDGMENT SPIRE: ANCHORで固定された敵にTHUNDERが集中
+    if (synergies.includes('JUDGMENT_SPIRE')) {
+        anchorProjectiles.forEach(anchor => {
+            if (anchor.anchored && anchor.anchored.type === 'enemy') {
+                // 雷が集中落下する視覚効果
+                if (frame % 20 === 0 && myPlayer.thunderEnergy >= 180) {
+                    // 固定された敵に追加ダメージ
+                    socket.emit('hit', { 
+                        enemyId: anchor.anchored.id, 
+                        damage: 15, 
+                        weaponType: 'JUDGMENT_SPIRE' 
+                    });
+                }
+            }
+        });
+    }
+    
+    // DEVOURER: PIERCEで掴んだ敵をRIFTに投げ込む
+    if (synergies.includes('DEVOURER') && pierceGrab && riftVortex) {
+        // RIFTの吸引ダメージが増加
+        riftVortex.damage = 5; // 通常の2.5倍
     }
 }
 
@@ -3931,7 +4044,7 @@ function draw() {
     if (myPlayer && myPlayer.alive) {
         const hpRatio = myPlayer.hp / (myPlayer.maxHp || 100);
         if (hpRatio <= 0.5) {
-            overloadReady = true;
+            overloadState.available = true;
             overloadAlertPulse += 0.15;
             const pulse = Math.sin(overloadAlertPulse) * 0.5 + 0.5;
             
@@ -3958,7 +4071,7 @@ function draw() {
             }
             ctx.restore();
         } else {
-            overloadReady = false;
+            overloadState.available = false;
         }
     }
     
