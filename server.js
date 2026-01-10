@@ -414,10 +414,16 @@ class GameRoom {
                     player.overload.active = false;
                 }
             }
-            // リスポーンタイマー
-            if (!player.alive && player.respawnTimer !== undefined) {
+
+            // ★修正箇所：リスポーンタイマーの処理
+            if (!player.alive) {
+                // もしタイマーが未定義なら0で初期化（これが「3」で止まるのを防ぐ）
+                if (typeof player.respawnTimer !== 'number') player.respawnTimer = 0;
+                
                 player.respawnTimer++;
-                if (player.respawnTimer >= 180) { // 5秒→3秒に短縮
+                
+                // 180フレーム（3秒）でリスポーン
+                if (player.respawnTimer >= 180) { 
                     this.respawnPlayer(player);
                 }
             }
@@ -444,7 +450,7 @@ class GameRoom {
             this.spawnMobs();
         }
         
-        // プレイヤー更新（alive状態）
+        // プレイヤー更新（alive状態のみ）
         this.players.forEach(player => {
             if (!player.alive) return;
             this.updatePlayer(player);
@@ -459,7 +465,7 @@ class GameRoom {
         // アイテム更新
         this.updateItems();
         
-        // ボス全滅チェック（ボスがスポーンされるまでスキップ）
+        // ボス全滅チェック
         const activeBosses = this.currentBosses.filter(b => b.hp > 0);
         if (this.currentBosses.length > 0 && activeBosses.length === 0) {
             this.currentBosses = [];
@@ -477,7 +483,6 @@ class GameRoom {
             setTimeout(() => {
                 if (this.state === 'playing') {
                     this.state = 'weaponSelect';
-                    // 全プレイヤーのloadoutReadyをリセット
                     this.players.forEach(p => p.loadoutReady = false);
                     io.to(this.id).emit('weaponSelect', { 
                         nextWave: this.wave + 1,
@@ -496,14 +501,8 @@ class GameRoom {
     }
     
     updatePlayer(player) {
-        // リスポーン処理
-        if (!player.alive) {
-            player.respawnTimer++;
-            if (player.respawnTimer >= 300) { // 5秒でリスポーン
-                this.respawnPlayer(player);
-            }
-            return;
-        }
+        // ★修正箇所：ここにあった「if (!player.alive)...」のブロックを削除
+        // そもそも生きていないとこの関数は呼ばれないため不要です。
         
         // invincibleとoverloadはupdate()で既に更新済み
         
@@ -531,9 +530,9 @@ class GameRoom {
                 
                 const dist = Math.hypot(e.x - player.x, e.y - player.y);
                 if (dist < e.size + 20) {
-                    // ダッシュ攻撃ダメージ（1回のみ）
+                    // ダッシュ攻撃ダメージ
                     const damage = 15;
-                    player.dashHitEnemies.add(e.id); // ヒット記録
+                    player.dashHitEnemies.add(e.id);
                     e.hp -= damage;
                     io.to(this.id).emit('enemyDamaged', { 
                         enemyId: e.id, damage, 
@@ -554,8 +553,7 @@ class GameRoom {
             
             if (player.dashTimer <= 0) {
                 player.dashing = false;
-                player.dashHitEnemies.clear(); // DASH終了時にクリア
-                // ダッシュ終了時に壁の中にいたら脱出
+                player.dashHitEnemies.clear();
                 if (this.checkWall(player.x, player.y)) {
                     this.escapeFromWall(player);
                 }
@@ -575,7 +573,7 @@ class GameRoom {
         player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
         player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
         
-        // サンダーエネルギー（180でキャップ）
+        // サンダーエネルギー
         if (player.weaponLevels.THUNDER > 0 && player.thunderEnergy < 180) {
             player.thunderEnergy++;
         }
@@ -1026,6 +1024,8 @@ class GameRoom {
         
         if (player.hp <= 0) {
             player.alive = false;
+            // ★修正箇所：死んだ瞬間にタイマーを0リセット（これで確実にカウントが始まる）
+            player.respawnTimer = 0; 
             io.to(this.id).emit('playerDied', { playerId: player.id, name: player.name });
         }
     }
