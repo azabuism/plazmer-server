@@ -14,16 +14,15 @@ app.use(express.static('public'));
 const WORLD_W = 3000, WORLD_H = 3000;
 const TICK_RATE = 60;
 const TICK_INTERVAL = 1000 / TICK_RATE;
-const MAX_ENEMY_BULLETS = 500; // 敵弾上限
+const MAX_ENEMY_BULLETS = 500;
 
-// 武器レベルのデフォルト値（クライアントと同期）
 const DEFAULT_WEAPON_LEVELS = {
     PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0,
     PHALANX: 1, INTERCEPT: 0, REFLECT: 0, RIFT: 0,
     ANCHOR: 0, DASH: 1, PIERCE: 0, OVERLOAD: 0
 };
 
-// ========== 敵テンプレート ==========
+// ========== 敵データ ==========
 const ENEMY_TYPES = {
     virus: { hp: 3, speed: 1.8, size: 10, color: '#0f0', score: 50 },
     bacteria: { hp: 5, speed: 1.3, size: 14, color: '#0a0', score: 60 },
@@ -50,7 +49,14 @@ const BOSS_TYPES = [
     { name: 'OMEGA-CELL', color: '#fff', baseHp: 3000, size: 120, pattern: 'all', speed: 3.5 }
 ];
 
-// ========== ルーム管理 ==========
+const PLAYER_COLORS = [
+    { main: '#ffffff', glow: '#0ff', name: 'WHITE' },
+    { main: '#ff4444', glow: '#f00', name: 'RED' },
+    { main: '#aa44ff', glow: '#a0f', name: 'PURPLE' },
+    { main: '#4488ff', glow: '#08f', name: 'BLUE' }
+];
+
+// ========== ゲームクラス ==========
 const rooms = new Map();
 
 class GameRoom {
@@ -69,12 +75,10 @@ class GameRoom {
         this.waveTimer = 0;
         this.mobTimer = 0;
         this.currentBosses = [];
-        
         this.generateWalls(0);
     }
-    
-    // ... generateWalls, checkWall, getWallNormal, escapeFromWall, addPlayer ...
-    // (これらは変更がないため、スペース節約のため省略していませんが、以前のコードと同じです)
+
+    // --- マップ生成・判定 ---
     generateWalls(waveNum) {
         this.walls = [];
         const thickness = 50;
@@ -82,6 +86,7 @@ class GameRoom {
         this.walls.push({ x: 0, y: WORLD_H - thickness, w: WORLD_W, h: thickness, type: 'border' });
         this.walls.push({ x: 0, y: 0, w: thickness, h: WORLD_H, type: 'border' });
         this.walls.push({ x: WORLD_W - thickness, y: 0, w: thickness, h: WORLD_H, type: 'border' });
+
         const gridSize = 300;
         const cellsX = Math.floor(WORLD_W / gridSize);
         const cellsY = Math.floor(WORLD_H / gridSize);
@@ -109,7 +114,7 @@ class GameRoom {
             if (!overlap) this.walls.push({ x: x - size/2, y: y - size/2, w: size, h: size, type: 'cell', cx: x, cy: y, radius: size / 2 });
         }
     }
-    
+
     checkWall(x, y) {
         for (const w of this.walls) {
             if (w.type === 'cell') { if (Math.hypot(x - w.cx, y - w.cy) < w.radius) return true; }
@@ -117,7 +122,7 @@ class GameRoom {
         }
         return false;
     }
-    
+
     getWallNormal(x, y) {
         for (const w of this.walls) {
             if (w.type === 'cell') {
@@ -131,7 +136,7 @@ class GameRoom {
         if (y > WORLD_H - 60) return { x: 0, y: -1 };
         return null;
     }
-    
+
     escapeFromWall(entity) {
         if (!this.checkWall(entity.x, entity.y)) return false;
         for (let dist = 10; dist < 500; dist += 10) {
@@ -145,7 +150,8 @@ class GameRoom {
         }
         return false;
     }
-    
+
+    // --- プレイヤー管理 ---
     addPlayer(socket, name, isHost = false) {
         const playerIndex = this.players.size;
         const colorData = PLAYER_COLORS[Math.min(playerIndex, PLAYER_COLORS.length - 1)];
@@ -170,131 +176,21 @@ class GameRoom {
         this.players.set(socket.id, player);
         return player;
     }
-    
+
     removePlayer(socketId) {
         this.players.delete(socketId);
         if (this.players.size === 0) rooms.delete(this.id);
     }
-    
-    startGame() {
-        if (this.state !== 'waiting') return;
-        this.state = 'playing';
-        this.wave = 0; this.score = 0; this.frame = 0; this.waveTimer = 0;
-        this.enemies = []; this.enemyBullets = []; this.items = [];
-        this.generateWalls(0);
-        io.to(this.id).emit('gameStart', { wave: this.wave });
-    }
-    
-    startWave() {
-        this.wave++;
-        this.generateWalls(this.wave);
-        this.currentBosses = [];
-        this.enemies = this.enemies.filter(e => e.isBoss === false);
-        this.players.forEach(player => {
-            if (player.alive && this.checkWall(player.x, player.y)) this.escapeFromWall(player);
-        });
-        io.to(this.id).emit('waveStart', { wave: this.wave, walls: this.walls });
-        
-        let bossCount = 1;
-        if (this.wave >= 50) bossCount = 3; else if (this.wave >= 20) bossCount = 2;
-        if (this.wave % 10 === 0) bossCount += 1;
-        const playerCount = this.players.size;
-        const multiplayerScale = 1 + (playerCount - 1) * 0.5;
-        
-        setTimeout(() => {
-            for (let i = 0; i < bossCount; i++) this.spawnBoss(multiplayerScale);
-        }, 1500);
-    }
-    
-    spawnBoss(multiplayerScale = 1) {
-        const bossIndex = (this.wave - 1) % BOSS_TYPES.length;
-        const template = BOSS_TYPES[bossIndex];
-        let waveScale = 1 + Math.floor(this.wave / 5) * 1.0;
-        if (this.wave > 20) waveScale *= (1 + (this.wave - 20) * 0.5);
-        const pos = this.findSafeSpawnPosition(500);
-        const boss = {
-            id: 'boss_' + (this.enemyIdCounter++),
-            type: 'boss', bossType: bossIndex, pattern: template.pattern, name: template.name,
-            x: pos.x, y: pos.y,
-            hp: Math.floor(template.baseHp * waveScale * multiplayerScale * 1.5),
-            maxHp: Math.floor(template.baseHp * waveScale * multiplayerScale * 1.5),
-            speed: 1.5, size: template.size + Math.floor(this.wave / 5) * 2, color: template.color,
-            score: 3000 + this.wave * 500, isBoss: true, timer: 0, attackTimer: 0, phase: 0
-        };
-        this.enemies.push(boss);
-        this.currentBosses.push(boss);
-        io.to(this.id).emit('bossSpawn', { boss: this.sanitizeEnemy(boss), bossCount: this.currentBosses.filter(b => b.hp > 0).length });
-    }
-    
-    spawnEnemy(type, x, y) {
-        const template = ENEMY_TYPES[type];
-        if (!template) return null;
-        let waveScale = 1 + this.wave * 0.1;
-        let speedMult = 1;
-        if (this.wave > 20) {
-            const hardModeFactor = 1 + Math.pow((this.wave - 20) * 0.1, 2);
-            waveScale *= hardModeFactor;
-            speedMult = 1.3 + Math.min(0.5, (this.wave - 20) * 0.02);
-        }
-        const enemy = {
-            id: 'e_' + (this.enemyIdCounter++),
-            type, x, y,
-            hp: Math.floor(template.hp * waveScale), maxHp: Math.floor(template.hp * waveScale),
-            speed: Math.min(template.speed * 2.5 * speedMult, (template.speed + this.wave * 0.05) * speedMult),
-            size: template.size, color: template.color, score: template.score,
-            shoots: template.shoots || false, armor: template.armor || false, divides: template.divides || false,
-            isBoss: false, timer: Math.floor(Math.random() * 60), phase: Math.random() * Math.PI * 2
-        };
-        this.enemies.push(enemy);
-        return enemy;
-    }
-    
-    spawnMobs() {
-        const activeBosses = this.currentBosses.filter(b => b.hp > 0);
-        if (activeBosses.length === 0) return;
-        const maxMobs = Math.min(150, 30 + this.wave * 2);
-        const mobCount = this.enemies.filter(e => !e.isBoss && e.hp > 0).length;
-        if (mobCount >= maxMobs) return;
-        const batchSize = 1 + Math.floor(this.wave / 10);
-        for (let i = 0; i < batchSize; i++) {
-            const pos = this.findSafeSpawnPosition(250);
-            const types = ['virus', 'bacteria'];
-            if (this.wave >= 2) types.push('infected', 'toxin');
-            if (this.wave >= 4) types.push('mutant', 'parasite');
-            if (this.wave >= 6) types.push('cancer');
-            if (this.wave >= 8) types.push('tumor', 'plague');
-            if (this.wave >= 10) types.push('necrosis');
-            const type = types[Math.floor(Math.random() * types.length)];
-            this.spawnEnemy(type, pos.x, pos.y);
-        }
-    }
-    
-    findSafeSpawnPosition(minDist) {
-        for (let i = 0; i < 50; i++) {
-            const x = 150 + Math.random() * (WORLD_W - 300);
-            const y = 150 + Math.random() * (WORLD_H - 300);
-            if (this.checkWall(x, y)) continue;
-            let tooClose = false;
-            this.players.forEach(player => {
-                if (player.alive && Math.hypot(player.x - x, player.y - y) < minDist) tooClose = true;
-            });
-            if (tooClose) continue;
-            return { x, y };
-        }
-        return { x: WORLD_W - 300, y: WORLD_H - 300 };
-    }
-    
-    // ========== UPDATE関数（ここを大幅修正して確実にしました） ==========
+
+    // --- ゲームループ関連 ---
     update() {
         if (this.state === 'waiting') return;
-        
         this.frame++;
-        
-        // ★リスポーン管理（最優先・独立して実行）
+
+        // ★★★ リスポーンタイマー処理（最優先） ★★★
         this.players.forEach(player => {
-            // 死んでいる場合のみ処理
             if (!player.alive) {
-                // 安全策：undefinedなら0にする
+                // 安全策：タイマーが未定義なら0にする
                 if (typeof player.respawnTimer !== 'number') player.respawnTimer = 0;
                 
                 // カウントアップ
@@ -310,7 +206,7 @@ class GameRoom {
                     this.respawnPlayer(player);
                 }
             } else {
-                // 生きているプレイヤーのタイマー・無敵・オーバーロード更新
+                // 生存中の更新
                 if (player.invincible > 0) player.invincible--;
                 if (player.overload && player.overload.active) {
                     player.overload.timer--;
@@ -318,28 +214,27 @@ class GameRoom {
                 }
             }
         });
-        
+
         if (this.state === 'weaponSelect') {
             this.broadcastState();
             return;
         }
-        
-        // --- ゲーム進行 ---
+
         this.waveTimer++;
         this.mobTimer++;
-        
+
         if (this.wave === 0 && this.waveTimer > 60) this.startWave();
         if (this.mobTimer >= 60) { this.mobTimer = 0; this.spawnMobs(); }
-        
-        // 生きているプレイヤーの更新
+
+        // 生きているプレイヤーのみ更新
         this.players.forEach(player => {
             if (player.alive) this.updatePlayer(player);
         });
-        
+
         this.updateEnemies();
         this.updateEnemyBullets();
         this.updateItems();
-        
+
         // ボス全滅判定
         const activeBosses = this.currentBosses.filter(b => b.hp > 0);
         if (this.currentBosses.length > 0 && activeBosses.length === 0) {
@@ -352,24 +247,20 @@ class GameRoom {
                 if (this.state === 'playing') {
                     this.state = 'weaponSelect';
                     this.players.forEach(p => p.loadoutReady = false);
-                    io.to(this.id).emit('weaponSelect', { 
+                    io.to(this.id).emit('weaponSelect', {
                         nextWave: this.wave + 1,
                         players: Array.from(this.players.values()).map(p => ({ id: p.id, name: p.name, loadoutReady: false }))
                     });
                 }
             }, 3000);
         }
-        
+
         if (this.frame % 2 === 0) this.broadcastState();
     }
-    
+
     updatePlayer(player) {
-        // ★修正済み：ここには「生きているプレイヤー」しか来ないため、死んでいる判定は不要
-        
-        if (this.checkWall(player.x, player.y) && !player.dashing) {
-            this.escapeFromWall(player);
-        }
-        
+        if (this.checkWall(player.x, player.y) && !player.dashing) this.escapeFromWall(player);
+
         if (player.dashing) {
             player.dashTimer--;
             const vx = Math.cos(player.angle) * 35;
@@ -377,7 +268,7 @@ class GameRoom {
             player.x += vx; player.y += vy;
             player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
             player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
-            
+
             if (!player.dashHitEnemies) player.dashHitEnemies = new Set();
             this.enemies.forEach(e => {
                 if (e.hp <= 0) return;
@@ -395,7 +286,7 @@ class GameRoom {
                     }
                 }
             });
-            
+
             if (player.dashTimer <= 0) {
                 player.dashing = false;
                 player.dashHitEnemies.clear();
@@ -413,7 +304,10 @@ class GameRoom {
         }
         player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
         player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
+        
         if (player.weaponLevels.THUNDER > 0 && player.thunderEnergy < 180) player.thunderEnergy++;
+        
+        // 敵との接触（ダメージ処理）
         this.enemies.forEach(enemy => {
             if (enemy.hp <= 0) return;
             if (Math.hypot(player.x - enemy.x, player.y - enemy.y) < 8 + enemy.size) {
@@ -423,7 +317,21 @@ class GameRoom {
             }
         });
     }
-    
+
+    damagePlayer(player, damage) {
+        if (player.invincible > 0 || player.dashing) return;
+        player.hp -= damage;
+        player.invincible = 30;
+        io.to(player.id).emit('playerDamaged', { hp: player.hp, damage });
+        
+        if (player.hp <= 0) {
+            player.alive = false;
+            player.respawnTimer = 0; // ★ここで確実に0リセット
+            io.to(this.id).emit('playerDied', { playerId: player.id, name: player.name });
+            console.log(`[DEBUG] Player ${player.name} DIED. Timer reset to 0.`);
+        }
+    }
+
     respawnPlayer(player) {
         const pos = this.findSafeSpawnPosition(300);
         player.x = pos.x;
@@ -434,25 +342,25 @@ class GameRoom {
         player.respawnTimer = 0;
         player.dashing = false;
         player.dashTimer = 0;
-        
+
         player.weaponLevels.PLAZMER = Math.max(1, Math.floor(player.weaponLevels.PLAZMER / 2));
         player.weaponLevels.HOMING = Math.floor(player.weaponLevels.HOMING / 2);
         player.weaponLevels.LASER = Math.floor(player.weaponLevels.LASER / 2);
         player.weaponLevels.THUNDER = Math.floor(player.weaponLevels.THUNDER / 2);
         player.weaponLevels.PHALANX = Math.floor(player.weaponLevels.PHALANX / 2);
-        
+
         const newOptionCount = Math.floor(player.options.length / 2);
         player.options = player.options.slice(0, newOptionCount);
-        
+
         io.to(player.id).emit('respawned', {
             x: player.x, y: player.y, hp: player.hp,
             weaponLevels: player.weaponLevels, options: player.options.length
         });
         io.to(this.id).emit('playerRespawned', { playerId: player.id, name: player.name });
-        
         console.log(`[DEBUG] Player ${player.name} RESPAWNED!`);
     }
-    
+
+    // --- その他ロジック ---
     updateEnemies() {
         const findNearestPlayer = (x, y) => {
             let nearest = null, minDist = Infinity;
@@ -463,7 +371,6 @@ class GameRoom {
             });
             return nearest;
         };
-        
         this.enemies.forEach(enemy => {
             if (enemy.hp <= 0) return;
             enemy.timer++;
@@ -473,7 +380,6 @@ class GameRoom {
                 return;
             }
             if (this.checkWall(enemy.x, enemy.y)) this.escapeFromWall(enemy);
-            
             const target = findNearestPlayer(enemy.x, enemy.y);
             if (target) {
                 const angle = Math.atan2(target.y - enemy.y, target.x - enemy.x);
@@ -486,17 +392,14 @@ class GameRoom {
                 }
                 if (enemy.shoots && enemy.timer % 90 === 0) {
                     const a = Math.atan2(target.y - enemy.y, target.x - enemy.x);
-                    this.enemyBullets.push({
-                        id: 'eb_' + this.enemyIdCounter++, x: enemy.x, y: enemy.y,
-                        vx: Math.cos(a) * 5, vy: Math.sin(a) * 5, life: 120, size: 5, color: enemy.color
-                    });
+                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: enemy.x, y: enemy.y, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5, life: 120, size: 5, color: enemy.color });
                 }
                 if (enemy.isBoss) { enemy.attackTimer++; this.bossAttack(enemy, target); }
             }
         });
         this.enemies = this.enemies.filter(e => e.hp > 0);
     }
-    
+
     bossAttack(boss, target) {
         const angle = Math.atan2(target.y - boss.y, target.x - boss.x);
         switch (boss.pattern) {
@@ -518,8 +421,7 @@ class GameRoom {
             case 'burst':
                 if (boss.attackTimer % 40 === 0) {
                     for (let i = 0; i < 8; i++) {
-                        const a = angle + (Math.random() - 0.5) * 0.8;
-                        const speed = 4 + Math.random() * 3;
+                        const a = angle + (Math.random() - 0.5) * 0.8; const speed = 4 + Math.random() * 3;
                         this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, life: 60, size: 8, color: '#f80' });
                     }
                 }
@@ -598,11 +500,35 @@ class GameRoom {
                     this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a1) * 5, vy: Math.sin(a1) * 5, life: 150, size: 6, color: '#fff' });
                     this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a2) * 5, vy: Math.sin(a2) * 5, life: 150, size: 6, color: '#fff' });
                 }
-                // (以下略、元のコードと同じ)
+                if (phase === 1 && boss.attackTimer % 40 === 0) {
+                    for (let i = 0; i < 24; i++) {
+                        const a = (Math.PI * 2 / 24) * i + boss.phase;
+                        this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 4, vy: Math.sin(a) * 4, life: 200, size: 8, color: '#ff0' });
+                    }
+                    boss.phase += 0.15;
+                }
+                if (phase === 2 && boss.attackTimer % 5 === 0) {
+                    const a = angle + (Math.random() - 0.5) * 2;
+                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 8, vy: Math.sin(a) * 8, life: 80, size: 5, color: '#f00' });
+                }
+                if (phase === 3 && boss.attackTimer % 60 === 0) {
+                    for (let dir = 0; dir < 8; dir++) {
+                        const baseA = dir * (Math.PI / 4);
+                        for (let j = 0; j < 15; j++) {
+                            this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x + Math.cos(baseA) * j * 30, y: boss.y + Math.sin(baseA) * j * 30, vx: Math.cos(baseA) * 12, vy: Math.sin(baseA) * 12, life: 25, size: 6, color: '#0ff' });
+                        }
+                    }
+                }
+                if (phase === 4 && boss.attackTimer % 15 === 0) {
+                    for (let i = 0; i < 8; i++) {
+                        const a = (Math.PI * 2 / 8) * i + boss.timer * 0.15;
+                        this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 6, vy: Math.sin(a) * 6, life: 120, size: 7, color: '#f0f' });
+                    }
+                }
                 break;
         }
     }
-    
+
     updateEnemyBullets() {
         this.enemyBullets.forEach(b => {
             if (b.homing && b.target) {
@@ -629,7 +555,7 @@ class GameRoom {
         this.enemyBullets = this.enemyBullets.filter(b => !b.dead);
         if (this.enemyBullets.length > MAX_ENEMY_BULLETS) this.enemyBullets = this.enemyBullets.slice(-MAX_ENEMY_BULLETS);
     }
-    
+
     updateItems() {
         this.items.forEach(item => {
             if (this.checkWall(item.x, item.y)) {
@@ -653,7 +579,7 @@ class GameRoom {
         });
         this.items = this.items.filter(i => !i.collected);
     }
-    
+
     collectItem(player, item) {
         if (item.type === 'H') player.hp = Math.min(player.maxHp, player.hp + 30);
         else if (item.type === 'PHALANX') {
@@ -662,7 +588,7 @@ class GameRoom {
         } else player.weaponLevels[item.type] = (player.weaponLevels[item.type] || 0) + 1;
         io.to(player.id).emit('itemCollected', { type: item.type, weaponLevels: player.weaponLevels, hp: player.hp, options: player.options.length });
     }
-    
+
     damagePlayer(player, damage) {
         if (player.invincible > 0 || player.dashing) return;
         player.hp -= damage;
@@ -670,15 +596,12 @@ class GameRoom {
         io.to(player.id).emit('playerDamaged', { hp: player.hp, damage });
         if (player.hp <= 0) {
             player.alive = false;
-            // ★死んだ瞬間にタイマーを0リセット（これで確実にカウントが始まる）
-            player.respawnTimer = 0; 
+            player.respawnTimer = 0; // ★ここで確実に0リセット
             io.to(this.id).emit('playerDied', { playerId: player.id, name: player.name });
             console.log(`[DEBUG] Player ${player.name} DIED. Timer reset to 0.`);
         }
     }
-    
-    // ... damageEnemy, defeatEnemy, dropItems, handlePlayerInput, handlePlayerShoot ...
-    // (これらは以前と同じため省略)
+
     damageEnemy(enemyId, damage, weaponType, attackerId) {
         const enemy = this.enemies.find(e => e.id === enemyId);
         if (!enemy || enemy.hp <= 0) return;
@@ -687,7 +610,7 @@ class GameRoom {
         if (enemy.hp <= 0) this.defeatEnemy(enemy, attackerId);
         return enemy.hp;
     }
-    
+
     defeatEnemy(enemy, attackerId) {
         const attacker = this.players.get(attackerId);
         if (attacker) attacker.score += enemy.score;
@@ -701,11 +624,8 @@ class GameRoom {
         }
         io.to(this.id).emit('enemyDefeated', { enemyId: enemy.id, isBoss: enemy.isBoss, score: this.score });
     }
-    
+
     dropItems(x, y, isBoss) {
-        // (省略：同じ)
-        // コードが長すぎるため、ここだけは以前の dropItems をそのまま使ってください
-        // 中身は変更ありません
         const WEAPON_COLORS = { PLAZMER:'#00FFFF',PHALANX:'#00FF66',HOMING:'#AA66FF',INTERCEPT:'#66CCFF',LASER:'#00CCFF',REFLECT:'#CCFFFF',RIFT:'#FF44CC',ANCHOR:'#663399',THUNDER:'#FFFF33',DASH:'#FF9933',PIERCE:'#CC3333',H:'#FF6666' };
         const WAVE_UNLOCK = { 1:['PLAZMER','PHALANX'],3:['HOMING'],4:['INTERCEPT'],6:['LASER'],7:['REFLECT'],8:['RIFT'],10:['ANCHOR'],12:['THUNDER'],14:['DASH'],16:['PIERCE'],20:['OVERLOAD'] };
         const getUnlockedWeapons = () => { const unlocked=[]; for(let w=1;w<=this.wave;w++) if(WAVE_UNLOCK[w]) unlocked.push(...WAVE_UNLOCK[w]); return unlocked.filter(w=>w!=='OVERLOAD'); };
@@ -727,7 +647,7 @@ class GameRoom {
             if(Math.random()<0.08){ const t=getUnlockedWeapons()[Math.floor(Math.random()*getUnlockedWeapons().length)]; if(t){ const p=findSafeItemPos(x,y); this.items.push({id:'item_'+this.enemyIdCounter++,x:p.x,y:p.y,type:t,color:WEAPON_COLORS[t]||'#fff'}); } }
         }
     }
-    
+
     handlePlayerInput(socketId, input) {
         const player = this.players.get(socketId);
         if (!player || !player.alive) return;
@@ -740,7 +660,7 @@ class GameRoom {
             player.dashing = true; player.dashTimer = 10; player.invincible = Math.max(player.invincible, 12);
         }
     }
-    
+
     handlePlayerShoot(socketId, data) {
         const player = this.players.get(socketId);
         if (!player || !player.alive) return;
@@ -748,24 +668,24 @@ class GameRoom {
             data.hits.forEach(hit => { this.damageEnemy(hit.enemyId, hit.damage, hit.weaponType, socketId); });
         }
     }
-    
+
     sanitizePlayer(player) {
         return {
             id: player.id, name: player.name, x: player.x, y: player.y, angle: player.angle,
             hp: player.hp, maxHp: player.maxHp, invincible: player.invincible, dashing: player.dashing, alive: player.alive,
             weaponLevels: player.weaponLevels, thunderEnergy: player.thunderEnergy, options: player.options, formation: player.formation, score: player.score,
             isHost: player.isHost, playerIndex: player.playerIndex, color: player.color, glowColor: player.glowColor, colorName: player.colorName, ready: player.ready,
-            respawnTimer: player.respawnTimer // ★これが送られていることが重要
+            respawnTimer: player.respawnTimer
         };
     }
-    
+
     sanitizeEnemy(enemy) {
         return {
             id: enemy.id, type: enemy.type, x: enemy.x, y: enemy.y, hp: enemy.hp, maxHp: enemy.maxHp,
             size: enemy.size, color: enemy.color, isBoss: enemy.isBoss, name: enemy.name, pattern: enemy.pattern
         };
     }
-    
+
     broadcastState() {
         const state = {
             frame: this.frame, wave: this.wave, score: this.score,
@@ -779,18 +699,14 @@ class GameRoom {
     }
 }
 
-// ... generateRoomCode, PLAYER_COLORS, socket logic ...
-// (これらも変更なしのため省略していますが、元のコードのままでOKです)
-// 元のコードの io.on('connection') 以降をそのまま使用してください
-
 function generateRoomCode() {
     let code; do { code = Math.floor(1000 + Math.random() * 9000).toString(); } while (rooms.has(code)); return code;
 }
-const PLAYER_COLORS = [ { main:'#ffffff',glow:'#0ff',name:'WHITE' }, { main:'#ff4444',glow:'#f00',name:'RED' }, { main:'#aa44ff',glow:'#a0f',name:'PURPLE' }, { main:'#4488ff',glow:'#08f',name:'BLUE' } ];
 
 io.on('connection', (socket) => {
     console.log('Player connected:', socket.id);
     let currentRoom = null;
+
     socket.on('hostRoom', (data) => {
         const playerName = data.name || 'Host'; const roomId = generateRoomCode();
         const room = new GameRoom(roomId); room.hostId = socket.id; rooms.set(roomId, room);
@@ -799,6 +715,7 @@ io.on('connection', (socket) => {
         socket.emit('hosted', { playerId: socket.id, roomId: roomId, player: currentRoom.sanitizePlayer(player), walls: currentRoom.walls, state: currentRoom.state, wave: currentRoom.wave, players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p)) });
         console.log(`Player ${playerName} hosted room ${roomId}`);
     });
+
     socket.on('joinRoom', (data) => {
         const roomId = data.roomId; const playerName = data.name || 'Player';
         if (!rooms.has(roomId)) { socket.emit('joinError', { message: `Room ${roomId} not found!` }); return; }
@@ -811,9 +728,13 @@ io.on('connection', (socket) => {
         socket.to(roomId).emit('playerJoined', { player: currentRoom.sanitizePlayer(player), players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p)) });
         console.log(`Player ${playerName} joined room ${roomId} as Guest ${player.playerIndex}`);
     });
-    socket.on('playerReady', () => { if (!currentRoom) return; const player = currentRoom.players.get(socket.id); if (player && !player.isHost) { player.ready = true; io.to(currentRoom.id).emit('playerReadyUpdate', { playerId: socket.id, players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p)) }); console.log(`Player ${player.name} is READY in room ${currentRoom.id}`); } });
-    socket.on('startGame', () => { if (!currentRoom) return; if (currentRoom.hostId !== socket.id) return; if (currentRoom.state !== 'waiting') return; currentRoom.startGame(); io.to(currentRoom.id).emit('gameStarted', { players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p)) }); console.log(`Game started in room ${currentRoom.id}`); });
+
+    socket.on('playerReady', () => { if (!currentRoom) return; const player = currentRoom.players.get(socket.id); if (player && !player.isHost) { player.ready = true; io.to(currentRoom.id).emit('playerReadyUpdate', { playerId: socket.id, players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p)) }); } });
+    
+    socket.on('startGame', () => { if (!currentRoom) return; if (currentRoom.hostId !== socket.id) return; if (currentRoom.state !== 'waiting') return; currentRoom.startGame(); io.to(currentRoom.id).emit('gameStarted', { players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p)) }); });
+    
     socket.on('loadoutReady', (data) => { if (!currentRoom || currentRoom.state !== 'weaponSelect') return; const player = currentRoom.players.get(socket.id); if (!player) return; if (data.passive && Array.isArray(data.passive)) { player.equipped = { passive: data.passive, active: data.active || null }; } player.loadoutReady = true; io.to(currentRoom.id).emit('loadoutReadyUpdate', { playerId: socket.id, players: Array.from(currentRoom.players.values()).map(p => ({ id: p.id, name: p.name, loadoutReady: p.loadoutReady || false })) }); const allReady = Array.from(currentRoom.players.values()).every(p => p.loadoutReady); if (allReady) { setTimeout(() => { currentRoom.players.forEach(p => p.loadoutReady = false); currentRoom.state = 'playing'; currentRoom.startWave(); io.to(currentRoom.id).emit('waveStarting'); }, 1000); } });
+    
     socket.on('cancelHost', () => { if (currentRoom) { io.to(currentRoom.id).emit('hostCancelled'); rooms.delete(currentRoom.id); currentRoom = null; } });
     socket.on('input', (input) => { if (currentRoom) { currentRoom.handlePlayerInput(socket.id, input); } });
     socket.on('shoot', (data) => { if (currentRoom) { currentRoom.handlePlayerShoot(socket.id, data); } });
@@ -823,7 +744,9 @@ io.on('connection', (socket) => {
     socket.on('anchorEnemy', (data) => { if (currentRoom) { const enemy = currentRoom.enemies.find(e => e.id === data.enemyId); if (enemy) { enemy.anchored = true; enemy.anchorTimer = 180; io.to(currentRoom.id).emit('enemyAnchored', { enemyId: data.enemyId }); } } });
     socket.on('reflectBullet', (data) => { if (currentRoom) { const bullet = currentRoom.enemyBullets.find(b => b.id === data.bulletId); if (bullet) { const speed = Math.hypot(bullet.vx, bullet.vy) * 1.5; bullet.vx = Math.cos(data.newAngle) * speed; bullet.vy = Math.sin(data.newAngle) * speed; bullet.reflected = true; bullet.color = '#0af'; io.to(currentRoom.id).emit('bulletReflected', { bulletId: data.bulletId, angle: data.newAngle }); } } });
     socket.on('fire', (data) => { if (currentRoom) { const player = currentRoom.players.get(socket.id); if (player) { if (data.type === 'THUNDER') { player.thunderEnergy = 0; } socket.to(currentRoom.id).emit('remoteFire', { playerId: socket.id, type: data.type, angle: data.angle, x: player.x, y: player.y }); } } });
+    
     socket.on('overloadActivate', () => { if (!currentRoom) return; const player = currentRoom.players.get(socket.id); if (!player || !player.alive) return; const hpRatio = player.hp / (player.maxHp || 100); if (hpRatio > 0.5) return; if (player.overload.used) return; if (currentRoom.wave < 22) return; player.overload.active = true; player.overload.used = true; player.overload.timer = 480; player.invincible = 480; currentRoom.enemies.forEach(e => { if (e.hp > 0) { const damage = e.isBoss ? Math.floor(e.maxHp * 0.3) : 999; e.hp -= damage; if (e.hp <= 0) { currentRoom.score += e.score || 100; } } }); currentRoom.enemyBullets = []; io.to(currentRoom.id).emit('overloadActivated', { playerId: socket.id, playerName: player.name }); console.log(`${player.name} activated OVERLOAD!`); });
+    
     socket.on('formation', (data) => { if (currentRoom) { const player = currentRoom.players.get(socket.id); if (player) { player.formation = data.formation; } } });
     socket.on('disconnect', () => { console.log('Player disconnected:', socket.id); if (currentRoom) { currentRoom.removePlayer(socket.id); socket.to(currentRoom.id).emit('playerLeft', { playerId: socket.id }); } });
 });
