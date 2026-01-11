@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>PLAZMERS Ver.1.00041 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0005 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -243,7 +243,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0004</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0005</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -449,7 +449,58 @@ let interceptLasers = []; // INTERCEPT迎撃レーザー
 let riftVortex = null; // RIFT渦
 let pierceGrab = null; // PIERCE掴み
 
-// ========== 武器カラー定義 ==========
+// ========== 欠けていた変数（修正） ==========
+// 装備武器管理
+let equippedWeapons = {
+    passive: ['PLAZMER', 'PHALANX'],  // パッシブ武器（自動発動）
+    active: null,                      // アクティブ武器（手動発動）
+    allrange: 'PHALANX',              // オールレンジ武器
+    tactical: 'DASH',                  // 戦術武器
+    ultimate: null                     // 切り札
+};
+
+// 武器クールダウン
+let weaponCooldowns = {
+    ANCHOR: 0,
+    RIFT: 0,
+    PIERCE: 0,
+    INTERCEPT: 0,
+    OVERLOAD: 0
+};
+
+// OVERLOAD状態
+let overloadState = {
+    available: false,    // 発動可能か
+    active: false,       // 発動中か
+    timer: 0,            // 残り時間
+    maxTimer: 600,       // 最大時間（10秒）
+    usedThisStage: false // このステージで使用済みか
+};
+
+// ゲームフェーズ
+let gamePhase = 'normal'; // 'normal', 'weaponSelect', 'overload'
+
+// デフォルト武器レベル
+const DEFAULT_WEAPON_LEVELS = {
+    PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0,
+    PHALANX: 1, INTERCEPT: 0, REFLECT: 0, RIFT: 0,
+    ANCHOR: 0, DASH: 1, PIERCE: 0, OVERLOAD: 0
+};
+
+// ウェーブ背景テーマ
+const WAVE_THEMES = [
+    { bg1: '#000810', bg2: '#001030', nebula: '#0066ff', stars: '#88ccff' }, // 青い星雲
+    { bg1: '#100008', bg2: '#300010', nebula: '#ff0066', stars: '#ffaacc' }, // 赤い星雲
+    { bg1: '#080010', bg2: '#100030', nebula: '#aa00ff', stars: '#ddaaff' }, // 紫の星雲
+    { bg1: '#001008', bg2: '#003010', nebula: '#00ff66', stars: '#aaffcc' }, // 緑の星雲
+    { bg1: '#100800', bg2: '#302000', nebula: '#ffaa00', stars: '#ffddaa' }, // オレンジの星雲
+    { bg1: '#080808', bg2: '#202020', nebula: '#ffffff', stars: '#ffffff' }  // 白い星雲（ボス）
+];
+
+// 武器定義テーブル（完全版）
+const WEAPON_DEFS = {
+    // 攻撃武器（パッシブ）
+    // ========== 武器カラー定義 ==========
 const WEAPON_COLORS = {
     PLAZMER:   '#00FFFF',
     PHALANX:   '#00FF66',
@@ -467,8 +518,7 @@ const WEAPON_COLORS = {
 
 // ========== 武器定義（完全版） ==========
 const WEAPON_DEFS = {
-
-    // メイン火力（MAIN）
+    // メイン火力（MAIN）- 必ず1つ選ぶ
     PLAZMER: { 
         name: 'PLAZMER', 
         type: 'main', 
@@ -497,8 +547,8 @@ const WEAPON_DEFS = {
         desc: '範囲雷撃。溜めて一気に制圧', 
         unlockWave: 12 
     },
-
-    // オールレンジ
+    
+    // オールレンジ（ALLRANGE）- 1つだけ装備可能
     PHALANX: { 
         name: 'PHALANX', 
         type: 'allrange', 
@@ -528,8 +578,8 @@ const WEAPON_DEFS = {
         unlockWave: 8,
         cooldown: 480 
     },
-
-    // 戦術スキル
+    
+    // 戦術スキル（TACTICAL）- 1つだけ選択
     ANCHOR: { 
         name: 'ANCHOR', 
         type: 'tactical', 
@@ -553,8 +603,8 @@ const WEAPON_DEFS = {
         unlockWave: 16, 
         cooldown: 180 
     },
-
-    // 切り札
+    
+    // 切り札（ULTIMATE）- 0 or 1
     OVERLOAD: { 
         name: 'OVERLOAD', 
         type: 'ultimate', 
@@ -563,6 +613,53 @@ const WEAPON_DEFS = {
         unlockWave: 20 
     }
 };
+
+// デフォルト武器レベル
+const DEFAULT_WEAPON_LEVELS = {
+    PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0,
+    PHALANX: 1, INTERCEPT: 0, REFLECT: 0, RIFT: 0,
+    ANCHOR: 0, DASH: 1, PIERCE: 0, OVERLOAD: 0
+};
+
+// ゲームフェーズ
+let gamePhase = 'normal'; // 'normal' | 'boss' | 'overload' | 'weaponSelect'
+
+// 装備システム（新カテゴリ対応）
+let equippedWeapons = {
+    main: 'PLAZMER',      // メイン火力（1つ）
+    allrange: 'PHALANX',  // オールレンジ（1つ）
+    tactical: 'DASH',     // 戦術スキル（1つ）
+    ultimate: null        // 切り札（0 or 1）
+};
+
+// PHALANXフォーメーション
+let phalanxFormation = 'defense'; // 'defense' | 'offense'
+
+// OVERLOAD状態管理
+let overloadState = {
+    available: false,
+    active: false,
+    usedThisStage: false,
+    timer: 0,
+    maxTimer: 480
+};
+
+// 武器クールダウン管理
+let weaponCooldowns = {
+    INTERCEPT: 0,
+    ANCHOR: 0,
+    RIFT: 0,
+    PIERCE: 0,
+    DASH: 0
+};
+const WAVE_THEMES = [
+    { bg1: '#000810', bg2: '#001020', nebula: '#0066ff', stars: '#fff' },
+    { bg1: '#100008', bg2: '#200010', nebula: '#ff0066', stars: '#ffa' },
+    { bg1: '#080010', bg2: '#100020', nebula: '#aa00ff', stars: '#aaf' },
+    { bg1: '#001008', bg2: '#002010', nebula: '#00ff66', stars: '#afa' },
+    { bg1: '#100800', bg2: '#201000', nebula: '#ff6600', stars: '#ffa' },
+    { bg1: '#000808', bg2: '#001818', nebula: '#00ffff', stars: '#aff' }
+];
 
 function initBackground() {
     // 星を生成
