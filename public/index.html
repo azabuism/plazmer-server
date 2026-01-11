@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>PLAZMERS - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0001 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -240,7 +240,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS</h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0001</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -409,13 +409,13 @@ let offenseAttacking = false; // オフェンス攻撃中フラグ
 
 // ゲームミュージック
 const MUSIC_TRACKS = [
-    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IoDrift-2.mp3',
-    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IonDrift.mp3',
-    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IonDriftProtocol-2.mp3',
-    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IonDriftProtocol.mp3',
-    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/PhotonRushProtocol.mp3',
-    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/PulsefireDrift.mp3',
-    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/QuantumCrossfire.mp3'
+    'https://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IoDrift-2.mp3',
+    'https://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IonDrift.mp3',
+    'https://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IonDriftProtocol-2.mp3',
+    'https://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IonDriftProtocol.mp3',
+    'https://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/PhotonRushProtocol.mp3',
+    'https://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/PulsefireDrift.mp3',
+    'https://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/QuantumCrossfire.mp3'
 ];
 let bgmA = null;
 let bgmB = null;
@@ -1634,13 +1634,33 @@ function playBGM(url, fadeTime = 1500) {
     const newBGM = new Audio(url);
     newBGM.loop = false; // ループしない、終わったら次の曲
     newBGM.volume = 0;
+    newBGM.crossOrigin = 'anonymous';
     
     // 曲が終わったら次の曲を再生
     newBGM.addEventListener('ended', () => {
         playRandomMusic();
     });
     
-    newBGM.play().catch(() => console.log('Autoplay blocked'));
+    // エラーハンドリング
+    newBGM.addEventListener('error', (e) => {
+        console.warn('BGM load error:', url, e);
+        // エラー時は次の曲を試す
+        setTimeout(() => playRandomMusic(), 1000);
+    });
+    
+    newBGM.play().then(() => {
+        console.log('BGM playing:', url.split('/').pop());
+    }).catch((e) => {
+        console.warn('Autoplay blocked or error:', e.message);
+        // ユーザーインタラクション待ち - 次のクリックで再生
+        const resumeMusic = () => {
+            newBGM.play().catch(() => {});
+            document.removeEventListener('click', resumeMusic);
+            document.removeEventListener('keydown', resumeMusic);
+        };
+        document.addEventListener('click', resumeMusic, { once: true });
+        document.addEventListener('keydown', resumeMusic, { once: true });
+    });
     
     if (!bgmA) {
         bgmA = newBGM;
