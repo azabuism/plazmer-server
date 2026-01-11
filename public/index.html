@@ -447,7 +447,9 @@ let riftVortex = null; // RIFT渦
 let pierceGrab = null; // PIERCE掴み
 
 // 武器定義テーブル（完全版）
-// ========== 武器カラー定義（先に書く） ==========
+const WEAPON_DEFS = {
+    // 攻撃武器（パッシブ）
+    // ========== 武器カラー定義 ==========
 const WEAPON_COLORS = {
     PLAZMER:   '#00FFFF',
     PHALANX:   '#00FF66',
@@ -2213,15 +2215,12 @@ function updateInput() {
     }
     myPlayer.angle = angle;
     
-const now = Date.now();
+    const now = Date.now();
     if (now - lastInputTime >= INPUT_RATE) {
-        // ダッシュフラグを含めて送信
         socket.emit('input', { angle: angle, moving: moving, dash: input.dash, x: myPlayer.x, y: myPlayer.y });
         lastInputTime = now;
-        
-        // ★送信した直後にリセットする
-        input.dash = false; 
     }
+    input.dash = false;
 }
 
 function triggerDash() { 
@@ -2302,10 +2301,35 @@ function cycleFormation() {
 
 // 武器が装備されているかチェック
 function isEquipped(weaponName) {
-    return equippedWeapons.main === weaponName || 
-           equippedWeapons.allrange === weaponName || 
-           equippedWeapons.tactical === weaponName ||
-           equippedWeapons.ultimate === weaponName;
+    // メイン武器（PLAZMER, HOMING, LASER, THUNDER）はweaponLevels > 0 なら使用可能
+    const mainWeapons = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'];
+    if (mainWeapons.includes(weaponName)) {
+        return myPlayer && myPlayer.weaponLevels && myPlayer.weaponLevels[weaponName] > 0;
+    }
+    
+    // オールレンジ武器（PHALANX, INTERCEPT, REFLECT, RIFT）
+    const allrangeWeapons = ['PHALANX', 'INTERCEPT', 'REFLECT', 'RIFT'];
+    if (allrangeWeapons.includes(weaponName)) {
+        // weaponLevels > 0 かつ 装備中
+        const hasLevel = myPlayer && myPlayer.weaponLevels && myPlayer.weaponLevels[weaponName] > 0;
+        const isActive = equippedWeapons.allrange === weaponName;
+        return hasLevel || isActive;
+    }
+    
+    // 戦術武器（ANCHOR, DASH, PIERCE）
+    const tacticalWeapons = ['ANCHOR', 'DASH', 'PIERCE'];
+    if (tacticalWeapons.includes(weaponName)) {
+        const hasLevel = myPlayer && myPlayer.weaponLevels && myPlayer.weaponLevels[weaponName] > 0;
+        const isActive = equippedWeapons.tactical === weaponName;
+        return hasLevel || isActive;
+    }
+    
+    // 切り札（OVERLOAD）
+    if (weaponName === 'OVERLOAD') {
+        return equippedWeapons.ultimate === 'OVERLOAD';
+    }
+    
+    return false;
 }
 
 // 武器相性チェック（隠し合体）
