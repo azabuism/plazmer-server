@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>PLAZMERS Ver.1.0002 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0003 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -243,7 +243,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0002</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0003</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -1782,7 +1782,14 @@ function resize() {
 // ========== サーバー接続 ==========
 function connectToServer() {
     try {
-        socket = io();
+        // Render.com対応のSocket.io設定
+        socket = io({
+            transports: ['websocket', 'polling'],  // WebSocket優先、フォールバックでpolling
+            reconnection: true,
+            reconnectionAttempts: 10,
+            reconnectionDelay: 1000,
+            timeout: 20000
+        });
     } catch (e) {
         console.error('Socket.io initialization failed:', e);
         ui.connectionStatus.textContent = 'Connection failed!';
@@ -1791,21 +1798,27 @@ function connectToServer() {
     }
     
     socket.on('connect', () => {
-        console.log('Connected to server');
+        console.log('Connected to server:', socket.id);
         ui.connectionStatus.textContent = 'Connected!';
-        ui.connectionStatus.className = 'connected';
+        ui.connectionStatus.style.color = '#0f0';
     });
     
     socket.on('connect_error', (err) => {
-        console.error('Connection error:', err);
-        ui.connectionStatus.textContent = 'Connection error!';
-        ui.connectionStatus.style.color = '#f00';
+        console.error('Connection error:', err.message);
+        ui.connectionStatus.textContent = 'Retrying...';
+        ui.connectionStatus.style.color = '#ff0';
     });
     
-    socket.on('disconnect', () => {
-        console.log('Disconnected from server');
-        ui.connectionStatus.textContent = 'Disconnected';
+    socket.on('disconnect', (reason) => {
+        console.log('Disconnected:', reason);
+        ui.connectionStatus.textContent = 'Disconnected - Reconnecting...';
         ui.connectionStatus.style.color = '#ff0';
+    });
+    
+    socket.on('reconnect', (attemptNumber) => {
+        console.log('Reconnected after', attemptNumber, 'attempts');
+        ui.connectionStatus.textContent = 'Connected!';
+        ui.connectionStatus.style.color = '#0f0';
     });
     
     socket.on('hosted', (data) => {
