@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { v4: uuidv4 } = require('uuid');
+// uuidv4は未使用のため削除
 
 const app = express();
 const server = http.createServer(app);
@@ -15,6 +15,14 @@ app.use(express.static('public'));
 const WORLD_W = 3000, WORLD_H = 3000;
 const TICK_RATE = 60;
 const TICK_INTERVAL = 1000 / TICK_RATE;
+const MAX_ENEMY_BULLETS = 500; // 敵弾上限
+
+// 武器レベルのデフォルト値（クライアントと同期）
+const DEFAULT_WEAPON_LEVELS = {
+    PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0,
+    PHALANX: 1, INTERCEPT: 0, REFLECT: 0, RIFT: 0,
+    ANCHOR: 0, DASH: 1, PIERCE: 0, OVERLOAD: 0
+};
 
 // ========== 敵テンプレート ==========
 const ENEMY_TYPES = {
@@ -31,16 +39,16 @@ const ENEMY_TYPES = {
 };
 
 const BOSS_TYPES = [
-    { name: 'VIRUS-α', color: '#0f0', baseHp: 200, size: 50, pattern: 'radial', speed: 2 },
-    { name: 'BACTERIA-β', color: '#08f', baseHp: 400, size: 55, pattern: 'spiral', speed: 2.5 },
-    { name: 'INFECTION-γ', color: '#f80', baseHp: 600, size: 60, pattern: 'burst', speed: 3 },
-    { name: 'CANCER-δ', color: '#f00', baseHp: 900, size: 70, pattern: 'divide', speed: 2 },
-    { name: 'PLAGUE-ε', color: '#f0f', baseHp: 1200, size: 75, pattern: 'swarm', speed: 3.5 },
-    { name: 'NECROSIS-ζ', color: '#888', baseHp: 1600, size: 80, pattern: 'laser', speed: 2 },
-    { name: 'PANDEMIC-η', color: '#ff0', baseHp: 2000, size: 85, pattern: 'chaos', speed: 4 },
-    { name: 'NIGHTMARE-θ', color: '#f44', baseHp: 2500, size: 90, pattern: 'nightmare', speed: 3 },
-    { name: 'APOCALYPSE-ι', color: '#a0f', baseHp: 3000, size: 95, pattern: 'apocalypse', speed: 3.5 },
-    { name: 'OMEGA-CELL', color: '#fff', baseHp: 4000, size: 120, pattern: 'all', speed: 4 }
+    { name: 'VIRUS-α', color: '#0f0', baseHp: 100, size: 50, pattern: 'radial', speed: 1.5 },  // HP200→100, 速度低下
+    { name: 'BACTERIA-β', color: '#08f', baseHp: 200, size: 55, pattern: 'spiral', speed: 2 }, // HP400→200
+    { name: 'INFECTION-γ', color: '#f80', baseHp: 350, size: 60, pattern: 'burst', speed: 2.5 }, // HP600→350
+    { name: 'CANCER-δ', color: '#f00', baseHp: 500, size: 70, pattern: 'divide', speed: 2 },  // HP900→500
+    { name: 'PLAGUE-ε', color: '#f0f', baseHp: 700, size: 75, pattern: 'swarm', speed: 3 },   // HP1200→700
+    { name: 'NECROSIS-ζ', color: '#888', baseHp: 1000, size: 80, pattern: 'laser', speed: 2 }, // HP1600→1000
+    { name: 'PANDEMIC-η', color: '#ff0', baseHp: 1400, size: 85, pattern: 'chaos', speed: 3.5 }, // HP2000→1400
+    { name: 'NIGHTMARE-θ', color: '#f44', baseHp: 1800, size: 90, pattern: 'nightmare', speed: 3 }, // HP2500→1800
+    { name: 'APOCALYPSE-ι', color: '#a0f', baseHp: 2200, size: 95, pattern: 'apocalypse', speed: 3 }, // HP3000→2200
+    { name: 'OMEGA-CELL', color: '#fff', baseHp: 3000, size: 120, pattern: 'all', speed: 3.5 } // HP4000→3000
 ];
 
 // ========== ルーム管理 ==========
@@ -180,16 +188,24 @@ class GameRoom {
             x: WORLD_W / 2 + (Math.random() - 0.5) * 200,
             y: WORLD_H / 2 + (Math.random() - 0.5) * 200,
             angle: 0,
-            hp: 100,
-            maxHp: 100,
-            speed: 6,
+            hp: 150,     // 100→150に増加
+            maxHp: 150,  // 100→150に増加
+            speed: 4.5,
             invincible: 60,
             dashing: false,
             dashTimer: 0,
-            weaponLevels: { PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0, ALLRANGE: 0 },
+            weaponLevels: { ...DEFAULT_WEAPON_LEVELS },
+            // 新カテゴリ対応
+            equipped: { 
+                main: 'PLAZMER',      // メイン火力
+                allrange: 'PHALANX',  // オールレンジ
+                tactical: 'DASH',     // 戦術（初期はDASH固定）
+                ultimate: null        // 切り札
+            },
+            overload: { available: false, active: false, used: false, timer: 0 },
             thunderEnergy: 0,
-            options: [],
-            formation: 0,
+            options: [{ x: 0, y: 0, angle: 0 }], // 初期PHALANX 1機
+            phalanxFormation: 'defense', // PHALANXフォーメーション
             score: 0,
             alive: true,
             lastInput: { x: 0, y: 0, angle: 0, dash: false },
@@ -383,9 +399,37 @@ class GameRoom {
     }
     
     update() {
-        if (this.state !== 'playing') return;
+        // 完全停止はwaitingのみ
+        if (this.state === 'waiting') return;
         
         this.frame++;
+        
+        // weaponSelect中でも最低限更新するもの
+        this.players.forEach(player => {
+            // invincible / overload.timer は常に更新
+            if (player.invincible > 0) player.invincible--;
+            if (player.overload && player.overload.active) {
+                player.overload.timer--;
+                if (player.overload.timer <= 0) {
+                    player.overload.active = false;
+                }
+            }
+            // リスポーンタイマー
+            if (!player.alive && player.respawnTimer !== undefined) {
+                player.respawnTimer++;
+                if (player.respawnTimer >= 180) { // 5秒→3秒に短縮
+                    this.respawnPlayer(player);
+                }
+            }
+        });
+        
+        // weaponSelect中はここで終了
+        if (this.state === 'weaponSelect') {
+            this.broadcastState();
+            return;
+        }
+        
+        // playing中のみ実行
         this.waveTimer++;
         this.mobTimer++;
         
@@ -400,7 +444,7 @@ class GameRoom {
             this.spawnMobs();
         }
         
-        // プレイヤー更新
+        // プレイヤー更新（alive状態）
         this.players.forEach(player => {
             if (!player.alive) return;
             this.updatePlayer(player);
@@ -429,8 +473,19 @@ class GameRoom {
             
             io.to(this.id).emit('bossDefeated', { wave: this.wave, score: this.score });
             
+            // 武器選択画面に遷移
             setTimeout(() => {
-                if (this.state === 'playing') this.startWave();
+                if (this.state === 'playing') {
+                    this.state = 'weaponSelect';
+                    // 全プレイヤーのloadoutReadyをリセット
+                    this.players.forEach(p => p.loadoutReady = false);
+                    io.to(this.id).emit('weaponSelect', { 
+                        nextWave: this.wave + 1,
+                        players: Array.from(this.players.values()).map(p => ({
+                            id: p.id, name: p.name, loadoutReady: false
+                        }))
+                    });
+                }
             }, 3000);
         }
         
@@ -444,13 +499,13 @@ class GameRoom {
         // リスポーン処理
         if (!player.alive) {
             player.respawnTimer++;
-            if (player.respawnTimer >= 180) { // 3秒でリスポーン
+            if (player.respawnTimer >= 300) { // 5秒でリスポーン
                 this.respawnPlayer(player);
             }
             return;
         }
         
-        if (player.invincible > 0) player.invincible--;
+        // invincibleとoverloadはupdate()で既に更新済み
         
         // 壁脱出
         if (this.checkWall(player.x, player.y) && !player.dashing) {
@@ -466,8 +521,40 @@ class GameRoom {
             player.y += vy;
             player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
             player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
+            
+            // DASH中の敵へのダメージ（1敵1回のみ）
+            if (!player.dashHitEnemies) player.dashHitEnemies = new Set();
+            
+            this.enemies.forEach(e => {
+                if (e.hp <= 0) return;
+                if (player.dashHitEnemies.has(e.id)) return; // 既にヒット済み
+                
+                const dist = Math.hypot(e.x - player.x, e.y - player.y);
+                if (dist < e.size + 20) {
+                    // ダッシュ攻撃ダメージ（1回のみ）
+                    const damage = 15;
+                    player.dashHitEnemies.add(e.id); // ヒット記録
+                    e.hp -= damage;
+                    io.to(this.id).emit('enemyDamaged', { 
+                        enemyId: e.id, damage, 
+                        x: e.x, y: e.y, 
+                        weaponType: 'DASH' 
+                    });
+                    if (e.hp <= 0) {
+                        this.score += e.score || 100;
+                        io.to(this.id).emit('enemyDefeated', { 
+                            enemyId: e.id, 
+                            x: e.x, y: e.y, 
+                            isBoss: e.isBoss 
+                        });
+                        this.dropItems(e.x, e.y, e.isBoss);
+                    }
+                }
+            });
+            
             if (player.dashTimer <= 0) {
                 player.dashing = false;
+                player.dashHitEnemies.clear(); // DASH終了時にクリア
                 // ダッシュ終了時に壁の中にいたら脱出
                 if (this.checkWall(player.x, player.y)) {
                     this.escapeFromWall(player);
@@ -520,7 +607,7 @@ class GameRoom {
         player.weaponLevels.HOMING = Math.floor(player.weaponLevels.HOMING / 2);
         player.weaponLevels.LASER = Math.floor(player.weaponLevels.LASER / 2);
         player.weaponLevels.THUNDER = Math.floor(player.weaponLevels.THUNDER / 2);
-        player.weaponLevels.ALLRANGE = Math.floor(player.weaponLevels.ALLRANGE / 2);
+        player.weaponLevels.PHALANX = Math.floor(player.weaponLevels.PHALANX / 2);
         
         // オプション数も半減
         const newOptionCount = Math.floor(player.options.length / 2);
@@ -555,6 +642,16 @@ class GameRoom {
         this.enemies.forEach(enemy => {
             if (enemy.hp <= 0) return;
             enemy.timer++;
+            
+            // ANCHOR状態の処理
+            if (enemy.anchored) {
+                enemy.anchorTimer--;
+                if (enemy.anchorTimer <= 0) {
+                    enemy.anchored = false;
+                }
+                // 固定中は移動しない
+                return;
+            }
             
             if (this.checkWall(enemy.x, enemy.y)) {
                 this.escapeFromWall(enemy);
@@ -600,15 +697,20 @@ class GameRoom {
     bossAttack(boss, target) {
         const angle = Math.atan2(target.y - boss.y, target.x - boss.x);
         
+        // Wave別の攻撃間隔倍率（序盤は緩く）
+        const waveMultiplier = Math.max(1, 2.5 - this.wave * 0.1);
+        
         switch (boss.pattern) {
             case 'radial':
-                if (boss.attackTimer % 60 === 0) {
-                    for (let i = 0; i < 16; i++) {
-                        const a = (Math.PI * 2 / 16) * i + boss.phase;
+                // 放射状弾幕（間隔を広げ、弾数を減らす）
+                if (boss.attackTimer % Math.floor(90 * waveMultiplier) === 0) {
+                    const bulletCount = Math.min(12, 8 + Math.floor(this.wave / 3));
+                    for (let i = 0; i < bulletCount; i++) {
+                        const a = (Math.PI * 2 / bulletCount) * i + boss.phase;
                         this.enemyBullets.push({
                             id: 'eb_' + this.enemyIdCounter++,
                             x: boss.x, y: boss.y,
-                            vx: Math.cos(a) * 4, vy: Math.sin(a) * 4,
+                            vx: Math.cos(a) * 3, vy: Math.sin(a) * 3, // 速度も低下
                             life: 150, size: 6, color: boss.color
                         });
                     }
@@ -616,21 +718,23 @@ class GameRoom {
                 }
                 break;
             case 'spiral':
-                if (boss.attackTimer % 8 === 0) {
-                    const a = boss.timer * 0.15;
+                // 螺旋弾（間隔を大幅に広げる）
+                if (boss.attackTimer % Math.floor(20 * waveMultiplier) === 0) {
+                    const a = boss.timer * 0.12;
                     this.enemyBullets.push({
                         id: 'eb_' + this.enemyIdCounter++,
                         x: boss.x, y: boss.y,
-                        vx: Math.cos(a) * 5, vy: Math.sin(a) * 5,
+                        vx: Math.cos(a) * 4, vy: Math.sin(a) * 4,
                         life: 120, size: 5, color: boss.color
                     });
                 }
                 break;
             case 'burst':
-                if (boss.attackTimer % 40 === 0) {
-                    for (let i = 0; i < 8; i++) {
-                        const a = angle + (Math.random() - 0.5) * 0.8;
-                        const speed = 4 + Math.random() * 3;
+                // バースト弾（間隔を広げ、弾数を減らす）
+                if (boss.attackTimer % Math.floor(60 * waveMultiplier) === 0) {
+                    for (let i = 0; i < 5; i++) {
+                        const a = angle + (Math.random() - 0.5) * 0.6;
+                        const speed = 3 + Math.random() * 2;
                         this.enemyBullets.push({
                             id: 'eb_' + this.enemyIdCounter++,
                             x: boss.x, y: boss.y,
@@ -641,28 +745,29 @@ class GameRoom {
                 }
                 break;
             case 'swarm':
-                if (boss.attackTimer % 5 === 0) {
-                    const a = angle + (Math.random() - 0.5) * 1.5;
+                // 群弾（間隔を大幅に広げる）
+                if (boss.attackTimer % Math.floor(15 * waveMultiplier) === 0) {
+                    const a = angle + (Math.random() - 0.5) * 1.2;
                     this.enemyBullets.push({
                         id: 'eb_' + this.enemyIdCounter++,
                         x: boss.x, y: boss.y,
-                        vx: Math.cos(a) * 6, vy: Math.sin(a) * 6,
+                        vx: Math.cos(a) * 5, vy: Math.sin(a) * 5,
                         life: 80, size: 4, color: boss.color
                     });
                 }
                 break;
             case 'laser':
-                // レーザービーム攻撃
-                if (boss.attackTimer % 90 === 0) {
-                    // 8方向レーザー
-                    for (let i = 0; i < 8; i++) {
-                        const a = (Math.PI * 2 / 8) * i + boss.phase;
-                        for (let j = 0; j < 20; j++) {
+                // レーザービーム攻撃（弾数を大幅削減）
+                if (boss.attackTimer % Math.floor(120 * waveMultiplier) === 0) {
+                    // 4方向レーザー（8→4に削減）
+                    for (let i = 0; i < 4; i++) {
+                        const a = (Math.PI * 2 / 4) * i + boss.phase;
+                        for (let j = 0; j < 10; j++) { // 20→10に削減
                             this.enemyBullets.push({
                                 id: 'eb_' + this.enemyIdCounter++,
                                 x: boss.x + Math.cos(a) * j * 25,
                                 y: boss.y + Math.sin(a) * j * 25,
-                                vx: Math.cos(a) * 8, vy: Math.sin(a) * 8,
+                                vx: Math.cos(a) * 6, vy: Math.sin(a) * 6,
                                 life: 40, size: 4, color: '#f00'
                             });
                         }
@@ -671,103 +776,102 @@ class GameRoom {
                 }
                 break;
             case 'chaos':
-                // カオスパターン：複数の攻撃を同時に
-                if (boss.attackTimer % 20 === 0) {
+                // カオスパターン（間隔を広げる）
+                if (boss.attackTimer % Math.floor(40 * waveMultiplier) === 0) {
                     // 螺旋
                     for (let i = 0; i < 3; i++) {
                         const a = boss.timer * 0.2 + i * (Math.PI * 2 / 3);
                         this.enemyBullets.push({
                             id: 'eb_' + this.enemyIdCounter++,
                             x: boss.x, y: boss.y,
-                            vx: Math.cos(a) * 5, vy: Math.sin(a) * 5,
+                            vx: Math.cos(a) * 4, vy: Math.sin(a) * 4,
                             life: 150, size: 6, color: '#ff0'
                         });
                     }
                 }
-                if (boss.attackTimer % 60 === 0) {
-                    // 放射
-                    for (let i = 0; i < 24; i++) {
-                        const a = (Math.PI * 2 / 24) * i;
+                if (boss.attackTimer % Math.floor(100 * waveMultiplier) === 0) {
+                    // 放射（弾数を削減）
+                    for (let i = 0; i < 16; i++) {
+                        const a = (Math.PI * 2 / 16) * i;
                         this.enemyBullets.push({
                             id: 'eb_' + this.enemyIdCounter++,
                             x: boss.x, y: boss.y,
-                            vx: Math.cos(a) * 3, vy: Math.sin(a) * 3,
+                            vx: Math.cos(a) * 2.5, vy: Math.sin(a) * 2.5,
                             life: 200, size: 8, color: '#f80'
                         });
                     }
                 }
                 break;
             case 'nightmare':
-                // ナイトメア：追尾弾＋壁弾幕
-                if (boss.attackTimer % 30 === 0) {
-                    // プレイヤー追尾弾
-                    for (let i = 0; i < 5; i++) {
-                        const spreadAngle = angle + (i - 2) * 0.2;
+                // ナイトメア：追尾弾＋壁弾幕（緩和）
+                if (boss.attackTimer % Math.floor(60 * waveMultiplier) === 0) {
+                    // プレイヤー追尾弾（数を減らす）
+                    for (let i = 0; i < 3; i++) {
+                        const spreadAngle = angle + (i - 1) * 0.3;
                         this.enemyBullets.push({
                             id: 'eb_' + this.enemyIdCounter++,
                             x: boss.x, y: boss.y,
-                            vx: Math.cos(spreadAngle) * 7, vy: Math.sin(spreadAngle) * 7,
+                            vx: Math.cos(spreadAngle) * 5, vy: Math.sin(spreadAngle) * 5,
                             life: 100, size: 10, color: '#f44',
                             homing: true, target: target
                         });
                     }
                 }
-                if (boss.attackTimer % 15 === 0) {
-                    // 回転弾幕
-                    for (let i = 0; i < 6; i++) {
-                        const a = boss.timer * 0.1 + i * (Math.PI / 3);
+                if (boss.attackTimer % Math.floor(30 * waveMultiplier) === 0) {
+                    // 回転弾幕（間隔を広げる）
+                    for (let i = 0; i < 4; i++) {
+                        const a = boss.timer * 0.08 + i * (Math.PI / 2);
                         this.enemyBullets.push({
                             id: 'eb_' + this.enemyIdCounter++,
                             x: boss.x, y: boss.y,
-                            vx: Math.cos(a) * 4, vy: Math.sin(a) * 4,
+                            vx: Math.cos(a) * 3, vy: Math.sin(a) * 3,
                             life: 180, size: 5, color: '#a44'
                         });
                     }
                 }
                 break;
             case 'apocalypse':
-                // アポカリプス：全画面攻撃
-                if (boss.attackTimer % 10 === 0) {
-                    // 超高速螺旋
-                    const a1 = boss.timer * 0.3;
-                    const a2 = boss.timer * 0.3 + Math.PI;
+                // アポカリプス：全画面攻撃（大幅緩和）
+                if (boss.attackTimer % Math.floor(25 * waveMultiplier) === 0) {
+                    // 螺旋（間隔を広げる）
+                    const a1 = boss.timer * 0.2;
+                    const a2 = boss.timer * 0.2 + Math.PI;
                     this.enemyBullets.push({
                         id: 'eb_' + this.enemyIdCounter++,
                         x: boss.x, y: boss.y,
-                        vx: Math.cos(a1) * 6, vy: Math.sin(a1) * 6,
+                        vx: Math.cos(a1) * 4, vy: Math.sin(a1) * 4,
                         life: 200, size: 7, color: '#a0f'
                     });
                     this.enemyBullets.push({
                         id: 'eb_' + this.enemyIdCounter++,
                         x: boss.x, y: boss.y,
-                        vx: Math.cos(a2) * 6, vy: Math.sin(a2) * 6,
+                        vx: Math.cos(a2) * 4, vy: Math.sin(a2) * 4,
                         life: 200, size: 7, color: '#f0a'
                     });
                 }
-                if (boss.attackTimer % 45 === 0) {
-                    // 爆発放射
-                    for (let i = 0; i < 32; i++) {
-                        const a = (Math.PI * 2 / 32) * i + boss.phase;
-                        const speed = 3 + (i % 2) * 2;
+                if (boss.attackTimer % Math.floor(90 * waveMultiplier) === 0) {
+                    // 爆発放射（弾数を大幅削減）
+                    for (let i = 0; i < 16; i++) {
+                        const a = (Math.PI * 2 / 16) * i + boss.phase;
                         this.enemyBullets.push({
                             id: 'eb_' + this.enemyIdCounter++,
                             x: boss.x, y: boss.y,
-                            vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+                            vx: Math.cos(a) * 3, vy: Math.sin(a) * 3,
                             life: 250, size: 6, color: '#f0f'
                         });
                     }
                     boss.phase += 0.1;
                 }
-                if (boss.attackTimer % 120 === 0) {
-                    // 十字レーザー
+                if (boss.attackTimer % Math.floor(180 * waveMultiplier) === 0) {
+                    // 十字レーザー（弾数を大幅削減）
                     for (let dir = 0; dir < 4; dir++) {
                         const baseA = dir * (Math.PI / 2);
-                        for (let j = 0; j < 30; j++) {
+                        for (let j = 0; j < 15; j++) {
                             this.enemyBullets.push({
                                 id: 'eb_' + this.enemyIdCounter++,
                                 x: boss.x + Math.cos(baseA) * j * 20,
                                 y: boss.y + Math.sin(baseA) * j * 20,
-                                vx: Math.cos(baseA) * 10, vy: Math.sin(baseA) * 10,
+                                vx: Math.cos(baseA) * 7, vy: Math.sin(baseA) * 7,
                                 life: 30, size: 8, color: '#fff'
                             });
                         }
@@ -775,38 +879,38 @@ class GameRoom {
                 }
                 break;
             case 'all':
-                // 全パターン使用（最終ボス）
-                const phase = Math.floor(boss.attackTimer / 120) % 5;
-                if (phase === 0 && boss.attackTimer % 20 === 0) {
+                // 全パターン使用（最終ボス・緩和）
+                const phase = Math.floor(boss.attackTimer / 180) % 5; // 120→180に延長
+                if (phase === 0 && boss.attackTimer % Math.floor(30 * waveMultiplier) === 0) {
                     // 螺旋×2
-                    const a1 = boss.timer * 0.2;
-                    const a2 = boss.timer * 0.2 + Math.PI;
-                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a1) * 5, vy: Math.sin(a1) * 5, life: 150, size: 6, color: '#fff' });
-                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a2) * 5, vy: Math.sin(a2) * 5, life: 150, size: 6, color: '#fff' });
+                    const a1 = boss.timer * 0.15;
+                    const a2 = boss.timer * 0.15 + Math.PI;
+                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a1) * 4, vy: Math.sin(a1) * 4, life: 150, size: 6, color: '#fff' });
+                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a2) * 4, vy: Math.sin(a2) * 4, life: 150, size: 6, color: '#fff' });
                 }
-                if (phase === 1 && boss.attackTimer % 40 === 0) {
-                    for (let i = 0; i < 24; i++) {
-                        const a = (Math.PI * 2 / 24) * i + boss.phase;
-                        this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 4, vy: Math.sin(a) * 4, life: 200, size: 8, color: '#ff0' });
+                if (phase === 1 && boss.attackTimer % Math.floor(60 * waveMultiplier) === 0) {
+                    for (let i = 0; i < 16; i++) {
+                        const a = (Math.PI * 2 / 16) * i + boss.phase;
+                        this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 3, vy: Math.sin(a) * 3, life: 200, size: 8, color: '#ff0' });
                     }
                     boss.phase += 0.15;
                 }
-                if (phase === 2 && boss.attackTimer % 5 === 0) {
-                    const a = angle + (Math.random() - 0.5) * 2;
-                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 8, vy: Math.sin(a) * 8, life: 80, size: 5, color: '#f00' });
+                if (phase === 2 && boss.attackTimer % Math.floor(15 * waveMultiplier) === 0) {
+                    const a = angle + (Math.random() - 0.5) * 1.5;
+                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5, life: 80, size: 5, color: '#f00' });
                 }
-                if (phase === 3 && boss.attackTimer % 60 === 0) {
-                    for (let dir = 0; dir < 8; dir++) {
-                        const baseA = dir * (Math.PI / 4);
-                        for (let j = 0; j < 15; j++) {
-                            this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x + Math.cos(baseA) * j * 30, y: boss.y + Math.sin(baseA) * j * 30, vx: Math.cos(baseA) * 12, vy: Math.sin(baseA) * 12, life: 25, size: 6, color: '#0ff' });
+                if (phase === 3 && boss.attackTimer % Math.floor(100 * waveMultiplier) === 0) {
+                    for (let dir = 0; dir < 4; dir++) { // 8→4に削減
+                        const baseA = dir * (Math.PI / 2);
+                        for (let j = 0; j < 10; j++) { // 15→10に削減
+                            this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x + Math.cos(baseA) * j * 30, y: boss.y + Math.sin(baseA) * j * 30, vx: Math.cos(baseA) * 8, vy: Math.sin(baseA) * 8, life: 25, size: 6, color: '#0ff' });
                         }
                     }
                 }
-                if (phase === 4 && boss.attackTimer % 15 === 0) {
-                    for (let i = 0; i < 8; i++) {
-                        const a = (Math.PI * 2 / 8) * i + boss.timer * 0.15;
-                        this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 6, vy: Math.sin(a) * 6, life: 120, size: 7, color: '#f0f' });
+                if (phase === 4 && boss.attackTimer % Math.floor(30 * waveMultiplier) === 0) {
+                    for (let i = 0; i < 6; i++) { // 8→6に削減
+                        const a = (Math.PI * 2 / 6) * i + boss.timer * 0.1;
+                        this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 4, vy: Math.sin(a) * 4, life: 120, size: 7, color: '#f0f' });
                     }
                 }
                 break;
@@ -852,6 +956,11 @@ class GameRoom {
         });
         
         this.enemyBullets = this.enemyBullets.filter(b => !b.dead);
+        
+        // 上限を超えた場合、古い弾から削除
+        if (this.enemyBullets.length > MAX_ENEMY_BULLETS) {
+            this.enemyBullets = this.enemyBullets.slice(-MAX_ENEMY_BULLETS);
+        }
     }
     
     updateItems() {
@@ -877,14 +986,14 @@ class GameRoom {
                 
                 // アイテム吸引（さらに範囲拡大・強化）
                 const dist = Math.hypot(player.x - item.x, player.y - item.y);
-                if (dist < 250) {
-                    const pullStrength = 0.2;
+                if (dist < 400) { // 250→400に拡大
+                    const pullStrength = 0.15 + (1 - dist / 400) * 0.2; // 距離に応じて吸引力UP
                     item.x += (player.x - item.x) * pullStrength;
                     item.y += (player.y - item.y) * pullStrength;
                 }
                 
                 // アイテム取得（さらに範囲拡大）
-                if (dist < 50) {
+                if (dist < 80) { // 50→80に拡大
                     this.collectItem(player, item);
                     item.collected = true;
                 }
@@ -897,11 +1006,11 @@ class GameRoom {
     collectItem(player, item) {
         if (item.type === 'H') {
             player.hp = Math.min(player.maxHp, player.hp + 30);
-        } else if (item.type === 'ALLRANGE') {
+        } else if (item.type === 'PHALANX') {
             if (player.options.length < 6) {
                 player.options.push({ x: player.x, y: player.y, angle: 0 });
             }
-            player.weaponLevels.ALLRANGE++;
+            player.weaponLevels.PHALANX++;
         } else {
             player.weaponLevels[item.type] = (player.weaponLevels[item.type] || 0) + 1;
         }
@@ -971,20 +1080,51 @@ class GameRoom {
     }
     
     dropItems(x, y, isBoss) {
-        // 武器と同じ色に合わせる
-        const itemColors = { 
-            PLAZMER: '#0ff',  // シアン（PLAZMER弾と同じ）
-            HOMING: '#a0f',   // 紫（ホーミングミサイルと同じ）
-            LASER: '#0ff',    // シアン（レーザーと同じ）
-            THUNDER: '#ff0',  // 黄色（サンダーと同じ）
-            ALLRANGE: '#0f0', // 緑（オールレンジと同じ）
-            H: '#f44'         // 赤（HP回復）
+        // 武器カラー定義（新仕様）
+        const WEAPON_COLORS = {
+            PLAZMER:   '#00FFFF',
+            PHALANX:   '#00FF66',
+            HOMING:    '#AA66FF',
+            INTERCEPT: '#66CCFF',
+            LASER:     '#00CCFF',
+            REFLECT:   '#CCFFFF',
+            RIFT:      '#FF44CC',
+            ANCHOR:    '#663399',
+            THUNDER:   '#FFFF33',
+            DASH:      '#FF9933',
+            PIERCE:    '#CC3333',
+            H:         '#FF6666'
+        };
+        
+        // Wave別解放武器マップ
+        const WAVE_UNLOCK = {
+            1: ['PLAZMER', 'PHALANX'],
+            3: ['HOMING'],
+            4: ['INTERCEPT'],
+            6: ['LASER'],
+            7: ['REFLECT'],
+            8: ['RIFT'],
+            10: ['ANCHOR'],
+            12: ['THUNDER'],
+            14: ['DASH'],
+            16: ['PIERCE'],
+            20: ['OVERLOAD']
+        };
+        
+        // 現在のWaveで解放される武器を取得
+        const getUnlockedWeapons = () => {
+            const unlocked = [];
+            for (let w = 1; w <= this.wave; w++) {
+                if (WAVE_UNLOCK[w]) {
+                    unlocked.push(...WAVE_UNLOCK[w]);
+                }
+            }
+            return unlocked.filter(w => w !== 'OVERLOAD'); // OVERLOADはドロップしない
         };
         
         // 安全なアイテム位置を見つける関数
         const findSafeItemPos = (baseX, baseY) => {
             if (!this.checkWall(baseX, baseY)) return { x: baseX, y: baseY };
-            // 壁の中なら周囲を探す
             for (let dist = 20; dist < 150; dist += 20) {
                 for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) {
                     const testX = baseX + Math.cos(a) * dist;
@@ -996,47 +1136,84 @@ class GameRoom {
                     }
                 }
             }
-            return { x: baseX, y: baseY }; // 見つからなければ元の位置
+            return { x: baseX, y: baseY };
         };
         
         if (isBoss) {
-            const count = 5 + Math.floor(Math.random() * 3);
-            const types = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER', 'ALLRANGE', 'H'];
-            for (let i = 0; i < count; i++) {
-                const a = (Math.PI * 2 / count) * i;
-                const type = types[Math.floor(Math.random() * types.length)];
-                const pos = findSafeItemPos(x + Math.cos(a) * 60, y + Math.sin(a) * 60);
+            // ボス撃破時：このWaveで解放される武器をドロップ
+            const newWeapons = WAVE_UNLOCK[this.wave] || [];
+            const unlockedWeapons = getUnlockedWeapons();
+            
+            // 新武器をドロップ
+            newWeapons.forEach((type, i) => {
+                if (type === 'OVERLOAD') return; // OVERLOADはドロップしない
+                const a = (Math.PI * 2 / Math.max(1, newWeapons.length)) * i;
+                const pos = findSafeItemPos(x + Math.cos(a) * 50, y + Math.sin(a) * 50);
                 this.items.push({
                     id: 'item_' + this.enemyIdCounter++,
-                    x: pos.x,
-                    y: pos.y,
-                    type,
-                    color: itemColors[type]
+                    x: pos.x, y: pos.y,
+                    type: type,
+                    color: WEAPON_COLORS[type] || '#fff',
+                    isNew: true // 新武器フラグ
+                });
+            });
+            
+            // HP回復も複数ドロップ
+            const hpCount = 3 + Math.floor(this.wave / 5);
+            for (let i = 0; i < hpCount; i++) {
+                const a = Math.random() * Math.PI * 2;
+                const dist = 30 + Math.random() * 80;
+                const pos = findSafeItemPos(x + Math.cos(a) * dist, y + Math.sin(a) * dist);
+                this.items.push({
+                    id: 'item_' + this.enemyIdCounter++,
+                    x: pos.x, y: pos.y,
+                    type: 'H',
+                    color: WEAPON_COLORS.H
+                });
+            }
+            
+            // ランダムで解放済み武器のレベルアップアイテムも
+            const upgradeCount = 2 + Math.floor(Math.random() * 3);
+            for (let i = 0; i < upgradeCount; i++) {
+                const type = unlockedWeapons[Math.floor(Math.random() * unlockedWeapons.length)];
+                if (!type) continue;
+                const a = Math.random() * Math.PI * 2;
+                const dist = 60 + Math.random() * 60;
+                const pos = findSafeItemPos(x + Math.cos(a) * dist, y + Math.sin(a) * dist);
+                this.items.push({
+                    id: 'item_' + this.enemyIdCounter++,
+                    x: pos.x, y: pos.y,
+                    type: type,
+                    color: WEAPON_COLORS[type] || '#fff'
                 });
             }
         } else {
-            if (Math.random() < 0.10) {
-                const types = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'];
-                const type = types[Math.floor(Math.random() * types.length)];
+            // 雑魚撃破時：HP回復中心、たまに武器レベルアップ
+            
+            // HP回復（確率高め）
+            if (Math.random() < 0.20) { // 20%でHP回復
                 const pos = findSafeItemPos(x, y);
                 this.items.push({
                     id: 'item_' + this.enemyIdCounter++,
-                    x: pos.x, y: pos.y, type, color: itemColors[type]
+                    x: pos.x, y: pos.y,
+                    type: 'H',
+                    color: WEAPON_COLORS.H
                 });
             }
-            if (Math.random() < 0.04) {
-                const pos = findSafeItemPos(x, y);
-                this.items.push({
-                    id: 'item_' + this.enemyIdCounter++,
-                    x: pos.x, y: pos.y, type: 'H', color: '#f06'
-                });
-            }
-            if (Math.random() < 0.03) {
-                const pos = findSafeItemPos(x, y);
-                this.items.push({
-                    id: 'item_' + this.enemyIdCounter++,
-                    x: pos.x, y: pos.y, type: 'ALLRANGE', color: '#0f0'
-                });
+            
+            // 解放済み武器のレベルアップ（低確率）
+            if (Math.random() < 0.08) {
+                const unlockedWeapons = getUnlockedWeapons();
+                const type = unlockedWeapons[Math.floor(Math.random() * unlockedWeapons.length)];
+                if (type) {
+                    const pos = findSafeItemPos(x, y);
+                    this.items.push({
+                        id: 'item_' + this.enemyIdCounter++,
+                        x: pos.x, y: pos.y,
+                        type: type,
+                        color: WEAPON_COLORS[type] || '#fff'
+                    });
+                }
             }
         }
     }
@@ -1269,6 +1446,43 @@ io.on('connection', (socket) => {
         console.log(`Game started in room ${currentRoom.id}`);
     });
     
+    // 武器選択完了
+    socket.on('loadoutReady', (data) => {
+        if (!currentRoom || currentRoom.state !== 'weaponSelect') return;
+        
+        const player = currentRoom.players.get(socket.id);
+        if (!player) return;
+        
+        // loadoutを実際の装備に反映
+        if (data.passive && Array.isArray(data.passive)) {
+            player.equipped = {
+                passive: data.passive,
+                active: data.active || null
+            };
+        }
+        player.loadoutReady = true;
+        
+        // 全員に通知
+        io.to(currentRoom.id).emit('loadoutReadyUpdate', {
+            playerId: socket.id,
+            players: Array.from(currentRoom.players.values()).map(p => ({
+                id: p.id, name: p.name, loadoutReady: p.loadoutReady || false
+            }))
+        });
+        
+        // 全員準備完了チェック
+        const allReady = Array.from(currentRoom.players.values()).every(p => p.loadoutReady);
+        if (allReady) {
+            // 全員準備完了 → 次のWAVE開始
+            setTimeout(() => {
+                currentRoom.players.forEach(p => p.loadoutReady = false);
+                currentRoom.state = 'playing';
+                currentRoom.startWave();
+                io.to(currentRoom.id).emit('waveStarting');
+            }, 1000);
+        }
+    });
+    
     // ホストがキャンセル
     socket.on('cancelHost', () => {
         if (currentRoom) {
@@ -1311,6 +1525,50 @@ io.on('connection', (socket) => {
         }
     });
     
+    // INTERCEPT爆風 - 範囲内の敵弾を消す
+    socket.on('interceptExplosion', (data) => {
+        if (currentRoom) {
+            // 爆風範囲内の敵弾を消す
+            currentRoom.enemyBullets = currentRoom.enemyBullets.filter(b => {
+                const dist = Math.hypot(b.x - data.x, b.y - data.y);
+                return dist > data.radius;
+            });
+        }
+    });
+    
+    // ANCHOR - 敵を固定
+    socket.on('anchorEnemy', (data) => {
+        if (currentRoom) {
+            const enemy = currentRoom.enemies.find(e => e.id === data.enemyId);
+            if (enemy) {
+                enemy.anchored = true;
+                enemy.anchorTimer = 180; // 3秒固定
+                io.to(currentRoom.id).emit('enemyAnchored', { enemyId: data.enemyId });
+            }
+        }
+    });
+    
+    // REFLECT - 敵弾反射
+    socket.on('reflectBullet', (data) => {
+        if (currentRoom) {
+            const bullet = currentRoom.enemyBullets.find(b => b.id === data.bulletId);
+            if (bullet) {
+                // 弾を反射（プレイヤー弾として敵に向かう）
+                const speed = Math.hypot(bullet.vx, bullet.vy) * 1.5;
+                bullet.vx = Math.cos(data.newAngle) * speed;
+                bullet.vy = Math.sin(data.newAngle) * speed;
+                bullet.reflected = true;
+                bullet.color = '#0af';
+                
+                // 反射弾で敵にダメージ（敵弾リストから削除してダメージを与える）
+                io.to(currentRoom.id).emit('bulletReflected', { 
+                    bulletId: data.bulletId,
+                    angle: data.newAngle
+                });
+            }
+        }
+    });
+    
     socket.on('fire', (data) => {
         if (currentRoom) {
             const player = currentRoom.players.get(socket.id);
@@ -1329,6 +1587,47 @@ io.on('connection', (socket) => {
                 });
             }
         }
+    });
+    
+    // OVERLOAD発動
+    socket.on('overloadActivate', () => {
+        if (!currentRoom) return;
+        const player = currentRoom.players.get(socket.id);
+        if (!player || !player.alive) return;
+        
+        // 発動条件チェック
+        const hpRatio = player.hp / (player.maxHp || 100);
+        if (hpRatio > 0.5) return;
+        if (player.overload.used) return;
+        if (currentRoom.wave < 22) return;
+        
+        // OVERLOAD発動
+        player.overload.active = true;
+        player.overload.used = true;
+        player.overload.timer = 480; // 8秒
+        player.invincible = 480; // 8秒無敵
+        
+        // 全敵に大ダメージ
+        currentRoom.enemies.forEach(e => {
+            if (e.hp > 0) {
+                const damage = e.isBoss ? Math.floor(e.maxHp * 0.3) : 999; // ボスには30%、雑魚は即死
+                e.hp -= damage;
+                if (e.hp <= 0) {
+                    currentRoom.score += e.score || 100;
+                }
+            }
+        });
+        
+        // 全敵弾を消去
+        currentRoom.enemyBullets = [];
+        
+        // 全員に通知
+        io.to(currentRoom.id).emit('overloadActivated', {
+            playerId: socket.id,
+            playerName: player.name
+        });
+        
+        console.log(`${player.name} activated OVERLOAD!`);
     });
     
     socket.on('formation', (data) => {
