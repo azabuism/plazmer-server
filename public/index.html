@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>PLAZMERS Ver.1.0006 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0007 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -243,7 +243,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0006</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0007</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -610,53 +610,6 @@ const WEAPON_DEFS = {
         unlockWave: 20 
     }
 };
-
-// デフォルト武器レベル
-const DEFAULT_WEAPON_LEVELS = {
-    PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0,
-    PHALANX: 1, INTERCEPT: 0, REFLECT: 0, RIFT: 0,
-    ANCHOR: 0, DASH: 1, PIERCE: 0, OVERLOAD: 0
-};
-
-// ゲームフェーズ
-let gamePhase = 'normal'; // 'normal' | 'boss' | 'overload' | 'weaponSelect'
-
-// 装備システム（新カテゴリ対応）
-let equippedWeapons = {
-    main: 'PLAZMER',      // メイン火力（1つ）
-    allrange: 'PHALANX',  // オールレンジ（1つ）
-    tactical: 'DASH',     // 戦術スキル（1つ）
-    ultimate: null        // 切り札（0 or 1）
-};
-
-// PHALANXフォーメーション
-let phalanxFormation = 'defense'; // 'defense' | 'offense'
-
-// OVERLOAD状態管理
-let overloadState = {
-    available: false,
-    active: false,
-    usedThisStage: false,
-    timer: 0,
-    maxTimer: 480
-};
-
-// 武器クールダウン管理
-let weaponCooldowns = {
-    INTERCEPT: 0,
-    ANCHOR: 0,
-    RIFT: 0,
-    PIERCE: 0,
-    DASH: 0
-};
-const WAVE_THEMES = [
-    { bg1: '#000810', bg2: '#001020', nebula: '#0066ff', stars: '#fff' },
-    { bg1: '#100008', bg2: '#200010', nebula: '#ff0066', stars: '#ffa' },
-    { bg1: '#080010', bg2: '#100020', nebula: '#aa00ff', stars: '#aaf' },
-    { bg1: '#001008', bg2: '#002010', nebula: '#00ff66', stars: '#afa' },
-    { bg1: '#100800', bg2: '#201000', nebula: '#ff6600', stars: '#ffa' },
-    { bg1: '#000808', bg2: '#001818', nebula: '#00ffff', stars: '#aff' }
-];
 
 function initBackground() {
     // 星を生成
