@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>PLAZMERS Ver.1.0013 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0014 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body {
@@ -264,7 +264,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0013</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0014</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -4264,6 +4264,216 @@ class PierceGrab {
     }
 }
 
+// ========== 画面外敵インジケーター ==========
+function drawEnemyIndicators() {
+    if (!gameState || !gameState.enemies || !myPlayer) return;
+    
+    const margin = 50; // 画面端からのマージン
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    
+    gameState.enemies.forEach(e => {
+        if (e.hp <= 0) return;
+        
+        // 補間された位置を取得
+        const re = remoteEnemies.get(e.id);
+        const ex = re ? re.x : e.x;
+        const ey = re ? re.y : e.y;
+        
+        // スクリーン座標
+        const sx = ex - camera.x;
+        const sy = ey - camera.y;
+        
+        // 画面内なら表示しない
+        if (sx >= 0 && sx <= canvas.width && sy >= 0 && sy <= canvas.height) return;
+        
+        // プレイヤーからの角度
+        const angle = Math.atan2(ey - myPlayer.y, ex - myPlayer.x);
+        const dist = Math.hypot(ex - myPlayer.x, ey - myPlayer.y);
+        
+        // インジケーターの位置（画面端にクランプ）
+        let indicatorX = centerX + Math.cos(angle) * (centerX - margin);
+        let indicatorY = centerY + Math.sin(angle) * (centerY - margin);
+        
+        // 画面端に収める
+        indicatorX = Math.max(margin, Math.min(canvas.width - margin, indicatorX));
+        indicatorY = Math.max(margin, Math.min(canvas.height - margin, indicatorY));
+        
+        // ボスかどうか
+        const isBoss = e.isBoss;
+        const baseSize = isBoss ? 25 : 14; // サイズ増加
+        
+        // パルスアニメーション
+        const pulse = Math.sin(frame * 0.15) * 0.25 + 1;
+        const size = baseSize * pulse;
+        
+        // 距離に応じた透明度（近いほど薄く）
+        const alpha = Math.min(1, dist / 250);
+        
+        ctx.save();
+        ctx.translate(indicatorX, indicatorY);
+        ctx.rotate(angle);
+        
+        // 矢印を描画
+        if (isBoss) {
+            // ボス用：大きな赤い三角（激しく点滅）
+            const bossPulse = Math.sin(frame * 0.25) * 0.4 + 0.6;
+            
+            // 外側のグロー（より大きく）
+            ctx.shadowBlur = 30;
+            ctx.shadowColor = '#ff0000';
+            
+            // 黒い縁取り
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.beginPath();
+            ctx.moveTo(size + 4, 0);
+            ctx.lineTo(-size * 0.8 - 4, -size * 0.8 - 4);
+            ctx.lineTo(-size * 0.4, 0);
+            ctx.lineTo(-size * 0.8 - 4, size * 0.8 + 4);
+            ctx.closePath();
+            ctx.fill();
+            
+            // メイン三角（赤）
+            ctx.fillStyle = `rgba(255, 30, 30, ${alpha * bossPulse})`;
+            ctx.strokeStyle = `rgba(255, 255, 100, ${alpha * bossPulse})`;
+            ctx.lineWidth = 3;
+            
+            ctx.beginPath();
+            ctx.moveTo(size, 0);
+            ctx.lineTo(-size * 0.8, -size * 0.8);
+            ctx.lineTo(-size * 0.4, 0);
+            ctx.lineTo(-size * 0.8, size * 0.8);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            
+            // 内側の光（黄色）
+            ctx.fillStyle = `rgba(255, 255, 100, ${alpha * bossPulse * 0.7})`;
+            ctx.beginPath();
+            ctx.moveTo(size * 0.6, 0);
+            ctx.lineTo(-size * 0.3, -size * 0.4);
+            ctx.lineTo(-size * 0.1, 0);
+            ctx.lineTo(-size * 0.3, size * 0.4);
+            ctx.closePath();
+            ctx.fill();
+            
+            // 「BOSS」テキスト
+            ctx.rotate(-angle); // 角度を戻す
+            ctx.font = 'bold 10px "Courier New"';
+            ctx.fillStyle = `rgba(255, 255, 0, ${alpha * bossPulse})`;
+            ctx.textAlign = 'center';
+            ctx.fillText('BOSS', 0, -size - 8);
+            
+        } else {
+            // 通常敵用：赤い矢印（より目立つ）
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#ff4444';
+            
+            // 黒い縁取り
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.beginPath();
+            ctx.moveTo(size + 2, 0);
+            ctx.lineTo(-size * 0.5 - 2, -size * 0.5 - 2);
+            ctx.lineTo(-size * 0.2, 0);
+            ctx.lineTo(-size * 0.5 - 2, size * 0.5 + 2);
+            ctx.closePath();
+            ctx.fill();
+            
+            // メイン矢印（赤）
+            ctx.fillStyle = `rgba(255, 60, 60, ${alpha})`;
+            ctx.strokeStyle = `rgba(255, 200, 200, ${alpha})`;
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#f44';
+            
+            // 三角矢印
+            ctx.beginPath();
+            ctx.moveTo(size, 0);
+            ctx.lineTo(-size * 0.6, -size * 0.5);
+            ctx.lineTo(-size * 0.2, 0);
+            ctx.lineTo(-size * 0.6, size * 0.5);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+        }
+        
+        ctx.restore();
+        
+        // ボスの場合は追加のリングエフェクト
+        if (isBoss) {
+            const ringPulse = (frame * 0.05) % 1;
+            ctx.strokeStyle = `rgba(255, 50, 50, ${(1 - ringPulse) * alpha * 0.5})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(indicatorX, indicatorY, size + ringPulse * 20, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+    });
+    
+    ctx.shadowBlur = 0;
+}
+
+// ========== 画面外敵弾警告 ==========
+function drawBulletWarnings() {
+    if (!myPlayer || !myPlayer.alive) return;
+    
+    const margin = 40;
+    
+    remoteEnemyBullets.forEach(b => {
+        const sx = b.x - camera.x;
+        const sy = b.y - camera.y;
+        
+        // 画面内なら表示しない
+        if (sx >= -50 && sx <= canvas.width + 50 && sy >= -50 && sy <= canvas.height + 50) return;
+        
+        // プレイヤーからの距離（遠すぎるものは表示しない）
+        const distToPlayer = Math.hypot(b.x - myPlayer.x, b.y - myPlayer.y);
+        if (distToPlayer > 500) return;
+        
+        // プレイヤーからの角度
+        const angle = Math.atan2(b.y - myPlayer.y, b.x - myPlayer.x);
+        
+        // インジケーターの位置（画面端）
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        let indicatorX = centerX + Math.cos(angle) * (centerX - margin);
+        let indicatorY = centerY + Math.sin(angle) * (centerY - margin);
+        
+        // 画面端に収める
+        indicatorX = Math.max(margin, Math.min(canvas.width - margin, indicatorX));
+        indicatorY = Math.max(margin, Math.min(canvas.height - margin, indicatorY));
+        
+        // 距離に応じたサイズと透明度
+        const alpha = Math.min(1, (500 - distToPlayer) / 300);
+        const size = 8 + (1 - distToPlayer / 500) * 6;
+        
+        // パルスアニメーション
+        const pulse = Math.sin(frame * 0.3) * 0.3 + 0.7;
+        
+        ctx.save();
+        ctx.translate(indicatorX, indicatorY);
+        ctx.rotate(angle);
+        
+        // オレンジの警告矢印（敵弾用）
+        ctx.fillStyle = `rgba(255, 150, 0, ${alpha * pulse})`;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#f80';
+        
+        // 小さい三角矢印
+        ctx.beginPath();
+        ctx.moveTo(size, 0);
+        ctx.lineTo(-size * 0.5, -size * 0.5);
+        ctx.lineTo(-size * 0.2, 0);
+        ctx.lineTo(-size * 0.5, size * 0.5);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.restore();
+    });
+    
+    ctx.shadowBlur = 0;
+}
+
 // ========== 描画 ==========
 function draw() {
     const theme = WAVE_THEMES[currentWaveTheme % WAVE_THEMES.length];
@@ -4380,9 +4590,12 @@ function draw() {
             ctx.textAlign = 'center';
             ctx.fillText(`${e.hp}/${e.maxHp}`, sx, sy - e.size - 16);
         });
+        
+        // 画面外の敵インジケーター（矢印で方向を示す）
+        drawEnemyIndicators();
     }
     
-    // 敵弾（補間描画・可視性強化）
+    // 敵弾（補間描画・可視性大幅強化）
     const enemyBullets = (gameState && Array.isArray(gameState.enemyBullets)) ? gameState.enemyBullets : [];
     // 補間データを更新
     enemyBullets.forEach(b => {
@@ -4404,7 +4617,8 @@ function draw() {
     remoteEnemyBullets.forEach((_, id) => {
         if (!bulletIds.has(id)) remoteEnemyBullets.delete(id);
     });
-    // 補間して描画（可視性強化）
+    
+    // 補間して描画（可視性大幅強化）
     let nearestBulletDist = Infinity;
     remoteEnemyBullets.forEach(b => {
         b.x += (b.tx - b.x) * 0.4;
@@ -4419,37 +4633,67 @@ function draw() {
             if (distToPlayer < nearestBulletDist) nearestBulletDist = distToPlayer;
         }
         
-        // 弾のサイズ（近いほど大きく見せる）
-        const visualSize = (b.size || 5) * 1.5 + (distToPlayer < 150 ? (150 - distToPlayer) / 20 : 0); // サイズ1.5倍、警告範囲拡大
+        // 弾の基本サイズ（大幅増加）
+        const baseSize = (b.size || 5) * 2.5; // 1.5→2.5倍に増加
+        // 近いほど大きく見せる（警告範囲拡大）
+        const dangerBonus = distToPlayer < 200 ? (200 - distToPlayer) / 15 : 0;
+        const visualSize = baseSize + dangerBonus;
         
-        // 危険なほど赤く点滅
-        const dangerPulse = distToPlayer < 100 ? Math.sin(frame * 0.4) * 0.5 + 0.5 : 0;
+        // 危険なほど赤く点滅（より激しく）
+        const dangerPulse = distToPlayer < 150 ? Math.sin(frame * 0.5) * 0.5 + 0.5 : 0;
         
-        // 外側のグローリング（さらに大きく）
+        // 1. 黒い縁取り（視認性向上）
         ctx.beginPath();
-        ctx.arc(sx, sy, visualSize + 8, 0, Math.PI * 2);
-        const glowAlpha = 0.4 + Math.sin(frame * 0.2) * 0.1 + dangerPulse * 0.3;
-        ctx.fillStyle = distToPlayer < 100 
-            ? `rgba(255, ${Math.floor(128 - dangerPulse * 128)}, 0, ${glowAlpha})`
-            : `rgba(255, 128, 0, ${glowAlpha})`;
+        ctx.arc(sx, sy, visualSize + 5, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
         ctx.fill();
         
-        // メイン弾（より大きく）
-        ctx.fillStyle = b.color || '#f80';
-        ctx.shadowBlur = 25; // さらに増加
-        ctx.shadowColor = distToPlayer < 100 ? '#f00' : (b.color || '#f80');
+        // 2. 外側のグローリング（さらに大きく明るく）
+        ctx.beginPath();
+        ctx.arc(sx, sy, visualSize + 12, 0, Math.PI * 2);
+        const glowAlpha = 0.5 + Math.sin(frame * 0.2) * 0.15 + dangerPulse * 0.35;
+        ctx.fillStyle = distToPlayer < 150 
+            ? `rgba(255, ${Math.floor(80 - dangerPulse * 80)}, 0, ${glowAlpha})`
+            : `rgba(255, 100, 0, ${glowAlpha})`;
+        ctx.fill();
+        
+        // 3. メイン弾（より大きく鮮やかに）
+        ctx.fillStyle = distToPlayer < 150 ? '#ff3300' : (b.color || '#ff6600');
+        ctx.shadowBlur = 30;
+        ctx.shadowColor = distToPlayer < 150 ? '#ff0000' : '#ff6600';
         ctx.beginPath(); 
         ctx.arc(sx, sy, visualSize, 0, Math.PI * 2); 
         ctx.fill();
         
-        // 中心の明るいコア（より目立つ）
+        // 4. 白い縁（視認性さらに向上）
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        // 5. 中心の明るいコア（より大きく）
         ctx.fillStyle = '#fff';
         ctx.beginPath();
-        ctx.arc(sx, sy, visualSize * 0.5, 0, Math.PI * 2);
+        ctx.arc(sx, sy, visualSize * 0.4, 0, Math.PI * 2);
         ctx.fill();
+        
+        // 6. 危険が近いときは×マークを追加
+        if (distToPlayer < 100) {
+            const crossSize = visualSize * 0.6;
+            ctx.strokeStyle = `rgba(255, 255, 0, ${0.5 + dangerPulse * 0.5})`;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(sx - crossSize, sy - crossSize);
+            ctx.lineTo(sx + crossSize, sy + crossSize);
+            ctx.moveTo(sx + crossSize, sy - crossSize);
+            ctx.lineTo(sx - crossSize, sy + crossSize);
+            ctx.stroke();
+        }
         
         ctx.shadowBlur = 0;
     });
+    
+    // 画面外から来る敵弾の警告インジケーター
+    drawBulletWarnings();
     
     // 危険警告（敵弾が近いとき - より大きな範囲で警告）
     if (myPlayer && myPlayer.alive && nearestBulletDist < 120) {
