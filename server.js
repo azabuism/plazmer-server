@@ -370,8 +370,8 @@ class GameRoom {
     }
     
     spawnMobs() {
-        const activeBosses = this.currentBosses.filter(b => b.hp > 0);
-        if (activeBosses.length === 0) return;
+        // ボス出現前でも雑魚はスポーンする
+        // ボス出現後は雑魚スポーンを継続
         
         const maxMobs = Math.min(150, 30 + this.wave * 2);
         const mobCount = this.enemies.filter(e => !e.isBoss && e.hp > 0).length;
@@ -1671,7 +1671,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0018`);
+    console.log(`PLAZMERS Server Ver.1.0019`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');
