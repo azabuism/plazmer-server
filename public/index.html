@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>PLAZMERS Ver.1.0016 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0020 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body {
@@ -175,6 +175,30 @@
         }
         .mobile-btn:active { background: rgba(0,255,255,0.5); }
         
+        /* OVERLOADボタン - 核ミサイル演出 */
+        .overload-btn {
+            background: rgba(255,0,0,0.3) !important;
+            border-color: #ff0000 !important;
+            color: #ff0000 !important;
+            animation: overload-pulse 0.5s infinite;
+            box-shadow: 0 0 20px rgba(255,0,0,0.8), inset 0 0 15px rgba(255,100,0,0.5) !important;
+            font-size: 9px !important;
+        }
+        .overload-btn.ready {
+            animation: overload-ready 0.3s infinite;
+            background: linear-gradient(45deg, #ff0000, #ff6600, #ff0000) !important;
+            background-size: 200% 200% !important;
+            box-shadow: 0 0 30px rgba(255,0,0,1), 0 0 60px rgba(255,100,0,0.8), inset 0 0 20px rgba(255,255,0,0.5) !important;
+        }
+        @keyframes overload-pulse {
+            0%, 100% { opacity: 0.6; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.05); }
+        }
+        @keyframes overload-ready {
+            0%, 100% { box-shadow: 0 0 30px rgba(255,0,0,1), 0 0 60px rgba(255,100,0,0.8); background-position: 0% 50%; }
+            50% { box-shadow: 0 0 50px rgba(255,0,0,1), 0 0 100px rgba(255,100,0,1); background-position: 100% 50%; }
+        }
+        
         #game-over {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.9); display: none;
@@ -265,7 +289,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0016</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0020</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -309,11 +333,7 @@
         <div class="hud-value" id="score">0</div>
     </div>
     
-    <div id="music-control" style="position:fixed; bottom:10px; right:10px; z-index:100; font-family:Courier New; font-size:12px; color:#0ff;">
-        <span id="music-icon">🎵</span>
-        <input type="range" id="volume-slider" min="0" max="100" value="40" style="width:80px; vertical-align:middle; cursor:pointer;">
-        <span id="volume-display">40%</span>
-    </div>
+    <!-- 音量コントロールは削除 -->
     
     <div id="players-list" class="ui" style="display:none;">
         <h3>PLAYERS</h3>
@@ -325,68 +345,19 @@
         <div id="boss-bar"><div id="boss-hp"></div></div>
     </div>
     
-    <div id="weapons" style="display:none;">
-        <div class="weapon-slot active" id="w-plazmer">PLAZMER</div>
-        <div class="weapon-slot locked" id="w-homing">HOMING</div>
-        <div class="weapon-slot locked" id="w-laser">LASER</div>
-        <div class="weapon-slot locked" id="w-thunder">THUNDER</div>
-        <div class="weapon-slot locked" id="w-phalanx">PHALANX</div>
-        <div class="weapon-slot locked" id="w-intercept">INTERCEPT</div>
-        <div class="weapon-slot locked" id="w-reflect">REFLECT</div>
-        <div class="weapon-slot locked" id="w-anchor">ANCHOR</div>
-        <div class="weapon-slot locked" id="w-rift">RIFT</div>
-        <div class="weapon-slot locked" id="w-pierce">PIERCE</div>
-    </div>
-    
-    <!-- クールダウン表示 -->
-    <div id="cooldown-display" style="display:none; position:fixed; bottom:80px; right:20px; color:#fff; font-size:12px; text-align:right;">
-        <div id="cd-anchor" style="color:#808">ANCHOR: READY</div>
-        <div id="cd-rift" style="color:#a0f">RIFT: READY</div>
-        <div id="cd-pierce" style="color:#f44">PIERCE: READY</div>
-    </div>
+    <!-- 武器・クールダウン表示は削除（Canvas上のカードUIに置き換え） -->
     
     <div id="formation-display" style="display:none;">PHALANX: DEFENSE</div>
     
     <!-- 武器選択画面 -->
-    <div id="weapon-select" style="display:none;">
-        <div class="weapon-select-panel">
-            <h2>SELECT LOADOUT</h2>
-            <div class="weapon-select-info">WAVE <span id="next-wave-num">1</span> - Choose your weapons</div>
-            
-            <div class="loadout-slots">
-                <div class="loadout-category">
-                    <h3>ATTACK (Select 1-2)</h3>
-                    <div class="weapon-options" id="attack-weapons"></div>
-                </div>
-                <div class="loadout-category">
-                    <h3>DEFENSE (Select 0-1)</h3>
-                    <div class="weapon-options" id="defense-weapons"></div>
-                </div>
-                <div class="loadout-category">
-                    <h3>CONTROL (Select 0-1)</h3>
-                    <div class="weapon-options" id="control-weapons"></div>
-                </div>
-            </div>
-            
-            <div class="selected-loadout">
-                <h3>YOUR LOADOUT</h3>
-                <div id="current-loadout"></div>
-            </div>
-            
-            <div class="weapon-select-buttons">
-                <button class="select-btn" id="auto-loadout-btn">AUTO SELECT</button>
-                <button class="select-btn ready-btn" id="loadout-ready-btn">READY!</button>
-            </div>
-            
-            <div class="players-ready-status" id="players-ready-list"></div>
-        </div>
-    </div>
+    <!-- 武器選択画面は廃止 -->
     
     <div id="joystick-zone">
         <div id="joystick-base"></div>
         <div id="joystick-stick"></div>
     </div>
     <div id="mobile-buttons">
+        <div class="mobile-btn overload-btn" id="btn-overload" style="display:none;">☢️<br>OVERLOAD</div>
         <div class="mobile-btn" id="btn-dash">DASH</div>
         <div class="mobile-btn" id="btn-form" style="border-color:#00FF66; color:#00FF66; background:rgba(0,255,102,0.3); box-shadow:0 0 15px rgba(0,255,102,0.5); line-height:1.2;">🛡️<br>DEFENSE</div>
     </div>
@@ -851,7 +822,7 @@ function spawnDamageText(x, y, damage, color) {
 // オプション（ビット）の更新
 function updateOptions() {
     if (!myPlayer || !myPlayer.options || !myPlayer.alive) return;
-    if (!isEquipped('PHALANX')) return; // PHALANX装備時のみ
+    if (!isEquipped('PHALANX')) return;
     
     const optionCount = myPlayer.options.length;
     if (optionCount === 0) return;
@@ -864,54 +835,225 @@ function updateOptions() {
             y: myPlayer.y,
             targetX: myPlayer.x,
             targetY: myPlayer.y,
-            baseAngle: (Math.PI * 2 / 6) * i,
-            rotationOffset: 0
+            vx: 0, vy: 0,
+            angle: Math.random() * Math.PI * 2,
+            wanderAngle: Math.random() * Math.PI * 2,
+            state: 'wander', // wander, chase, intercept, attack, return
+            stateTimer: 0,
+            personalTarget: null,
+            attackCooldown: 0,
+            personality: Math.random() // 個体差（動きの癖）
         });
     }
     while (localOptions.length > optionCount) {
         localOptions.pop();
     }
     
-    const radius = 70; // プレイヤーからの距離
-    
     if (phalanxFormation === 'defense') {
-        // ========== DEFENSE MODE（緑）==========
-        // プレイヤーの周りを均等な間隔で滑らかに周回
-        const rotationSpeed = 0.03; // 少し速く
-        phalanxGlobalRotation += rotationSpeed; // グローバル回転を更新
+        // ========== DEFENSE MODE ==========
+        // 生き物のように自律的・予測不可能に動き回り、敵弾を迎撃しつつ敵も攻撃
         
         for (let i = 0; i < localOptions.length; i++) {
             const opt = localOptions[i];
-            // 均等な間隔で配置（オプション数に応じて角度を分配）
-            const angleOffset = (Math.PI * 2 / localOptions.length) * i;
-            const angle = phalanxGlobalRotation + angleOffset;
+            const distFromPlayer = Math.hypot(opt.x - myPlayer.x, opt.y - myPlayer.y);
             
-            // ターゲット位置を計算
-            opt.targetX = myPlayer.x + Math.cos(angle) * radius;
-            opt.targetY = myPlayer.y + Math.sin(angle) * radius;
+            // クールダウン更新
+            if (opt.attackCooldown > 0) opt.attackCooldown--;
+            opt.stateTimer--;
             
-            // より滑らかに追従（補間係数を調整）
-            opt.x += (opt.targetX - opt.x) * 0.15;
-            opt.y += (opt.targetY - opt.y) * 0.15;
+            // 「興奮度」- 敵が多いほど活発に動く
+            let excitement = 0;
+            let nearestBullet = null;
+            let nearestBulletDist = 200;
+            let nearestEnemy = null;
+            let nearestEnemyDist = 280;
             
-            // 近くの敵弾を自動迎撃
+            // 近くの敵弾を探す
             if (gameState && Array.isArray(gameState.enemyBullets)) {
                 gameState.enemyBullets.forEach(b => {
                     const dist = Math.hypot(b.x - opt.x, b.y - opt.y);
-                    if (dist < 40) {
-                        socket.emit('destroyBullet', { bulletId: b.id });
-                        // 迎撃エフェクト
-                        particles.push({
-                            x: b.x, y: b.y,
-                            vx: 0, vy: 0,
-                            life: 10,
-                            color: WEAPON_COLORS.PHALANX,
-                            size: 8,
-                            update() { this.life--; this.size *= 0.9; }
-                        });
+                    if (dist < 250) excitement += 0.1;
+                    if (dist < nearestBulletDist) {
+                        nearestBulletDist = dist;
+                        nearestBullet = b;
                     }
                 });
             }
+            
+            // 近くの敵を探す
+            if (gameState && gameState.enemies) {
+                gameState.enemies.forEach(e => {
+                    if (e.hp > 0) {
+                        const re = remoteEnemies.get(e.id);
+                        const ex = re ? re.x : e.x;
+                        const ey = re ? re.y : e.y;
+                        const dist = Math.hypot(ex - opt.x, ey - opt.y);
+                        if (dist < 350) excitement += 0.05;
+                        if (dist < nearestEnemyDist && !e.isBoss) {
+                            nearestEnemyDist = dist;
+                            nearestEnemy = { x: ex, y: ey, id: e.id, size: e.size || 20 };
+                        }
+                    }
+                });
+            }
+            
+            excitement = Math.min(excitement, 1.5);
+            
+            // 状態遷移（より予測不可能に）
+            const randomFactor = Math.random();
+            
+            if (nearestBullet && nearestBulletDist < 140 && randomFactor < 0.8) {
+                opt.state = 'intercept';
+                opt.personalTarget = nearestBullet;
+            } else if (nearestEnemy && opt.attackCooldown <= 0 && randomFactor < 0.15 * (1 + excitement)) {
+                opt.state = 'attack';
+                opt.personalTarget = nearestEnemy;
+                opt.stateTimer = 40 + Math.random() * 50;
+            } else if (distFromPlayer > 250) {
+                opt.state = 'return';
+            } else if (opt.stateTimer <= 0 || randomFactor < 0.03) {
+                opt.state = 'wander';
+                opt.stateTimer = 15 + Math.random() * 35;
+                // 急旋回（生き物らしい動き）
+                opt.wanderAngle += (Math.random() - 0.5) * 3 + (Math.random() > 0.5 ? 1 : -1) * opt.personality;
+            }
+            
+            // 状態別の動き
+            if (opt.state === 'intercept' && opt.personalTarget) {
+                // 敵弾を高速で迎撃（ジグザグ軌道）
+                const b = opt.personalTarget;
+                const angle = Math.atan2(b.y - opt.y, b.x - opt.x);
+                const zigzag = Math.sin(frame * 0.5 + i * 2) * 0.3;
+                opt.vx += Math.cos(angle + zigzag) * 2.8;
+                opt.vy += Math.sin(angle + zigzag) * 2.8;
+                opt.angle = angle;
+                
+                // 迎撃判定
+                const hitDist = Math.hypot(b.x - opt.x, b.y - opt.y);
+                if (hitDist < 40) {
+                    socket.emit('destroyBullet', { bulletId: b.id });
+                    // 迎撃エフェクト
+                    for (let p = 0; p < 10; p++) {
+                        const pa = Math.random() * Math.PI * 2;
+                        particles.push({
+                            x: b.x, y: b.y, 
+                            vx: Math.cos(pa) * 5, vy: Math.sin(pa) * 5, 
+                            life: 25,
+                            color: '#00FF66', size: 7,
+                            update() { this.life--; this.size *= 0.9; this.x += this.vx; this.y += this.vy; }
+                        });
+                    }
+                    opt.state = 'wander';
+                    opt.personalTarget = null;
+                    // 迎撃後にランダムな方向に離脱
+                    opt.wanderAngle = Math.random() * Math.PI * 2;
+                }
+            } else if (opt.state === 'attack' && opt.personalTarget) {
+                // 敵に向かって突撃（曲線軌道）
+                const e = opt.personalTarget;
+                const baseAngle = Math.atan2(e.y - opt.y, e.x - opt.x);
+                // 渦巻くように接近（予測不可能）
+                const spiralOffset = Math.sin(frame * 0.15 + opt.personality * 10) * 0.8;
+                opt.vx += Math.cos(baseAngle + spiralOffset) * 2.2;
+                opt.vy += Math.sin(baseAngle + spiralOffset) * 2.2;
+                opt.angle = baseAngle;
+                
+                // 攻撃判定
+                const attackDist = Math.hypot(e.x - opt.x, e.y - opt.y);
+                if (attackDist < e.size + 60 && frame % 12 === 0) {
+                    // オプションビーム発射
+                    const fireAngle = baseAngle + (Math.random() - 0.5) * 0.3;
+                    optionBeams.push({
+                        x: opt.x, y: opt.y,
+                        vx: Math.cos(fireAngle) * 22,
+                        vy: Math.sin(fireAngle) * 22,
+                        damage: 10,
+                        dead: false,
+                        life: 35,
+                        update() {
+                            this.x += this.vx; this.y += this.vy;
+                            this.life--;
+                            if (this.life <= 0) this.dead = true;
+                        },
+                        draw() {
+                            const bx = this.x - camera.x + screenShake.x;
+                            const by = this.y - camera.y + screenShake.y;
+                            ctx.strokeStyle = '#00FF66';
+                            ctx.lineWidth = 4;
+                            ctx.shadowBlur = 15;
+                            ctx.shadowColor = '#00FF66';
+                            ctx.beginPath();
+                            ctx.moveTo(bx, by);
+                            ctx.lineTo(bx - this.vx * 0.6, by - this.vy * 0.6);
+                            ctx.stroke();
+                            ctx.shadowBlur = 0;
+                        }
+                    });
+                }
+                
+                // 攻撃終了（急な方向転換で離脱）
+                if (opt.stateTimer <= 0 || attackDist > 350) {
+                    opt.state = 'wander';
+                    opt.personalTarget = null;
+                    opt.attackCooldown = 40 + Math.random() * 50;
+                    opt.wanderAngle = Math.random() * Math.PI * 2; // 急旋回
+                }
+            } else if (opt.state === 'return') {
+                // プレイヤーの近くに戻る（曲線で）
+                const angle = Math.atan2(myPlayer.y - opt.y, myPlayer.x - opt.x);
+                const curve = Math.sin(frame * 0.1 + i) * 0.3;
+                opt.vx += Math.cos(angle + curve) * 2;
+                opt.vy += Math.sin(angle + curve) * 2;
+                opt.angle = angle;
+                if (distFromPlayer < 120) opt.state = 'wander';
+            } else {
+                // 自由に動き回る（虫のような不規則な動き）
+                // 時々急旋回
+                if (Math.random() < 0.05) {
+                    opt.wanderAngle += (Math.random() > 0.5 ? 1 : -1) * (0.5 + Math.random());
+                }
+                opt.wanderAngle += (Math.random() - 0.5) * 0.5 * (1 + excitement);
+                
+                const wanderSpeed = 0.8 + opt.personality * 0.5 + excitement * 0.5;
+                opt.vx += Math.cos(opt.wanderAngle) * wanderSpeed;
+                opt.vy += Math.sin(opt.wanderAngle) * wanderSpeed;
+                
+                // プレイヤーの近くに留まる力
+                const toPlayerAngle = Math.atan2(myPlayer.y - opt.y, myPlayer.x - opt.x);
+                const pullStrength = Math.min(distFromPlayer / 250, 1) * 0.35;
+                opt.vx += Math.cos(toPlayerAngle) * pullStrength;
+                opt.vy += Math.sin(toPlayerAngle) * pullStrength;
+                
+                // 他のファンネルとの間隔を保つ
+                localOptions.forEach((other, j) => {
+                    if (i !== j) {
+                        const dist = Math.hypot(other.x - opt.x, other.y - opt.y);
+                        if (dist < 40 && dist > 0) {
+                            const repelAngle = Math.atan2(opt.y - other.y, opt.x - other.x);
+                            opt.vx += Math.cos(repelAngle) * 0.5;
+                            opt.vy += Math.sin(repelAngle) * 0.5;
+                        }
+                    }
+                });
+                
+                opt.angle = Math.atan2(opt.vy, opt.vx);
+            }
+            
+            // 速度制限と減衰
+            const speed = Math.hypot(opt.vx, opt.vy);
+            const maxSpeed = 10;
+            if (speed > maxSpeed) {
+                opt.vx = (opt.vx / speed) * maxSpeed;
+                opt.vy = (opt.vy / speed) * maxSpeed;
+            }
+            opt.vx *= 0.94;
+            opt.vy *= 0.94;
+            
+            // 位置更新
+            opt.x += opt.vx;
+            opt.y += opt.vy;
+            opt.targetX = opt.x;
+            opt.targetY = opt.y;
         }
         
         offenseTarget = null;
@@ -1029,15 +1171,56 @@ function updateOptions() {
             if (offenseTarget) {
                 for (let i = 0; i < localOptions.length; i++) {
                     const opt = localOptions[i];
-                    // ターゲット周囲を高速で回転攻撃
-                    const attackAngle = (Math.PI * 2 / localOptions.length) * i + frame * 0.08;
-                    const attackRadius = offenseTarget.size + 25;
-                    opt.targetX = offenseTarget.x + Math.cos(attackAngle) * attackRadius;
-                    opt.targetY = offenseTarget.y + Math.sin(attackAngle) * attackRadius;
                     
-                    // 高速移動
-                    opt.x += (opt.targetX - opt.x) * 0.25;
-                    opt.y += (opt.targetY - opt.y) * 0.25;
+                    // 個別のランダムな動き（回転ではなくランダムな突撃と離脱）
+                    if (!opt.attackPhase) opt.attackPhase = 'approach';
+                    if (!opt.attackTimer) opt.attackTimer = 0;
+                    opt.attackTimer--;
+                    
+                    if (opt.attackPhase === 'approach' && opt.attackTimer <= 0) {
+                        // 敵に向かって突撃
+                        const toEnemyAngle = Math.atan2(offenseTarget.y - opt.y, offenseTarget.x - opt.x);
+                        const randomOffset = (Math.random() - 0.5) * 1.5;
+                        opt.vx += Math.cos(toEnemyAngle + randomOffset) * 3;
+                        opt.vy += Math.sin(toEnemyAngle + randomOffset) * 3;
+                        opt.angle = toEnemyAngle;
+                        
+                        // 敵に近づいたら離脱フェーズへ
+                        const distToEnemy = Math.hypot(offenseTarget.x - opt.x, offenseTarget.y - opt.y);
+                        if (distToEnemy < offenseTarget.size + 40) {
+                            opt.attackPhase = 'retreat';
+                            opt.attackTimer = 20 + Math.random() * 30;
+                        }
+                    } else if (opt.attackPhase === 'retreat') {
+                        // 離脱（ランダムな方向に）
+                        if (opt.attackTimer === 20) {
+                            opt.retreatAngle = Math.random() * Math.PI * 2;
+                        }
+                        opt.vx += Math.cos(opt.retreatAngle) * 2;
+                        opt.vy += Math.sin(opt.retreatAngle) * 2;
+                        opt.angle = opt.retreatAngle;
+                        
+                        if (opt.attackTimer <= 0) {
+                            opt.attackPhase = 'approach';
+                            opt.attackTimer = 10 + Math.random() * 20;
+                        }
+                    }
+                    
+                    // 速度制限と減衰
+                    const speed = Math.hypot(opt.vx, opt.vy);
+                    const maxSpeed = 12;
+                    if (speed > maxSpeed) {
+                        opt.vx = (opt.vx / speed) * maxSpeed;
+                        opt.vy = (opt.vy / speed) * maxSpeed;
+                    }
+                    opt.vx *= 0.9;
+                    opt.vy *= 0.9;
+                    
+                    // 位置更新
+                    opt.x += opt.vx;
+                    opt.y += opt.vy;
+                    opt.targetX = opt.x;
+                    opt.targetY = opt.y;
                 }
                 
                 // 敵弾も破壊しながら進む
@@ -1045,8 +1228,13 @@ function updateOptions() {
                     localOptions.forEach(opt => {
                         gameState.enemyBullets.forEach(b => {
                             const dist = Math.hypot(b.x - opt.x, b.y - opt.y);
-                            if (dist < 30) {
+                            if (dist < 35) {
                                 socket.emit('destroyBullet', { bulletId: b.id });
+                                particles.push({
+                                    x: b.x, y: b.y, vx: 0, vy: 0, life: 10,
+                                    color: '#FF3333', size: 10,
+                                    update() { this.life--; this.size *= 0.85; }
+                                });
                             }
                         });
                     });
@@ -1165,53 +1353,143 @@ function drawOptions() {
         ctx.restore();
     }
     
-    // オプション本体の描画
+    // オプション本体の描画（ファンネルミサイル風 - νガンダム風）
     localOptions.forEach((opt, i) => {
         const sx = opt.x - camera.x + screenShake.x;
         const sy = opt.y - camera.y + screenShake.y;
         
         ctx.save();
         
-        // フォーメーションに応じた色（Defense=緑、Offense=赤）
-        const formationColor = phalanxFormation === 'defense' ? WEAPON_COLORS.PHALANX : '#FF3333';
-        const currentColor = offenseAttacking ? '#FF0000' : formationColor;
+        // 状態に応じた色
+        let currentColor = '#00FF66'; // デフォルト（DEFENSE）
+        if (phalanxFormation === 'offense') currentColor = '#FF3333';
+        if (opt.state === 'intercept') currentColor = '#00FFFF'; // 迎撃中は青
+        if (opt.state === 'attack') currentColor = '#FFAA00'; // 攻撃中はオレンジ
         
-        ctx.shadowBlur = 15;
+        ctx.shadowBlur = 18;
         ctx.shadowColor = currentColor;
         
-        // 外側のリング
+        // ファンネルの向き
+        let angle = opt.angle || 0;
+        
+        ctx.translate(sx, sy);
+        ctx.rotate(angle);
+        
+        // ★★★νガンダム風ファンネルデザイン★★★
+        
+        // 外装（濃いグレー）
+        ctx.fillStyle = '#0a0a15';
         ctx.strokeStyle = currentColor;
         ctx.lineWidth = 2;
+        
+        // メイン本体（シャープな六角形）
         ctx.beginPath();
-        ctx.arc(sx, sy, 10, 0, Math.PI * 2);
+        ctx.moveTo(22, 0);       // 先端
+        ctx.lineTo(10, -6);      // 右上
+        ctx.lineTo(-4, -9);      // 右翼端
+        ctx.lineTo(-12, -5);     // 右後
+        ctx.lineTo(-16, 0);      // 後端
+        ctx.lineTo(-12, 5);      // 左後
+        ctx.lineTo(-4, 9);       // 左翼端
+        ctx.lineTo(10, 6);       // 左上
+        ctx.closePath();
+        ctx.fill();
         ctx.stroke();
         
-        // 内側のコア
-        ctx.fillStyle = '#fff';
+        // 上部パネルライン
+        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.arc(sx, sy, 5, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(16, -2);
+        ctx.lineTo(4, -5);
+        ctx.lineTo(-8, -4);
+        ctx.stroke();
         
-        // 中心の光
+        // 下部パネルライン
+        ctx.beginPath();
+        ctx.moveTo(16, 2);
+        ctx.lineTo(4, 5);
+        ctx.lineTo(-8, 4);
+        ctx.stroke();
+        
+        // センサーアイ（前方）
         ctx.fillStyle = currentColor;
+        ctx.shadowBlur = 25;
         ctx.beginPath();
-        ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+        ctx.ellipse(14, 0, 4, 2.5, 0, 0, Math.PI * 2);
         ctx.fill();
         
-        // 移動中のトレイル
-        if (offenseAttacking) {
-            ctx.globalAlpha = 0.3;
-            for (let t = 1; t <= 5; t++) {
-                const trailX = sx - (opt.x - opt.targetX) * 0.1 * t;
-                const trailY = sy - (opt.y - opt.targetY) * 0.1 * t;
-                ctx.fillStyle = currentColor;
-                ctx.beginPath();
-                ctx.arc(trailX, trailY, 5 - t, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        }
+        // センサー内部（白）
+        ctx.fillStyle = '#fff';
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.ellipse(15, 0, 2, 1.2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 中心エネルギーコア
+        const pulseSize = 3.5 + Math.sin(frame * 0.25 + i * 1.5) * 1.2;
+        ctx.fillStyle = currentColor;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = currentColor;
+        ctx.beginPath();
+        ctx.arc(0, 0, pulseSize, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // コア内部
+        ctx.fillStyle = '#fff';
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.arc(0, 0, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 推進炎（状態により変化）
+        const speed = Math.hypot(opt.vx || 0, opt.vy || 0);
+        const flameIntensity = Math.min(speed / 8, 1.5);
+        const flameLength = 10 + flameIntensity * 8 + Math.random() * 5;
+        
+        ctx.globalAlpha = 0.5 + flameIntensity * 0.3 + Math.sin(frame * 0.5 + i) * 0.2;
+        
+        // 外炎（色付き）
+        const flameColor = opt.state === 'intercept' ? '#00FFFF' : 
+                          opt.state === 'attack' ? '#FF6600' : '#00FF88';
+        ctx.fillStyle = flameColor;
+        ctx.globalAlpha = 0.6 + Math.sin(frame * 0.4 + i) * 0.3;
+        ctx.beginPath();
+        ctx.moveTo(-16, 0);
+        ctx.lineTo(-16 - flameLength, -4 + Math.random() * 2);
+        ctx.lineTo(-16 - flameLength - 5, 0);
+        ctx.lineTo(-16 - flameLength, 4 - Math.random() * 2);
+        ctx.closePath();
+        ctx.fill();
+        
+        // 推進炎の内部（白熱）
+        ctx.fillStyle = '#fff';
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(-16, 0);
+        ctx.lineTo(-16 - flameLength * 0.6, -1.5);
+        ctx.lineTo(-16 - flameLength * 0.6, 1.5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
         
         ctx.restore();
+        
+        // 移動中のトレイル（軌跡）
+        if (Math.hypot(opt.vx || 0, opt.vy || 0) > 1) {
+            ctx.save();
+            ctx.globalAlpha = 0.4;
+            for (let t = 1; t <= 5; t++) {
+                const trailX = sx - Math.cos(angle) * 10 * t;
+                const trailY = sy - Math.sin(angle) * 10 * t;
+                ctx.fillStyle = currentColor;
+                ctx.globalAlpha = 0.4 - t * 0.07;
+                ctx.beginPath();
+                ctx.arc(trailX, trailY, 4 - t * 0.6, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+        }
     });
     
     // フォーメーション表示
@@ -1469,6 +1747,10 @@ function updateWeaponUI() {
 function updateCooldownUI() {
     if (!ui.cooldownDisplay) return;
     
+    // クールダウン表示は削除（旧UI）
+    ui.cooldownDisplay.style.display = 'none';
+    return;
+    
     const hasActiveWeapon = equippedWeapons.active || 
         isEquipped('ANCHOR') || isEquipped('RIFT') || isEquipped('PIERCE');
     
@@ -1494,18 +1776,21 @@ function updateCooldownUI() {
 }
 
 // ========== 武器選択システム ==========
+// WAVEごとの武器選択は廃止 → 自動でREADYを送信
 function showWeaponSelect(nextWave) {
-    weaponSelectMode = true;
-    playerReady = false;
-    gamePhase = 'weaponSelect';
-    document.getElementById('weapon-select').style.display = 'flex';
-    document.getElementById('next-wave-num').textContent = nextWave;
-    document.getElementById('loadout-ready-btn').classList.remove('confirmed');
-    document.getElementById('loadout-ready-btn').textContent = 'READY!';
+    // 武器選択画面は表示しない
+    // weaponSelectMode = true;  // 無効化
+    // document.getElementById('weapon-select').style.display = 'flex';  // 無効化
     
-    // 武器オプションを生成
-    populateWeaponOptions(nextWave);
-    updateLoadoutDisplay();
+    // OVERLOADの使用状態をリセット（新WAVEで再使用可能）
+    overloadState.usedThisStage = false;
+    
+    // 自動でREADYを送信
+    socket.emit('playerReady', {
+        loadout: [...equippedWeapons.passive, equippedWeapons.tactical].filter(w => w)
+    });
+    
+    showMessage(`WAVE ${nextWave} START!`);
 }
 
 function hideWeaponSelect() {
@@ -2009,6 +2294,14 @@ function initMobileControls() {
         e.stopPropagation();
         cycleFormation(); 
     }, { passive: false });
+    
+    // OVERLOADボタン（核ミサイル）
+    const overloadBtn = document.getElementById('btn-overload');
+    overloadBtn.addEventListener('touchstart', e => { 
+        e.preventDefault();
+        e.stopPropagation();
+        triggerOverload(); 
+    }, { passive: false });
 }
 
 // ========== 初期化 ==========
@@ -2048,27 +2341,9 @@ function init() {
         if (e.code === 'KeyX') fireOverload(); // OVERLOAD
     });
     
-    // 音量スライダーのイベント
-    const volumeSlider = document.getElementById('volume-slider');
-    const volumeDisplay = document.getElementById('volume-display');
-    const musicIcon = document.getElementById('music-icon');
+    // 音量スライダーは削除（音量は固定）
     
-    volumeSlider.addEventListener('input', (e) => {
-        const vol = parseInt(e.target.value);
-        setMusicVolume(vol / 100);
-        volumeDisplay.textContent = vol + '%';
-        musicIcon.textContent = vol === 0 ? '🔇' : '🎵';
-    });
-    
-    // 武器選択UIのイベント
-    document.getElementById('auto-loadout-btn').addEventListener('click', () => {
-        const nextWave = parseInt(document.getElementById('next-wave-num').textContent);
-        autoSelectLoadout(nextWave);
-    });
-    
-    document.getElementById('loadout-ready-btn').addEventListener('click', () => {
-        confirmLoadoutReady();
-    });
+    // 武器選択UIのイベントは不要（WAVEごとの選択を廃止）
     
     // 初期ロードアウト設定
     selectedLoadout = ['PLAZMER', 'HOMING', 'INTERCEPT'];
@@ -2217,8 +2492,8 @@ function connectToServer() {
         ui.startScreen.style.display = 'none';
         ui.hud.style.display = 'block';
         ui.playersList.style.display = 'block';
-        ui.weapons.style.display = 'flex';
-        ui.formationDisplay.style.display = 'block';
+        // ui.weapons.style.display = 'flex'; // 旧UI削除
+        // ui.formationDisplay.style.display = 'block'; // 旧UI削除
         if (data.players) {
             const me = data.players.find(p => p.id === myPlayerId);
             if (me) myPlayer = me;
@@ -2250,8 +2525,8 @@ function connectToServer() {
         ui.startScreen.style.display = 'none';
         ui.hud.style.display = 'block';
         ui.playersList.style.display = 'block';
-        ui.weapons.style.display = 'flex';
-        ui.formationDisplay.style.display = 'block';
+        // ui.weapons.style.display = 'flex'; // 旧UI削除
+        // ui.formationDisplay.style.display = 'block'; // 旧UI削除
         updateWeaponUI();
         if (data.state === 'playing') showMessage('JOIN THE BATTLE!');
     });
@@ -2299,6 +2574,11 @@ function connectToServer() {
         if (musicInitialized && bgmA) {
             playRandomMusic();
         }
+    });
+    socket.on('bossWarning', (data) => { 
+        showMessage(`⚠️ WARNING: BOSS APPROACHING ⚠️`); 
+        triggerScreenShake(10);
+        // 警告音を鳴らす（あれば）
     });
     socket.on('bossSpawn', (data) => { showMessage(`◆ ${data.boss.name} APPEARED ◆`); triggerScreenShake(5); });
     socket.on('bossDefeated', () => { showMessage('◆ PATHOGEN ELIMINATED ◆'); triggerScreenShake(8); });
@@ -2384,18 +2664,38 @@ function connectToServer() {
     
     socket.on('itemCollected', (data) => {
         if (myPlayer) {
+            const oldLevels = { ...myPlayer.weaponLevels };
             myPlayer.weaponLevels = data.weaponLevels;
             myPlayer.hp = data.hp;
             myPlayer.options = new Array(data.options).fill({});
-            ui.hp.style.width = (myPlayer.hp / (myPlayer.maxHp || 100)) * 100 + '%';
-            updateWeaponUI();
+            ui.hp.style.width = (myPlayer.hp / (myPlayer.maxHp || 200)) * 100 + '%';
+            
+            // 新しく取得した武器を自動装備
+            const weaponType = data.type;
+            const mainWeapons = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'];
+            const supportWeapons = ['PHALANX', 'INTERCEPT', 'REFLECT', 'RIFT'];
+            const skillWeapons = ['ANCHOR', 'DASH', 'PIERCE'];
+            
+            // 初めて取得した武器なら自動装備
+            if (weaponType !== 'H' && (!oldLevels[weaponType] || oldLevels[weaponType] === 0)) {
+                if (mainWeapons.includes(weaponType)) {
+                    // メイン武器は自動装備しない（PLAZMERが基本）
+                } else if (supportWeapons.includes(weaponType)) {
+                    equippedWeapons.allrange = weaponType;
+                    if (!equippedWeapons.passive.includes(weaponType)) {
+                        equippedWeapons.passive.push(weaponType);
+                    }
+                } else if (skillWeapons.includes(weaponType)) {
+                    equippedWeapons.tactical = weaponType;
+                }
+            }
             
             // アイテム取得時の詳細情報
             const itemInfo = {
                 'PLAZMER': { icon: '🔷', name: 'PLAZMER', desc: '拡散エネルギー弾', color: '#00FFFF' },
                 'HOMING': { icon: '🔮', name: 'HOMING', desc: '自動追尾ミサイル', color: '#AA66FF' },
                 'LASER': { icon: '⚡', name: 'LASER', desc: '貫通ビーム', color: '#00CCFF' },
-                'THUNDER': { icon: '⚡', name: 'THUNDER', desc: '範囲雷撃', color: '#FFFF33' },
+                'THUNDER': { icon: '⛈️', name: 'THUNDER', desc: '範囲雷撃', color: '#FFFF33' },
                 'PHALANX': { icon: '🛡️', name: 'PHALANX', desc: `ビット追加 (${data.options}/6)`, color: '#00FF66' },
                 'INTERCEPT': { icon: '🎯', name: 'INTERCEPT', desc: '敵弾迎撃', color: '#66CCFF' },
                 'REFLECT': { icon: '🔰', name: 'REFLECT', desc: '弾反射シールド', color: '#CCFFFF' },
@@ -3050,6 +3350,11 @@ function firePierce() {
     }
 }
 
+// OVERLOAD発動（モバイル用ラッパー）
+function triggerOverload() {
+    fireOverload();
+}
+
 // OVERLOAD発動（手動・Xキー、条件付き）
 function fireOverload() {
     if (weaponSelectMode) return; // 武器選択中は発射不可
@@ -3057,11 +3362,10 @@ function fireOverload() {
     if (overloadState.usedThisStage) return; // このステージで使用済み
     if (overloadState.active) return; // 発動中
     
-    const hpRatio = myPlayer.hp / (myPlayer.maxHp || 100);
+    const hpRatio = myPlayer.hp / (myPlayer.maxHp || 200);
     if (hpRatio > 0.5) return; // HP50%以上では使用不可
     
-    const currentWave = gameState ? (gameState.wave || 1) : 1;
-    if (currentWave < 22) return; // Wave22以降で解放
+    // Wave制限削除（いつでも使用可能）
     
     // OVERLOAD発動！
     overloadState.active = true;
@@ -3070,9 +3374,58 @@ function fireOverload() {
     gamePhase = 'overload';
     
     socket.emit('overloadActivate');
-    showMessage('⚡ OVERLOAD ACTIVATED ⚡');
-    triggerScreenShake(20);
+    showMessage('☢️ OVERLOAD ACTIVATED ☢️');
+    triggerScreenShake(30);
     playSound('overload');
+    
+    // 核爆発エフェクト
+    for (let i = 0; i < 100; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 5 + Math.random() * 15;
+        particles.push({
+            x: myPlayer.x, y: myPlayer.y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 60 + Math.random() * 60,
+            color: ['#ff0', '#f80', '#f00', '#fff'][Math.floor(Math.random() * 4)],
+            size: 5 + Math.random() * 10,
+            update() { this.life--; this.x += this.vx; this.y += this.vy; this.vx *= 0.96; this.vy *= 0.96; this.size *= 0.97; }
+        });
+    }
+}
+
+// OVERLOADボタンの表示更新
+function updateOverloadButton() {
+    const btn = document.getElementById('btn-overload');
+    if (!btn) return;
+    
+    if (!myPlayer || !myPlayer.alive) {
+        btn.style.display = 'none';
+        return;
+    }
+    
+    const hpRatio = myPlayer.hp / (myPlayer.maxHp || 200);
+    const canUse = hpRatio <= 0.5 && !overloadState.usedThisStage && !overloadState.active;
+    
+    if (hpRatio <= 0.5 && !overloadState.usedThisStage) {
+        btn.style.display = 'flex';
+        btn.classList.toggle('ready', canUse);
+        
+        if (overloadState.active) {
+            btn.innerHTML = '☢️<br>ACTIVE';
+            btn.style.opacity = '0.5';
+        } else {
+            btn.innerHTML = '☢️<br>OVERLOAD';
+            btn.style.opacity = '1';
+        }
+    } else if (overloadState.usedThisStage) {
+        btn.style.display = 'flex';
+        btn.innerHTML = '☢️<br>USED';
+        btn.style.opacity = '0.3';
+        btn.classList.remove('ready');
+    } else {
+        btn.style.display = 'none';
+    }
 }
 
 // 新武器の更新
@@ -5399,71 +5752,130 @@ function drawMinimap() {
 let selectedWeaponCategory = 0; // 0: MAIN, 1: ALLRANGE, 2: TACTICAL
 let realtimeWeaponTouchArea = []; // タッチエリア
 
+// ========== カード形式の武器選択UI ==========
+const WEAPON_ICONS = {
+    PLAZMER: '🔷', HOMING: '🔮', LASER: '⚡', THUNDER: '⛈️',
+    PHALANX: '🛡️', INTERCEPT: '🎯', REFLECT: '🔰', RIFT: '🌀',
+    ANCHOR: '⚓', DASH: '💨', PIERCE: '🗡️', OVERLOAD: '☢️'
+};
+
+const WEAPON_DESCRIPTIONS = {
+    PLAZMER: '拡散弾', HOMING: '追尾', LASER: '貫通', THUNDER: '雷撃',
+    PHALANX: 'ビット', INTERCEPT: '迎撃', REFLECT: '反射', RIFT: '吸引',
+    ANCHOR: '固定', DASH: '突進', PIERCE: '捕食'
+};
+
+// カテゴリごとの装備武器インデックス
+let cardIndex = { main: 0, allrange: 0, tactical: 0 };
+
 function drawRealtimeWeaponSelect() {
     if (!myPlayer || !myPlayer.alive || !myPlayer.weaponLevels) return;
     
-    const startX = 10;
-    const startY = 120; // ボスHPバーの左下
-    const slotW = 55, slotH = 25, gap = 3;
+    const startX = 5;
+    const startY = 90;
     
     // カテゴリ定義
     const categories = [
-        { name: 'MAIN', weapons: ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'], color: '#00FFFF' },
-        { name: 'SUPPORT', weapons: ['PHALANX', 'INTERCEPT', 'REFLECT', 'RIFT'], color: '#00FF66' },
-        { name: 'SKILL', weapons: ['DASH', 'PIERCE', 'ANCHOR'], color: '#FF9933' }
+        { key: 'main', name: 'MAIN', weapons: ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'], color: '#00FFFF', equipped: equippedWeapons.main },
+        { key: 'allrange', name: 'SUPPORT', weapons: ['PHALANX', 'INTERCEPT', 'REFLECT', 'RIFT'], color: '#00FF66', equipped: equippedWeapons.allrange },
+        { key: 'tactical', name: 'SKILL', weapons: ['ANCHOR', 'DASH', 'PIERCE'], color: '#FF9933', equipped: equippedWeapons.tactical }
     ];
     
-    realtimeWeaponTouchArea = []; // リセット
+    realtimeWeaponTouchArea = [];
     
     let currentY = startY;
     
-    categories.forEach((cat, catIdx) => {
-        // カテゴリラベル
-        ctx.font = '8px "Courier New"';
+    categories.forEach((cat) => {
+        const ownedWeapons = cat.weapons.filter(w => (myPlayer.weaponLevels[w] || 0) > 0);
+        if (ownedWeapons.length === 0) return;
+        
+        // 装備中の武器を先頭に
+        const equippedIdx = ownedWeapons.indexOf(cat.equipped);
+        if (equippedIdx > 0) {
+            [ownedWeapons[0], ownedWeapons[equippedIdx]] = [ownedWeapons[equippedIdx], ownedWeapons[0]];
+        }
+        
+        // ★★★超大きいカード（タップしやすく）★★★
+        const cardW = 200, cardH = 70;
+        
+        // 下のカード（重なり表示）
+        for (let i = Math.min(ownedWeapons.length - 1, 3); i > 0; i--) {
+            ctx.fillStyle = 'rgba(5,15,25,0.7)';
+            ctx.strokeStyle = 'rgba(60,60,60,0.5)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.roundRect(startX + i * 8, currentY + i * 5, cardW, cardH, 12);
+            ctx.fill();
+            ctx.stroke();
+        }
+        
+        // 一番上のカード（装備中）
+        const topWeapon = ownedWeapons[0];
+        const level = myPlayer.weaponLevels[topWeapon] || 1;
+        const weaponColor = WEAPON_COLORS[topWeapon] || cat.color;
+        
+        // カード背景
+        ctx.fillStyle = 'rgba(0,8,16,0.98)';
+        ctx.beginPath();
+        ctx.roundRect(startX, currentY, cardW, cardH, 12);
+        ctx.fill();
+        
+        // カード枠（太め、グロー付き）
+        ctx.strokeStyle = weaponColor;
+        ctx.lineWidth = 3;
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = weaponColor;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        
+        // カテゴリラベル（左上）
+        ctx.font = 'bold 11px "Courier New"';
         ctx.fillStyle = cat.color;
         ctx.textAlign = 'left';
-        ctx.fillText(cat.name, startX, currentY);
-        currentY += 10;
+        ctx.fillText(cat.name, startX + 12, currentY + 16);
         
-        let currentX = startX;
-        cat.weapons.forEach(weaponKey => {
-            const level = myPlayer.weaponLevels[weaponKey] || 0;
-            if (level <= 0) return; // 未取得はスキップ
+        // アイコン（大きく）
+        ctx.font = '36px Arial';
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.fillText(WEAPON_ICONS[topWeapon] || '?', startX + 38, currentY + 54);
+        
+        // 武器名（大きく白）
+        ctx.font = 'bold 20px "Courier New"';
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'left';
+        ctx.fillText(topWeapon, startX + 68, currentY + 40);
+        
+        // レベル（カラー）
+        ctx.font = 'bold 16px "Courier New"';
+        ctx.fillStyle = weaponColor;
+        ctx.fillText(`Lv${level}`, startX + 68, currentY + 60);
+        
+        // 所持数表示（タップで切替）- 大きなボタン
+        if (ownedWeapons.length > 1) {
+            ctx.fillStyle = 'rgba(255,255,255,0.25)';
+            ctx.beginPath();
+            ctx.roundRect(startX + cardW - 55, currentY + 12, 48, 46, 10);
+            ctx.fill();
             
-            const isEquipped = isWeaponActive(weaponKey);
-            const weaponColor = WEAPON_COLORS[weaponKey] || '#888';
-            
-            // 背景
-            ctx.fillStyle = isEquipped ? 'rgba(0,255,100,0.4)' : 'rgba(0,40,60,0.8)';
-            ctx.fillRect(currentX, currentY, slotW, slotH);
-            
-            // 枠
-            ctx.strokeStyle = isEquipped ? '#0f0' : weaponColor;
-            ctx.lineWidth = isEquipped ? 2 : 1;
-            ctx.strokeRect(currentX, currentY, slotW, slotH);
-            
-            // 武器名
-            ctx.font = '9px "Courier New"';
-            ctx.fillStyle = weaponColor;
+            ctx.font = 'bold 22px "Courier New"';
+            ctx.fillStyle = '#fff';
             ctx.textAlign = 'center';
-            ctx.fillText(weaponKey.substring(0, 6), currentX + slotW/2, currentY + 11);
-            
-            // レベル
-            ctx.font = '8px "Courier New"';
-            ctx.fillStyle = '#888';
-            ctx.fillText(`Lv${level}`, currentX + slotW/2, currentY + 21);
-            
-            // タッチエリアを保存
-            realtimeWeaponTouchArea.push({
-                x: currentX, y: currentY, w: slotW, h: slotH,
-                weapon: weaponKey, category: catIdx
-            });
-            
-            currentX += slotW + gap;
+            ctx.fillText(`▼`, startX + cardW - 31, currentY + 36);
+            ctx.font = 'bold 16px "Courier New"';
+            ctx.fillText(`${ownedWeapons.length}`, startX + cardW - 31, currentY + 54);
+        }
+        
+        // タッチエリアを保存（超大きめに）
+        realtimeWeaponTouchArea.push({
+            x: 0, y: currentY - 10, w: cardW + 50, h: cardH + 20,
+            category: cat.key, weapons: ownedWeapons
         });
         
-        currentY += slotH + 8;
+        currentY += cardH + 15;
     });
+    
+    ctx.textAlign = 'left';
 }
 
 // 武器がアクティブかチェック
@@ -5488,55 +5900,74 @@ function isWeaponActive(weaponKey) {
 function handleWeaponTap(x, y) {
     for (const area of realtimeWeaponTouchArea) {
         if (x >= area.x && x <= area.x + area.w && y >= area.y && y <= area.y + area.h) {
-            selectWeapon(area.weapon);
+            // カードをタップ → 次の武器に切り替え
+            cycleWeaponCard(area.category, area.weapons);
             return true;
         }
     }
     return false;
 }
 
-// 武器を選択
-function selectWeapon(weaponKey) {
-    const mainWeapons = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'];
-    const allrangeWeapons = ['PHALANX', 'INTERCEPT', 'REFLECT', 'RIFT'];
-    const tacticalWeapons = ['DASH', 'PIERCE', 'ANCHOR'];
+// カードをタップして次の武器に切り替え
+function cycleWeaponCard(category, weapons) {
+    if (weapons.length <= 1) return; // 1種類しかない場合は切り替えなし
     
-    if (mainWeapons.includes(weaponKey)) {
-        // メイン武器を切り替え
+    // 次の武器に切り替え
+    const nextWeapon = weapons[1]; // 現在は0番目が装備中なので、1番目に切り替え
+    
+    if (category === 'main') {
         const oldMain = equippedWeapons.main;
-        equippedWeapons.main = weaponKey;
-        
+        equippedWeapons.main = nextWeapon;
         // passive配列も更新
         const idx = equippedWeapons.passive.indexOf(oldMain);
         if (idx >= 0) {
-            equippedWeapons.passive[idx] = weaponKey;
-        } else if (!equippedWeapons.passive.includes(weaponKey)) {
-            equippedWeapons.passive.push(weaponKey);
+            equippedWeapons.passive[idx] = nextWeapon;
+        } else if (!equippedWeapons.passive.includes(nextWeapon)) {
+            equippedWeapons.passive.push(nextWeapon);
         }
-        showMessage(`MAIN: ${weaponKey}`);
+        showMessage(`🔷 MAIN: ${nextWeapon}`);
         
-    } else if (allrangeWeapons.includes(weaponKey)) {
-        // サポート武器を切り替え
+    } else if (category === 'allrange') {
         const oldAllrange = equippedWeapons.allrange;
-        equippedWeapons.allrange = weaponKey;
-        
+        equippedWeapons.allrange = nextWeapon;
         // passive配列も更新
         const idx = equippedWeapons.passive.indexOf(oldAllrange);
         if (idx >= 0) {
-            equippedWeapons.passive[idx] = weaponKey;
-        } else if (!equippedWeapons.passive.includes(weaponKey)) {
-            equippedWeapons.passive.push(weaponKey);
+            equippedWeapons.passive[idx] = nextWeapon;
+        } else if (!equippedWeapons.passive.includes(nextWeapon)) {
+            equippedWeapons.passive.push(nextWeapon);
         }
-        showMessage(`SUPPORT: ${weaponKey}`);
+        showMessage(`🛡️ ALLRANGE: ${nextWeapon}`);
         
-    } else if (tacticalWeapons.includes(weaponKey)) {
-        equippedWeapons.tactical = weaponKey;
-        showMessage(`SKILL: ${weaponKey}`);
+    } else if (category === 'tactical') {
+        equippedWeapons.tactical = nextWeapon;
+        showMessage(`⚔️ TACTICAL: ${nextWeapon}`);
     }
     
     playSound('switch');
     
     // サーバーに通知
+    socket.emit('equipWeapon', { equipped: equippedWeapons });
+}
+
+// 武器を直接選択（互換性のため残す）
+function selectWeapon(weaponKey) {
+    const mainWeapons = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'];
+    const allrangeWeapons = ['PHALANX', 'INTERCEPT', 'REFLECT', 'RIFT'];
+    const tacticalWeapons = ['ANCHOR', 'DASH', 'PIERCE'];
+    
+    if (mainWeapons.includes(weaponKey)) {
+        equippedWeapons.main = weaponKey;
+        showMessage(`MAIN: ${weaponKey}`);
+    } else if (allrangeWeapons.includes(weaponKey)) {
+        equippedWeapons.allrange = weaponKey;
+        showMessage(`ALLRANGE: ${weaponKey}`);
+    } else if (tacticalWeapons.includes(weaponKey)) {
+        equippedWeapons.tactical = weaponKey;
+        showMessage(`TACTICAL: ${weaponKey}`);
+    }
+    
+    playSound('switch');
     socket.emit('equipWeapon', { equipped: equippedWeapons });
 }
 
@@ -5595,6 +6026,9 @@ function gameLoop() {
 // OVERLOAD UI更新
 function updateOverloadUI() {
     if (!myPlayer || !myPlayer.alive) return;
+    
+    // OVERLOADボタンの表示更新
+    updateOverloadButton();
     
     // OVERLOAD発動可能時のUI更新
     if (overloadState.available) {
