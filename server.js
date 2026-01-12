@@ -76,6 +76,7 @@ class GameRoom {
         this.waveTimer = 0;
         this.mobTimer = 0;
         this.currentBosses = [];
+        this.bossSpawnPending = null; // ボス出現待ち状態
         this.lastUpdate = Date.now();
         
         this.generateWalls(0);
@@ -285,11 +286,16 @@ class GameRoom {
         const playerCount = this.players.size;
         const multiplayerScale = 1 + (playerCount - 1) * 0.5;
         
-        setTimeout(() => {
-            for (let i = 0; i < bossCount; i++) {
-                this.spawnBoss(multiplayerScale);
-            }
-        }, 1500);
+        // ボス出現条件：雑魚を一定数倒してから
+        this.bossSpawnPending = {
+            count: bossCount,
+            scale: multiplayerScale,
+            killsRequired: 5 + Math.floor(this.wave * 0.5), // Wave1: 5匹, Wave10: 10匹
+            killsCount: 0,
+            spawned: false
+        };
+        
+        console.log(`Wave ${this.wave}: Boss spawns after ${this.bossSpawnPending.killsRequired} kills`);
     }
     
     spawnBoss(multiplayerScale = 1) {
@@ -479,18 +485,13 @@ class GameRoom {
             
             io.to(this.id).emit('bossDefeated', { wave: this.wave, score: this.score });
             
-            // 武器選択画面に遷移
+            // 武器選択を自動スキップして次のWAVEへ
             setTimeout(() => {
                 if (this.state === 'playing') {
-                    this.state = 'weaponSelect';
-                    // 全プレイヤーのloadoutReadyをリセット
-                    this.players.forEach(p => p.loadoutReady = false);
-                    io.to(this.id).emit('weaponSelect', { 
-                        nextWave: this.wave + 1,
-                        players: Array.from(this.players.values()).map(p => ({
-                            id: p.id, name: p.name, loadoutReady: false
-                        }))
-                    });
+                    // 次のWAVEを開始
+                    this.startWave();
+                    io.to(this.id).emit('waveStarting');
+                    console.log(`Room ${this.id}: Auto-starting Wave ${this.wave}`);
                 }
             }, 3000);
         }
@@ -1078,6 +1079,26 @@ class GameRoom {
             }
         }
         
+        // 雑魚撃破でボス出現条件チェック
+        if (!enemy.isBoss && this.bossSpawnPending && !this.bossSpawnPending.spawned) {
+            this.bossSpawnPending.killsCount++;
+            
+            if (this.bossSpawnPending.killsCount >= this.bossSpawnPending.killsRequired) {
+                this.bossSpawnPending.spawned = true;
+                
+                // 警告を出してからボス出現
+                io.to(this.id).emit('bossWarning', { wave: this.wave });
+                
+                setTimeout(() => {
+                    for (let i = 0; i < this.bossSpawnPending.count; i++) {
+                        this.spawnBoss(this.bossSpawnPending.scale);
+                    }
+                }, 2000); // 2秒後にボス出現
+                
+                console.log(`Wave ${this.wave}: Boss spawning after ${this.bossSpawnPending.killsCount} kills!`);
+            }
+        }
+        
         io.to(this.id).emit('enemyDefeated', { 
             enemyId: enemy.id, 
             isBoss: enemy.isBoss,
@@ -1146,9 +1167,8 @@ class GameRoom {
         };
         
         if (isBoss) {
-            // ボス撃破時：このWaveで解放される武器をドロップ
+            // ボス撃破時：このWaveで解放される武器をドロップ（1個ずつ）
             const newWeapons = WAVE_UNLOCK[this.wave] || [];
-            const unlockedWeapons = getUnlockedWeapons();
             
             // 新武器をドロップ
             newWeapons.forEach((type, i) => {
@@ -1164,11 +1184,11 @@ class GameRoom {
                 });
             });
             
-            // HP回復も複数ドロップ
-            const hpCount = 3 + Math.floor(this.wave / 5);
+            // HP回復を1〜2個だけドロップ
+            const hpCount = 1 + Math.floor(Math.random() * 2);
             for (let i = 0; i < hpCount; i++) {
                 const a = Math.random() * Math.PI * 2;
-                const dist = 30 + Math.random() * 80;
+                const dist = 30 + Math.random() * 50;
                 const pos = findSafeItemPos(x + Math.cos(a) * dist, y + Math.sin(a) * dist);
                 this.items.push({
                     id: 'item_' + this.enemyIdCounter++,
@@ -1178,21 +1198,7 @@ class GameRoom {
                 });
             }
             
-            // ランダムで解放済み武器のレベルアップアイテムも
-            const upgradeCount = 2 + Math.floor(Math.random() * 3);
-            for (let i = 0; i < upgradeCount; i++) {
-                const type = unlockedWeapons[Math.floor(Math.random() * unlockedWeapons.length)];
-                if (!type) continue;
-                const a = Math.random() * Math.PI * 2;
-                const dist = 60 + Math.random() * 60;
-                const pos = findSafeItemPos(x + Math.cos(a) * dist, y + Math.sin(a) * dist);
-                this.items.push({
-                    id: 'item_' + this.enemyIdCounter++,
-                    x: pos.x, y: pos.y,
-                    type: type,
-                    color: WEAPON_COLORS[type] || '#fff'
-                });
-            }
+            // レベルアップアイテムはボスからはドロップしない（雑魚から1個ずつ取得）
         } else {
             // 雑魚撃破時：HP回復中心、たまに武器レベルアップ
             
@@ -1665,7 +1671,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0017`);
+    console.log(`PLAZMERS Server Ver.1.0018`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');
