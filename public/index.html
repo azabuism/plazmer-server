@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>PLAZMERS Ver.1.0019 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0020 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body {
@@ -289,7 +289,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0019</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0020</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -5753,7 +5753,8 @@ let selectedWeaponCategory = 0; // 0: MAIN, 1: ALLRANGE, 2: TACTICAL
 let realtimeWeaponTouchArea = []; // タッチエリア
 
 // ========== カード形式の武器選択UI ==========
-const WEAPON_ICONS = {
+// 絵文字アイコン（カードUI用）
+const WEAPON_EMOJI = {
     PLAZMER: '🔷', HOMING: '🔮', LASER: '⚡', THUNDER: '⛈️',
     PHALANX: '🛡️', INTERCEPT: '🎯', REFLECT: '🔰', RIFT: '🌀',
     ANCHOR: '⚓', DASH: '💨', PIERCE: '🗡️', OVERLOAD: '☢️'
@@ -5838,7 +5839,7 @@ function drawRealtimeWeaponSelect() {
         ctx.font = '36px Arial';
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'center';
-        ctx.fillText(WEAPON_ICONS[topWeapon] || '?', startX + 38, currentY + 54);
+        ctx.fillText(WEAPON_EMOJI[topWeapon] || '?', startX + 38, currentY + 54);
         
         // 武器名（大きく白）
         ctx.font = 'bold 20px "Courier New"';
