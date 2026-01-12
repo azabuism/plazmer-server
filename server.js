@@ -194,9 +194,9 @@ class GameRoom {
             x: WORLD_W / 2 + (Math.random() - 0.5) * 200,
             y: WORLD_H / 2 + (Math.random() - 0.5) * 200,
             angle: 0,
-            hp: 150,     // 100→150に増加
-            maxHp: 150,  // 100→150に増加
-            speed: 4.5,
+            hp: 200,     // 150→200に増加
+            maxHp: 200,  // 150→200に増加  // 100→150に増加
+            speed: 3.5,  // 4.5→3.5に速度ダウン
             invincible: 60,
             dashing: false,
             dashTimer: 0,
@@ -591,7 +591,7 @@ class GameRoom {
             if (enemy.hp <= 0) return;
             if (Math.hypot(player.x - enemy.x, player.y - enemy.y) < 8 + enemy.size) {
                 if (!player.dashing && player.invincible <= 0) {
-                    this.damagePlayer(player, enemy.isBoss ? 20 : 10);
+                    this.damagePlayer(player, enemy.isBoss ? 15 : 8); // ボス20→15、通常10→8に軽減
                 }
             }
         });
@@ -954,8 +954,8 @@ class GameRoom {
             // プレイヤーとの衝突
             this.players.forEach(player => {
                 if (!player.alive || player.invincible > 0 || player.dashing) return;
-                if (Math.hypot(player.x - b.x, player.y - b.y) < 8 + b.size) {
-                    this.damagePlayer(player, 8);
+                if (Math.hypot(player.x - b.x, player.y - b.y) < 6 + b.size) { // 当たり判定を8→6に縮小
+                    this.damagePlayer(player, 5); // 8→5ダメージに軽減
                     b.dead = true;
                 }
             });
@@ -1033,7 +1033,7 @@ class GameRoom {
         if (player.invincible > 0 || player.dashing) return;
         
         player.hp -= damage;
-        player.invincible = 30;
+        player.invincible = 90; // 30→90フレーム（1.5秒）に延長
         
         io.to(player.id).emit('playerDamaged', { hp: player.hp, damage });
         
@@ -1665,7 +1665,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0003`);
+    console.log(`PLAZMERS Server Ver.1.0011`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');
