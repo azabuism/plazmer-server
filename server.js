@@ -1665,7 +1665,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0011`);
+    console.log(`PLAZMERS Server Ver.1.0013`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');

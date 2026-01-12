@@ -2,19 +2,29 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>PLAZMERS Ver.1.0011 - ONLINE MULTIPLAYER</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>PLAZMERS Ver.1.0013 - ONLINE MULTIPLAYER</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html, body {
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            overscroll-behavior: none;
+        }
         body { 
             background: #000810; 
             overflow: hidden; 
             font-family: 'Courier New', monospace;
-            touch-action: none;
-            -webkit-touch-callout: none;
-            -webkit-user-select: none;
-            user-select: none;
             cursor: crosshair;
+            position: fixed;
+            width: 100%;
+            height: 100%;
         }
         #canvas { display: block; background: #000810; }
         
@@ -190,12 +200,17 @@
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.95); z-index: 200;
             display: flex; align-items: center; justify-content: center;
+            touch-action: manipulation; /* iPhoneズーム防止 */
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
         .weapon-select-panel {
             background: linear-gradient(135deg, #001020, #002040);
             border: 2px solid #0ff; border-radius: 15px;
             padding: 30px; max-width: 800px; width: 90%;
             max-height: 90vh; overflow-y: auto;
+            touch-action: pan-y; /* スクロールのみ許可 */
         }
         .weapon-select-panel h2 {
             color: #0ff; text-align: center; font-size: 28px;
@@ -212,6 +227,8 @@
             border-radius: 8px; padding: 10px 15px; cursor: pointer;
             transition: all 0.2s; min-width: 140px;
             display: flex; align-items: center; gap: 10px;
+            touch-action: manipulation; /* タップ応答性向上 */
+            -webkit-tap-highlight-color: rgba(0,255,255,0.3);
         }
         .weapon-option:hover { border-color: #0ff; background: rgba(0,100,150,0.5); }
         .weapon-option.selected { border-color: #0f0; background: rgba(0,150,50,0.3); box-shadow: 0 0 15px #0f0; }
@@ -247,7 +264,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0011</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0013</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -661,12 +678,11 @@ function initBackground() {
 let input = { x: 0, y: 0, angle: 0, moving: false, dash: false, hasMoved: false };
 let joystick = { active: false, dx: 0, dy: 0, centerX: 0, centerY: 0 };
 
-// DASHチャージシステム
-let dashCharge = {
-    charging: false,      // チャージ中かどうか
-    timer: 0,             // チャージタイマー
-    maxTimer: 90,         // 最大チャージ時間（1.5秒）
-    particles: []         // チャージ中のキラキラパーティクル
+// 連続DASHシステム（押している間ダッシュし続ける）
+let continuousDash = {
+    active: false,        // ダッシュボタンを押しているか
+    cooldown: 0,          // 次のダッシュまでのクールダウン
+    interval: 12          // ダッシュ間隔（フレーム）- 20→12に短縮
 };
 
 // カメラ
@@ -1505,39 +1521,86 @@ function populateWeaponOptions(currentWave) {
     defenseContainer.innerHTML = '';
     controlContainer.innerHTML = '';
     
+    // 入手済み武器のみ表示
     Object.entries(WEAPON_DEFS).forEach(([key, weapon]) => {
         if (weapon.type === 'ultimate') return; // OVERLOADは別枠
+        
+        // 入手しているかチェック（weaponLevels > 0）
+        const hasWeapon = myPlayer && myPlayer.weaponLevels && myPlayer.weaponLevels[key] > 0;
+        if (!hasWeapon) return; // 入手していない武器はスキップ
         
         const div = document.createElement('div');
         div.className = 'weapon-option';
         div.dataset.weapon = key;
         div.dataset.type = weapon.type;
         
-        const isUnlocked = currentWave >= weapon.unlockWave;
         const isSelected = equippedWeapons.passive.includes(key) || equippedWeapons.active === key;
-        
-        if (!isUnlocked) div.classList.add('locked');
         if (isSelected) div.classList.add('selected');
         
         // アイコン付きで表示
         const icon = WEAPON_ICONS[key] || '';
+        const level = myPlayer.weaponLevels[key] || 0;
         div.innerHTML = `
-            <div class="weapon-icon" style="color:${weapon.color}">${icon}</div>
-            <div class="weapon-info">
-                <div class="weapon-name" style="color:${weapon.color}">${weapon.name}</div>
-                <div class="weapon-desc">${isUnlocked ? weapon.desc : `WAVE ${weapon.unlockWave}で解放`}</div>
+            <div class="weapon-icon" style="color:${weapon.color};pointer-events:none;">${icon}</div>
+            <div class="weapon-info" style="pointer-events:none;">
+                <div class="weapon-name" style="color:${weapon.color}">${weapon.name} <span style="font-size:10px;opacity:0.7;">Lv${level}</span></div>
+                <div class="weapon-desc">${weapon.desc}</div>
             </div>
         `;
         
-        if (isUnlocked) {
-            div.onclick = () => toggleWeaponSelection(key, weapon.type);
-        }
+        // タッチ/クリック両対応（iPhoneで確実に反応するように）
+        let touchHandled = false;
+        
+        div.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            touchHandled = true;
+            // 視覚的フィードバック
+            div.style.transform = 'scale(0.95)';
+            div.style.opacity = '0.8';
+        }, { passive: false });
+        
+        div.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (touchHandled) {
+                div.style.transform = '';
+                div.style.opacity = '';
+                toggleWeaponSelection(key, weapon.type);
+                touchHandled = false;
+            }
+        }, { passive: false });
+        
+        div.addEventListener('touchcancel', (e) => {
+            div.style.transform = '';
+            div.style.opacity = '';
+            touchHandled = false;
+        });
+        
+        // PC用クリック
+        div.addEventListener('click', (e) => {
+            if (!touchHandled) {
+                e.preventDefault();
+                toggleWeaponSelection(key, weapon.type);
+            }
+        });
         
         // 3カテゴリに振り分け
         if (weapon.type === 'attack' || weapon.type === 'main') attackContainer.appendChild(div);
         else if (weapon.type === 'defense' || weapon.type === 'allrange') defenseContainer.appendChild(div);
         else if (weapon.type === 'control' || weapon.type === 'tactical') controlContainer.appendChild(div);
     });
+    
+    // 武器がない場合のメッセージ
+    if (attackContainer.children.length === 0) {
+        attackContainer.innerHTML = '<div style="color:#666;padding:10px;">アイテムを集めて武器を入手しよう</div>';
+    }
+    if (defenseContainer.children.length === 0) {
+        defenseContainer.innerHTML = '<div style="color:#666;padding:10px;">アイテムを集めて武器を入手しよう</div>';
+    }
+    if (controlContainer.children.length === 0) {
+        controlContainer.innerHTML = '<div style="color:#666;padding:10px;">アイテムを集めて武器を入手しよう</div>';
+    }
 }
 
 function toggleWeaponSelection(weaponKey, weaponType) {
@@ -1768,30 +1831,82 @@ function initMobileControls() {
     const stick = document.getElementById('joystick-stick');
     const base = document.getElementById('joystick-base');
     
+    // ジョイスティックをリセットする関数
+    function resetJoystick() {
+        joystick.active = false;
+        joystick.dx = 0;
+        joystick.dy = 0;
+        stick.style.transform = 'translate(-50%, -50%)';
+    }
+    
     zone.addEventListener('touchstart', e => {
-        e.preventDefault(); joystick.active = true;
+        e.preventDefault();
+        e.stopPropagation();
+        joystick.active = true;
         const rect = base.getBoundingClientRect();
         joystick.centerX = rect.left + rect.width / 2;
         joystick.centerY = rect.top + rect.height / 2;
-    });
+    }, { passive: false });
     
     zone.addEventListener('touchmove', e => {
-        e.preventDefault(); if (!joystick.active) return;
-        const touch = e.touches[0]; const maxDist = 50;
-        let dx = touch.clientX - joystick.centerX, dy = touch.clientY - joystick.centerY;
+        e.preventDefault();
+        e.stopPropagation();
+        if (!joystick.active) return;
+        const touch = e.touches[0];
+        const maxDist = 50;
+        let dx = touch.clientX - joystick.centerX;
+        let dy = touch.clientY - joystick.centerY;
         const dist = Math.hypot(dx, dy);
-        if (dist > maxDist) { dx = dx / dist * maxDist; dy = dy / dist * maxDist; }
-        joystick.dx = dx / maxDist; joystick.dy = dy / maxDist;
+        if (dist > maxDist) {
+            dx = dx / dist * maxDist;
+            dy = dy / dist * maxDist;
+        }
+        joystick.dx = dx / maxDist;
+        joystick.dy = dy / maxDist;
         stick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
-    });
+    }, { passive: false });
     
+    // touchendでリセット
     zone.addEventListener('touchend', e => {
-        e.preventDefault(); joystick.active = false; joystick.dx = 0; joystick.dy = 0;
-        stick.style.transform = 'translate(-50%, -50%)';
+        e.preventDefault();
+        e.stopPropagation();
+        resetJoystick();
+    }, { passive: false });
+    
+    // touchcancelでもリセット（重要！）
+    zone.addEventListener('touchcancel', e => {
+        e.preventDefault();
+        resetJoystick();
+    }, { passive: false });
+    
+    // 画面外に出た時もリセット
+    zone.addEventListener('touchleave', e => {
+        resetJoystick();
     });
     
-    document.getElementById('btn-dash').addEventListener('touchstart', e => { e.preventDefault(); startDashCharge(); });
-    document.getElementById('btn-form').addEventListener('touchstart', e => { e.preventDefault(); cycleFormation(); });
+    // DASHボタン：押している間ダッシュし続ける
+    const dashBtn = document.getElementById('btn-dash');
+    dashBtn.addEventListener('touchstart', e => { 
+        e.preventDefault();
+        e.stopPropagation();
+        startContinuousDash();
+    }, { passive: false });
+    dashBtn.addEventListener('touchend', e => { 
+        e.preventDefault(); 
+        stopContinuousDash();
+    }, { passive: false });
+    dashBtn.addEventListener('touchcancel', e => { 
+        e.preventDefault(); 
+        stopContinuousDash();
+    }, { passive: false });
+    
+    // FORMボタン
+    const formBtn = document.getElementById('btn-form');
+    formBtn.addEventListener('touchstart', e => { 
+        e.preventDefault();
+        e.stopPropagation();
+        cycleFormation(); 
+    }, { passive: false });
 }
 
 // ========== 初期化 ==========
@@ -2340,12 +2455,19 @@ function updateInput() {
     let angle = myPlayer.angle;
     
     // モバイル：ジョイスティック入力
-    if (joystick.active && (Math.abs(joystick.dx) > 0.1 || Math.abs(joystick.dy) > 0.1)) {
-        angle = Math.atan2(joystick.dy, joystick.dx); 
-        moving = true;
+    if (joystick.active) {
+        // ジョイスティックがアクティブな場合
+        if (Math.abs(joystick.dx) > 0.15 || Math.abs(joystick.dy) > 0.15) {
+            // デッドゾーンを超えていれば移動
+            angle = Math.atan2(joystick.dy, joystick.dx); 
+            moving = true;
+        } else {
+            // デッドゾーン内 = ニュートラル = 移動しない
+            moving = false;
+        }
     } 
-    // PC：マウス入力（マウスが動いた場合のみ）
-    else if (input.hasMoved && input.x > 0 && input.y > 0) {
+    // PC：マウス入力（ジョイスティックが非アクティブの時のみ）
+    else if (!joystick.active && input.hasMoved && input.x > 0 && input.y > 0) {
         const mx = input.x + camera.x; 
         const my = input.y + camera.y;
         const dist = Math.hypot(mx - myPlayer.x, my - myPlayer.y);
@@ -2366,7 +2488,7 @@ function updateInput() {
         myPlayer.x = Math.max(60, Math.min(WORLD_W - 60, myPlayer.x));
         myPlayer.y = Math.max(60, Math.min(WORLD_H - 60, myPlayer.y));
     } else if (moving) {
-        const speed = myPlayer.speed || 3.5; // 4.5→3.5に速度ダウン
+        const speed = myPlayer.speed || 3.5;
         const vx = Math.cos(angle) * speed; const vy = Math.sin(angle) * speed;
         if (!checkWall(myPlayer.x + vx, myPlayer.y, walls)) myPlayer.x += vx;
         if (!checkWall(myPlayer.x, myPlayer.y + vy, walls)) myPlayer.y += vy;
@@ -2383,137 +2505,56 @@ function updateInput() {
     input.dash = false;
 }
 
-// DASHチャージ開始（ボタンを押したとき）
-function startDashCharge() {
+// 連続ダッシュ開始（ボタンを押したとき）
+function startContinuousDash() {
     if (!myPlayer || !myPlayer.alive) return;
-    if (dashCharge.charging) return; // 既にチャージ中
     
-    dashCharge.charging = true;
-    dashCharge.timer = dashCharge.maxTimer;
+    continuousDash.active = true;
     
     // DASHボタンを光らせる
     const dashBtn = document.getElementById('btn-dash');
     if (dashBtn) {
         dashBtn.style.background = 'rgba(255,153,51,0.5)';
         dashBtn.style.boxShadow = '0 0 20px #f93';
-        dashBtn.textContent = '✦ DASH ✦';
     }
     
-    playSound('charge'); // チャージ音（なければdash音で代用）
+    // 即座に最初のダッシュを発動
+    triggerDash();
 }
 
-// DASHチャージ更新（毎フレーム呼ぶ）
-function updateDashCharge() {
-    if (!dashCharge.charging) return;
+// 連続ダッシュ停止（ボタンを離したとき）
+function stopContinuousDash() {
+    continuousDash.active = false;
+    continuousDash.cooldown = 0;
+    
+    // DASHボタンを元に戻す
+    const dashBtn = document.getElementById('btn-dash');
+    if (dashBtn) {
+        dashBtn.style.background = '';
+        dashBtn.style.boxShadow = '';
+    }
+}
+
+// 連続ダッシュ更新（毎フレーム呼ぶ）
+function updateContinuousDash() {
+    if (!continuousDash.active) return;
     if (!myPlayer || !myPlayer.alive) {
-        cancelDashCharge();
+        stopContinuousDash();
         return;
     }
     
-    dashCharge.timer--;
-    
-    // キラキラパーティクルを生成
-    if (frame % 3 === 0) {
-        const angle = Math.random() * Math.PI * 2;
-        const dist = 30 + Math.random() * 20;
-        dashParticles.push({
-            x: myPlayer.x + Math.cos(angle) * dist,
-            y: myPlayer.y + Math.sin(angle) * dist,
-            vx: -Math.cos(angle) * 2,
-            vy: -Math.sin(angle) * 2,
-            size: 2 + Math.random() * 3,
-            life: 20,
-            maxLife: 20,
-            color: Math.random() > 0.5 ? '#fff' : '#f93',
-            type: 'sparkle'
-        });
-    }
-    
-    // 移動入力があればDASH発動
-    const hasMovement = joystick.active && (Math.abs(joystick.dx) > 0.2 || Math.abs(joystick.dy) > 0.2);
-    if (hasMovement) {
-        executeDash();
+    // クールダウンを減らす
+    if (continuousDash.cooldown > 0) {
+        continuousDash.cooldown--;
         return;
     }
     
-    // タイムアウト
-    if (dashCharge.timer <= 0) {
-        cancelDashCharge();
-    }
+    // ダッシュ発動
+    triggerDash();
+    continuousDash.cooldown = continuousDash.interval;
 }
 
-// DASH発動
-function executeDash() {
-    dashCharge.charging = false;
-    input.dash = true;
-    playSound('dash');
-    
-    // DASHボタンを元に戻す
-    const dashBtn = document.getElementById('btn-dash');
-    if (dashBtn) {
-        dashBtn.style.background = '';
-        dashBtn.style.boxShadow = '';
-        dashBtn.textContent = 'DASH';
-    }
-    
-    // ダッシュ開始時のバースト粒子
-    if (myPlayer && myPlayer.alive) {
-        const glowColor = myPlayer.glowColor || '#0ff';
-        
-        // 放射状バースト粒子
-        for (let i = 0; i < 30; i++) {
-            const angle = Math.random() * Math.PI * 2;
-            const speed = 4 + Math.random() * 10;
-            dashParticles.push({
-                x: myPlayer.x,
-                y: myPlayer.y,
-                vx: Math.cos(angle) * speed,
-                vy: Math.sin(angle) * speed,
-                size: 2 + Math.random() * 5,
-                life: 25 + Math.random() * 20,
-                maxLife: 45,
-                color: Math.random() > 0.4 ? '#fff' : glowColor,
-                type: 'star'
-            });
-        }
-        
-        // 進行方向への集中粒子
-        for (let i = 0; i < 15; i++) {
-            const spreadAngle = myPlayer.angle + (Math.random() - 0.5) * 0.5;
-            const speed = 8 + Math.random() * 12;
-            dashParticles.push({
-                x: myPlayer.x,
-                y: myPlayer.y,
-                vx: Math.cos(spreadAngle) * speed,
-                vy: Math.sin(spreadAngle) * speed,
-                size: 1 + Math.random() * 3,
-                life: 15 + Math.random() * 10,
-                maxLife: 25,
-                color: '#fff',
-                type: 'star'
-            });
-        }
-        
-        // 画面シェイク
-        triggerScreenShake(8);
-    }
-}
-
-// DASHチャージキャンセル
-function cancelDashCharge() {
-    dashCharge.charging = false;
-    dashCharge.timer = 0;
-    
-    // DASHボタンを元に戻す
-    const dashBtn = document.getElementById('btn-dash');
-    if (dashBtn) {
-        dashBtn.style.background = '';
-        dashBtn.style.boxShadow = '';
-        dashBtn.textContent = 'DASH';
-    }
-}
-
-// 旧triggerDash（PC用、即時発動）
+// ダッシュ発動（PC・モバイル共通）
 function triggerDash() { 
     input.dash = true; 
     playSound('dash'); 
@@ -2523,58 +2564,44 @@ function triggerDash() {
         const glowColor = myPlayer.glowColor || '#0ff';
         
         // 放射状バースト粒子
-        for (let i = 0; i < 30; i++) {
+        for (let i = 0; i < 20; i++) {
             const angle = Math.random() * Math.PI * 2;
-            const speed = 4 + Math.random() * 10;
+            const speed = 4 + Math.random() * 8;
             dashParticles.push({
                 x: myPlayer.x,
                 y: myPlayer.y,
                 vx: Math.cos(angle) * speed,
                 vy: Math.sin(angle) * speed,
-                size: 2 + Math.random() * 5,
-                life: 25 + Math.random() * 20,
-                maxLife: 45,
+                size: 2 + Math.random() * 4,
+                life: 20 + Math.random() * 15,
+                maxLife: 35,
                 color: Math.random() > 0.4 ? '#fff' : glowColor,
                 type: 'star'
             });
         }
         
         // 進行方向への集中粒子
-        for (let i = 0; i < 15; i++) {
+        for (let i = 0; i < 10; i++) {
             const spreadAngle = myPlayer.angle + (Math.random() - 0.5) * 0.5;
-            const speed = 8 + Math.random() * 12;
+            const speed = 8 + Math.random() * 10;
             dashParticles.push({
                 x: myPlayer.x,
                 y: myPlayer.y,
                 vx: Math.cos(spreadAngle) * speed,
                 vy: Math.sin(spreadAngle) * speed,
-                size: 1 + Math.random() * 3,
-                life: 15 + Math.random() * 10,
-                maxLife: 25,
+                size: 1 + Math.random() * 2,
+                life: 12 + Math.random() * 8,
+                maxLife: 20,
                 color: '#fff',
                 type: 'star'
             });
         }
         
-        // キラキラ
-        for (let i = 0; i < 8; i++) {
-            dashParticles.push({
-                x: myPlayer.x + (Math.random() - 0.5) * 40,
-                y: myPlayer.y + (Math.random() - 0.5) * 40,
-                vx: (Math.random() - 0.5) * 3,
-                vy: (Math.random() - 0.5) * 3,
-                size: 3 + Math.random() * 4,
-                life: 40 + Math.random() * 20,
-                maxLife: 60,
-                color: '#fff',
-                type: 'sparkle'
-            });
-        }
-        
-        // 画面シェイク
-        triggerScreenShake(8);
+        // 画面シェイク（軽め）
+        triggerScreenShake(5);
     }
 }
+
 function cycleFormation() {
     // PHALANXフォーメーション切り替え（Defense ↔ Offense）
     if (localOptions.length > 0) {
@@ -4850,7 +4877,7 @@ function gameLoop() {
     }
     
     if (myPlayer && myPlayer.alive) updateInput();
-    updateDashCharge(); // DASHチャージ更新
+    updateContinuousDash(); // 連続ダッシュ更新
     updateCamera();
     updateInterpolation(); // 補間更新
     updateOptions(); // オプション更新
