@@ -27,7 +27,7 @@ const MAX_ENEMY_BULLETS = 500; // 敵弾上限
 const DEFAULT_WEAPON_LEVELS = {
     PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0,
     PHALANX: 1, INTERCEPT: 0, REFLECT: 0, RIFT: 0,
-    ANCHOR: 0, DASH: 1, PIERCE: 0, OVERLOAD: 0
+    ANCHOR: 0, DASH: 1, PIERCE: 1, OVERLOAD: 0  // PIERCE: 0→1 初期武器に
 };
 
 // ========== 敵テンプレート ==========
@@ -1665,7 +1665,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0014`);
+    console.log(`PLAZMERS Server Ver.1.0016`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');

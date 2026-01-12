@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>PLAZMERS Ver.1.0014 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0016 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body {
@@ -134,7 +134,8 @@
         
         #weapons {
             position: fixed; bottom: 10px; left: 10px;
-            display: flex; gap: 8px; flex-wrap: wrap; max-width: 350px;
+            display: none; gap: 8px; flex-wrap: wrap; max-width: 350px;
+            /* 旧UIは非表示。Canvas上のリアルタイム武器選択に置き換え */
         }
         .weapon-slot {
             padding: 5px 8px; border: 1px solid #444; background: #001;
@@ -264,7 +265,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0014</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0016</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -476,8 +477,9 @@ let pierceGrab = null; // PIERCE掴み
 let equippedWeapons = {
     passive: ['PLAZMER', 'PHALANX'],  // パッシブ武器（自動発動）
     active: null,                      // アクティブ武器（手動発動）
+    main: 'PLAZMER',                   // メイン武器
     allrange: 'PHALANX',              // オールレンジ武器
-    tactical: 'DASH',                  // 戦術武器
+    tactical: 'PIERCE',                // 戦術武器 (DASH→PIERCE)
     ultimate: null                     // 切り札
 };
 
@@ -506,7 +508,7 @@ let gamePhase = 'normal'; // 'normal', 'weaponSelect', 'overload'
 const DEFAULT_WEAPON_LEVELS = {
     PLAZMER: 1, HOMING: 0, LASER: 0, THUNDER: 0,
     PHALANX: 1, INTERCEPT: 0, REFLECT: 0, RIFT: 0,
-    ANCHOR: 0, DASH: 1, PIERCE: 0, OVERLOAD: 0
+    ANCHOR: 0, DASH: 1, PIERCE: 1, OVERLOAD: 0  // PIERCE: 0→1 初期武器に
 };
 
 // ウェーブ背景テーマ
@@ -634,8 +636,8 @@ const WEAPON_DEFS = {
         name: 'PIERCE', 
         type: 'tactical', 
         color: WEAPON_COLORS.PIERCE, 
-        desc: '槍で貫き捕食投げ [R]', 
-        unlockWave: 16, 
+        desc: '槍で貫き捕食・吸収・投げ [R]', 
+        unlockWave: 1,  // 初期武器に変更 
         cooldown: 180 
     },
     
@@ -676,7 +678,7 @@ function initBackground() {
 
 // 入力
 let input = { x: 0, y: 0, angle: 0, moving: false, dash: false, hasMoved: false };
-let joystick = { active: false, dx: 0, dy: 0, centerX: 0, centerY: 0 };
+let joystick = { active: false, dx: 0, dy: 0, centerX: 0, centerY: 0, touchId: null };
 
 // 連続DASHシステム（押している間ダッシュし続ける）
 let continuousDash = {
@@ -1710,6 +1712,76 @@ function showMessage(text) {
     setTimeout(() => { ui.message.style.opacity = 0; }, 2000);
 }
 
+// アイテム取得ポップアップ（大きく目立つ）
+let itemPopup = { active: false, timer: 0, icon: '', name: '', desc: '', color: '#fff' };
+
+function showItemPopup(icon, name, desc, color) {
+    itemPopup = {
+        active: true,
+        timer: 90, // 1.5秒表示
+        icon: icon,
+        name: name,
+        desc: desc,
+        color: color
+    };
+}
+
+function drawItemPopup() {
+    if (!itemPopup.active) return;
+    
+    itemPopup.timer--;
+    if (itemPopup.timer <= 0) {
+        itemPopup.active = false;
+        return;
+    }
+    
+    // フェードイン/アウト
+    let alpha = 1;
+    if (itemPopup.timer > 80) alpha = (90 - itemPopup.timer) / 10; // フェードイン
+    if (itemPopup.timer < 20) alpha = itemPopup.timer / 20; // フェードアウト
+    
+    const centerX = canvas.width / 2;
+    const popupY = 180; // 画面上部
+    
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    
+    // 背景
+    const boxW = 280, boxH = 70;
+    ctx.fillStyle = 'rgba(0, 20, 40, 0.9)';
+    ctx.strokeStyle = itemPopup.color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(centerX - boxW/2, popupY, boxW, boxH, 10);
+    ctx.fill();
+    ctx.stroke();
+    
+    // グロー効果
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = itemPopup.color;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    // アイコン
+    ctx.font = '30px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(itemPopup.icon, centerX - 100, popupY + 45);
+    
+    // 名前
+    ctx.font = 'bold 18px "Courier New"';
+    ctx.fillStyle = itemPopup.color;
+    ctx.textAlign = 'left';
+    ctx.fillText(itemPopup.name, centerX - 70, popupY + 30);
+    
+    // 説明
+    ctx.font = '12px "Courier New"';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText(itemPopup.desc, centerX - 70, popupY + 50);
+    
+    ctx.restore();
+}
+
 // サウンド再生（クールダウン付き）
 const soundCooldowns = {};
 const SOUND_COOLDOWN = {
@@ -1836,13 +1908,16 @@ function initMobileControls() {
         joystick.active = false;
         joystick.dx = 0;
         joystick.dy = 0;
+        joystick.touchId = null;
         stick.style.transform = 'translate(-50%, -50%)';
     }
     
     zone.addEventListener('touchstart', e => {
         e.preventDefault();
         e.stopPropagation();
+        const touch = e.changedTouches[0];
         joystick.active = true;
+        joystick.touchId = touch.identifier; // タッチIDを記録
         const rect = base.getBoundingClientRect();
         joystick.centerX = rect.left + rect.width / 2;
         joystick.centerY = rect.top + rect.height / 2;
@@ -1852,7 +1927,20 @@ function initMobileControls() {
         e.preventDefault();
         e.stopPropagation();
         if (!joystick.active) return;
-        const touch = e.touches[0];
+        
+        // 対応するタッチを探す
+        let touch = null;
+        for (let i = 0; i < e.touches.length; i++) {
+            if (e.touches[i].identifier === joystick.touchId) {
+                touch = e.touches[i];
+                break;
+            }
+        }
+        if (!touch) {
+            resetJoystick(); // タッチが見つからない場合はリセット
+            return;
+        }
+        
         const maxDist = 50;
         let dx = touch.clientX - joystick.centerX;
         let dy = touch.clientY - joystick.centerY;
@@ -1870,19 +1958,33 @@ function initMobileControls() {
     zone.addEventListener('touchend', e => {
         e.preventDefault();
         e.stopPropagation();
-        resetJoystick();
+        // このタッチIDがリセット対象か確認
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            if (e.changedTouches[i].identifier === joystick.touchId) {
+                resetJoystick();
+                break;
+            }
+        }
     }, { passive: false });
     
-    // touchcancelでもリセット（重要！）
+    // touchcancelでもリセット（重要！スクショ等のシステム操作対策）
     zone.addEventListener('touchcancel', e => {
         e.preventDefault();
-        resetJoystick();
+        resetJoystick(); // touchcancelは常にリセット
     }, { passive: false });
     
     // 画面外に出た時もリセット
     zone.addEventListener('touchleave', e => {
         resetJoystick();
     });
+    
+    // グローバルなtouchendでもジョイスティック状態を確認
+    document.addEventListener('touchend', e => {
+        if (joystick.active && e.touches.length === 0) {
+            // 全てのタッチが終了した場合はリセット
+            resetJoystick();
+        }
+    }, { passive: true });
     
     // DASHボタン：押している間ダッシュし続ける
     const dashBtn = document.getElementById('btn-dash');
@@ -1922,9 +2024,20 @@ function init() {
     
     canvas.addEventListener('mousedown', (e) => {
         if (e.button === 0 && myPlayer && myPlayer.alive) {
+            // 武器選択エリアをチェック
+            if (handleWeaponTap(e.clientX, e.clientY)) return;
             cycleFormation();
         }
     });
+    
+    // Canvas上のタッチで武器選択
+    canvas.addEventListener('touchstart', (e) => {
+        const touch = e.touches[0];
+        if (handleWeaponTap(touch.clientX, touch.clientY)) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+    }, { passive: false });
     
     document.addEventListener('keydown', e => {
         if (e.code === 'Space') triggerDash();
@@ -1963,7 +2076,58 @@ function init() {
     initMobileControls();
     connectToServer();
     initBackground(); // 宇宙背景を初期化
+    
+    // スクショ等のシステム操作でジョイスティックをリセット
+    document.addEventListener('visibilitychange', () => {
+        resetAllInputs();
+    });
+    window.addEventListener('blur', () => {
+        resetAllInputs();
+    });
+    window.addEventListener('pagehide', () => {
+        resetAllInputs();
+    });
+    // iOSのジェスチャー（スクショ等）対策
+    document.addEventListener('gesturestart', (e) => {
+        e.preventDefault();
+        resetAllInputs();
+    }, { passive: false });
+    document.addEventListener('gesturechange', (e) => {
+        e.preventDefault();
+    }, { passive: false });
+    document.addEventListener('gestureend', (e) => {
+        e.preventDefault();
+        resetAllInputs();
+    }, { passive: false });
+    
     requestAnimationFrame(gameLoop);
+}
+
+// 全入力をリセット
+function resetAllInputs() {
+    joystick.active = false;
+    joystick.dx = 0;
+    joystick.dy = 0;
+    joystick.touchId = null; // タッチIDもリセット
+    input.dash = false;
+    input.hasMoved = false;
+    continuousDash.active = false;
+    continuousDash.cooldown = 0;
+    
+    // ジョイスティックの見た目もリセット
+    const stick = document.getElementById('joystick-stick');
+    if (stick) {
+        stick.style.transform = 'translate(-50%, -50%)';
+        stick.style.transition = 'transform 0.1s ease-out';
+        setTimeout(() => { stick.style.transition = ''; }, 100);
+    }
+    
+    // DASHボタンの見た目もリセット
+    const dashBtn = document.getElementById('btn-dash');
+    if (dashBtn) {
+        dashBtn.style.background = '';
+        dashBtn.style.boxShadow = '';
+    }
 }
 
 function resize() {
@@ -2226,9 +2390,40 @@ function connectToServer() {
             ui.hp.style.width = (myPlayer.hp / (myPlayer.maxHp || 100)) * 100 + '%';
             updateWeaponUI();
             
-            // PHALANXアイテム取得時にメッセージ表示
-            if (data.type === 'PHALANX') {
-                showMessage(`PHALANX +1 (${data.options}/6)`);
+            // アイテム取得時の詳細情報
+            const itemInfo = {
+                'PLAZMER': { icon: '🔷', name: 'PLAZMER', desc: '拡散エネルギー弾', color: '#00FFFF' },
+                'HOMING': { icon: '🔮', name: 'HOMING', desc: '自動追尾ミサイル', color: '#AA66FF' },
+                'LASER': { icon: '⚡', name: 'LASER', desc: '貫通ビーム', color: '#00CCFF' },
+                'THUNDER': { icon: '⚡', name: 'THUNDER', desc: '範囲雷撃', color: '#FFFF33' },
+                'PHALANX': { icon: '🛡️', name: 'PHALANX', desc: `ビット追加 (${data.options}/6)`, color: '#00FF66' },
+                'INTERCEPT': { icon: '🎯', name: 'INTERCEPT', desc: '敵弾迎撃', color: '#66CCFF' },
+                'REFLECT': { icon: '🔰', name: 'REFLECT', desc: '弾反射シールド', color: '#CCFFFF' },
+                'RIFT': { icon: '🌀', name: 'RIFT', desc: '吸引ブラックホール', color: '#FF44CC' },
+                'ANCHOR': { icon: '⚓', name: 'ANCHOR', desc: '敵を固定', color: '#663399' },
+                'DASH': { icon: '💨', name: 'DASH', desc: '高速移動＋無敵', color: '#FF9933' },
+                'PIERCE': { icon: '🗡️', name: 'PIERCE', desc: '捕食槍で貫く', color: '#CC3333' },
+                'H': { icon: '❤️', name: 'HP', desc: '体力回復 +30', color: '#FF6699' }
+            };
+            
+            const info = itemInfo[data.type] || { icon: '?', name: data.type, desc: '', color: '#fff' };
+            const level = data.type !== 'H' && data.type !== 'PHALANX' ? ` Lv${data.weaponLevels[data.type]}` : '';
+            
+            // 大きなポップアップ表示
+            showItemPopup(info.icon, info.name + level, info.desc, info.color);
+            
+            // 取得エフェクト
+            for (let i = 0; i < 15; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                particles.push({
+                    x: myPlayer.x, y: myPlayer.y,
+                    vx: Math.cos(angle) * (3 + Math.random() * 5),
+                    vy: Math.sin(angle) * (3 + Math.random() * 5),
+                    life: 30 + Math.random() * 20,
+                    color: info.color,
+                    size: 3 + Math.random() * 4,
+                    update() { this.life--; this.x += this.vx; this.y += this.vy; this.vx *= 0.95; this.vy *= 0.95; this.size *= 0.95; }
+                });
             }
         }
         playSound('powerup');
@@ -5069,15 +5264,101 @@ function draw() {
     }
     
     drawMinimap();
+    drawItemPopup(); // アイテム取得ポップアップ
+    drawRealtimeWeaponSelect(); // リアルタイム武器選択UI
+    drawWeaponSelectUI();  // リアルタイム武器選択UI
+}
+
+// リアルタイム武器選択UI（ボスHPバーの左下）
+function drawWeaponSelectUI() {
+    if (!myPlayer || !myPlayer.weaponLevels) return;
+    
+    const startX = 15;
+    const startY = 130;  // ボスHPバーの下
+    const slotW = 70;
+    const slotH = 22;
+    const gap = 4;
+    
+    // カテゴリー
+    const categories = [
+        { name: 'MAIN', weapons: ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'], color: '#0ff' },
+        { name: 'SUPPORT', weapons: ['PHALANX', 'INTERCEPT', 'REFLECT', 'RIFT'], color: '#0f0' },
+        { name: 'TACTICAL', weapons: ['DASH', 'PIERCE', 'ANCHOR'], color: '#f80' }
+    ];
+    
+    ctx.font = '9px "Courier New"';
+    ctx.textAlign = 'left';
+    
+    categories.forEach((cat, catIdx) => {
+        const catY = startY + catIdx * (slotH + gap + 15);
+        
+        // カテゴリーラベル
+        ctx.fillStyle = cat.color;
+        ctx.globalAlpha = 0.8;
+        ctx.fillText(cat.name, startX, catY);
+        ctx.globalAlpha = 1;
+        
+        // 武器スロット
+        let slotX = startX;
+        cat.weapons.forEach((weaponKey, idx) => {
+            const level = myPlayer.weaponLevels[weaponKey] || 0;
+            if (level === 0) return; // 未取得はスキップ
+            
+            const weapon = WEAPON_DEFS[weaponKey];
+            if (!weapon) return;
+            
+            const slotY = catY + 5;
+            
+            // 背景
+            ctx.fillStyle = 'rgba(0,20,40,0.8)';
+            ctx.fillRect(slotX, slotY, slotW, slotH);
+            
+            // 枠
+            ctx.strokeStyle = weapon.color;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(slotX, slotY, slotW, slotH);
+            
+            // 武器名とレベル
+            ctx.fillStyle = weapon.color;
+            ctx.font = '8px "Courier New"';
+            ctx.fillText(`${weaponKey.substring(0, 6)}`, slotX + 3, slotY + 10);
+            ctx.fillStyle = '#fff';
+            ctx.fillText(`Lv${level}`, slotX + 3, slotY + 19);
+            
+            slotX += slotW + gap;
+        });
+    });
 }
 
 function drawMinimap() {
-    const mapW = 120, mapH = 120, mapX = canvas.width - mapW - 10, mapY = canvas.height - mapH - 10, scale = mapW / WORLD_W;
-    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(mapX, mapY, mapW, mapH);
-    ctx.strokeStyle = '#0ff'; ctx.lineWidth = 1; ctx.strokeRect(mapX, mapY, mapW, mapH);
+    // ミニマップをPLAYERSパネルの下（右上）に配置
+    const mapW = 90, mapH = 90;
+    const mapX = canvas.width - mapW - 10;  // 右端から10px
+    const mapY = 120;  // PLAYERSパネルの下（ボタンと重ならない位置）
+    const scale = mapW / WORLD_W;
     
-    ctx.fillStyle = 'rgba(255,100,100,0.5)';
-    walls.forEach(w => { if (w.type === 'cell') { ctx.beginPath(); ctx.arc(mapX + w.cx * scale, mapY + w.cy * scale, w.radius * scale, 0, Math.PI * 2); ctx.fill(); } });
+    // 背景
+    ctx.fillStyle = 'rgba(0,20,40,0.85)'; 
+    ctx.fillRect(mapX, mapY, mapW, mapH);
+    ctx.strokeStyle = '#0ff'; 
+    ctx.lineWidth = 2; 
+    ctx.strokeRect(mapX, mapY, mapW, mapH);
+    
+    // MAPラベル
+    ctx.font = '9px "Courier New"';
+    ctx.fillStyle = '#0ff';
+    ctx.textAlign = 'center';
+    ctx.fillText('MAP', mapX + mapW / 2, mapY - 3);
+    
+    // 壁
+    ctx.fillStyle = 'rgba(255,100,100,0.4)';
+    walls.forEach(w => { 
+        if (w.type === 'cell') { 
+            ctx.beginPath(); 
+            ctx.arc(mapX + w.cx * scale, mapY + w.cy * scale, w.radius * scale, 0, Math.PI * 2); 
+            ctx.fill(); 
+        } 
+    });
     
     // 敵（補間された位置）
     if (gameState) {
@@ -5086,23 +5367,177 @@ function drawMinimap() {
             const re = remoteEnemies.get(e.id);
             const ex = re ? re.x : e.x;
             const ey = re ? re.y : e.y;
-            ctx.fillStyle = e.isBoss ? '#ff0' : e.color; 
-            ctx.beginPath(); ctx.arc(mapX + ex * scale, mapY + ey * scale, e.isBoss ? 4 : 2, 0, Math.PI * 2); ctx.fill(); 
+            ctx.fillStyle = e.isBoss ? '#ff0' : '#f44'; 
+            ctx.beginPath(); 
+            ctx.arc(mapX + ex * scale, mapY + ey * scale, e.isBoss ? 4 : 2, 0, Math.PI * 2); 
+            ctx.fill(); 
         });
     }
     
-    // 自分
+    // 自分（点滅）
     if (myPlayer && myPlayer.alive) {
-        ctx.fillStyle = myPlayer.color || '#fff';
-        ctx.beginPath(); ctx.arc(mapX + myPlayer.x * scale, mapY + myPlayer.y * scale, 3, 0, Math.PI * 2); ctx.fill();
+        const pulse = Math.sin(frame * 0.2) * 0.3 + 0.7;
+        ctx.fillStyle = myPlayer.color || '#0ff';
+        ctx.globalAlpha = pulse;
+        ctx.beginPath(); 
+        ctx.arc(mapX + myPlayer.x * scale, mapY + myPlayer.y * scale, 4, 0, Math.PI * 2); 
+        ctx.fill();
+        ctx.globalAlpha = 1;
     }
     
     // 他プレイヤー（補間された位置）
     remotePlayers.forEach(rp => {
         if (!rp.data || !rp.data.alive) return;
         ctx.fillStyle = rp.data.color || '#fff';
-        ctx.beginPath(); ctx.arc(mapX + rp.x * scale, mapY + rp.y * scale, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); 
+        ctx.arc(mapX + rp.x * scale, mapY + rp.y * scale, 3, 0, Math.PI * 2); 
+        ctx.fill();
     });
+}
+
+// ========== 3. リアルタイム武器選択UI ==========
+let selectedWeaponCategory = 0; // 0: MAIN, 1: ALLRANGE, 2: TACTICAL
+let realtimeWeaponTouchArea = []; // タッチエリア
+
+function drawRealtimeWeaponSelect() {
+    if (!myPlayer || !myPlayer.alive || !myPlayer.weaponLevels) return;
+    
+    const startX = 10;
+    const startY = 120; // ボスHPバーの左下
+    const slotW = 55, slotH = 25, gap = 3;
+    
+    // カテゴリ定義
+    const categories = [
+        { name: 'MAIN', weapons: ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'], color: '#00FFFF' },
+        { name: 'SUPPORT', weapons: ['PHALANX', 'INTERCEPT', 'REFLECT', 'RIFT'], color: '#00FF66' },
+        { name: 'SKILL', weapons: ['DASH', 'PIERCE', 'ANCHOR'], color: '#FF9933' }
+    ];
+    
+    realtimeWeaponTouchArea = []; // リセット
+    
+    let currentY = startY;
+    
+    categories.forEach((cat, catIdx) => {
+        // カテゴリラベル
+        ctx.font = '8px "Courier New"';
+        ctx.fillStyle = cat.color;
+        ctx.textAlign = 'left';
+        ctx.fillText(cat.name, startX, currentY);
+        currentY += 10;
+        
+        let currentX = startX;
+        cat.weapons.forEach(weaponKey => {
+            const level = myPlayer.weaponLevels[weaponKey] || 0;
+            if (level <= 0) return; // 未取得はスキップ
+            
+            const isEquipped = isWeaponActive(weaponKey);
+            const weaponColor = WEAPON_COLORS[weaponKey] || '#888';
+            
+            // 背景
+            ctx.fillStyle = isEquipped ? 'rgba(0,255,100,0.4)' : 'rgba(0,40,60,0.8)';
+            ctx.fillRect(currentX, currentY, slotW, slotH);
+            
+            // 枠
+            ctx.strokeStyle = isEquipped ? '#0f0' : weaponColor;
+            ctx.lineWidth = isEquipped ? 2 : 1;
+            ctx.strokeRect(currentX, currentY, slotW, slotH);
+            
+            // 武器名
+            ctx.font = '9px "Courier New"';
+            ctx.fillStyle = weaponColor;
+            ctx.textAlign = 'center';
+            ctx.fillText(weaponKey.substring(0, 6), currentX + slotW/2, currentY + 11);
+            
+            // レベル
+            ctx.font = '8px "Courier New"';
+            ctx.fillStyle = '#888';
+            ctx.fillText(`Lv${level}`, currentX + slotW/2, currentY + 21);
+            
+            // タッチエリアを保存
+            realtimeWeaponTouchArea.push({
+                x: currentX, y: currentY, w: slotW, h: slotH,
+                weapon: weaponKey, category: catIdx
+            });
+            
+            currentX += slotW + gap;
+        });
+        
+        currentY += slotH + 8;
+    });
+}
+
+// 武器がアクティブかチェック
+function isWeaponActive(weaponKey) {
+    const mainWeapons = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'];
+    const allrangeWeapons = ['PHALANX', 'INTERCEPT', 'REFLECT', 'RIFT'];
+    const tacticalWeapons = ['DASH', 'PIERCE', 'ANCHOR'];
+    
+    if (mainWeapons.includes(weaponKey)) {
+        return equippedWeapons.main === weaponKey;
+    }
+    if (allrangeWeapons.includes(weaponKey)) {
+        return equippedWeapons.allrange === weaponKey;
+    }
+    if (tacticalWeapons.includes(weaponKey)) {
+        return equippedWeapons.tactical === weaponKey;
+    }
+    return false;
+}
+
+// 武器をタップで選択
+function handleWeaponTap(x, y) {
+    for (const area of realtimeWeaponTouchArea) {
+        if (x >= area.x && x <= area.x + area.w && y >= area.y && y <= area.y + area.h) {
+            selectWeapon(area.weapon);
+            return true;
+        }
+    }
+    return false;
+}
+
+// 武器を選択
+function selectWeapon(weaponKey) {
+    const mainWeapons = ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'];
+    const allrangeWeapons = ['PHALANX', 'INTERCEPT', 'REFLECT', 'RIFT'];
+    const tacticalWeapons = ['DASH', 'PIERCE', 'ANCHOR'];
+    
+    if (mainWeapons.includes(weaponKey)) {
+        // メイン武器を切り替え
+        const oldMain = equippedWeapons.main;
+        equippedWeapons.main = weaponKey;
+        
+        // passive配列も更新
+        const idx = equippedWeapons.passive.indexOf(oldMain);
+        if (idx >= 0) {
+            equippedWeapons.passive[idx] = weaponKey;
+        } else if (!equippedWeapons.passive.includes(weaponKey)) {
+            equippedWeapons.passive.push(weaponKey);
+        }
+        showMessage(`MAIN: ${weaponKey}`);
+        
+    } else if (allrangeWeapons.includes(weaponKey)) {
+        // サポート武器を切り替え
+        const oldAllrange = equippedWeapons.allrange;
+        equippedWeapons.allrange = weaponKey;
+        
+        // passive配列も更新
+        const idx = equippedWeapons.passive.indexOf(oldAllrange);
+        if (idx >= 0) {
+            equippedWeapons.passive[idx] = weaponKey;
+        } else if (!equippedWeapons.passive.includes(weaponKey)) {
+            equippedWeapons.passive.push(weaponKey);
+        }
+        showMessage(`SUPPORT: ${weaponKey}`);
+        
+    } else if (tacticalWeapons.includes(weaponKey)) {
+        equippedWeapons.tactical = weaponKey;
+        showMessage(`SKILL: ${weaponKey}`);
+    }
+    
+    playSound('switch');
+    
+    // サーバーに通知
+    socket.emit('equipWeapon', { equipped: equippedWeapons });
 }
 
 // ========== ゲームループ ==========
