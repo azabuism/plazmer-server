@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>PLAZMERS Ver.1.0020 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0021 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body {
@@ -289,7 +289,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0020</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0021</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -346,8 +346,7 @@
     </div>
     
     <!-- 武器・クールダウン表示は削除（Canvas上のカードUIに置き換え） -->
-    
-    <div id="formation-display" style="display:none;">PHALANX: DEFENSE</div>
+    <!-- formation-displayも削除 -->
     
     <!-- 武器選択画面 -->
     <!-- 武器選択画面は廃止 -->
@@ -1496,13 +1495,7 @@ function drawOptions() {
     if (localOptions.length > 0) {
         ctx.save();
         const formColor = phalanxFormation === 'offense' ? '#FF3333' : '#00FF66';
-        const formName = phalanxFormation === 'offense' ? 'OFFENSE' : 'DEFENSE';
-        ctx.fillStyle = formColor;
-        ctx.font = 'bold 12px Courier New';
-        ctx.textAlign = 'left';
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = formColor;
-        ctx.fillText(`PHALANX: ${formName}`, 10, canvas.height - 60);
+        // PHALANX表示はCanvas上から削除
         ctx.restore();
     }
 }
@@ -5618,70 +5611,10 @@ function draw() {
     
     drawMinimap();
     drawItemPopup(); // アイテム取得ポップアップ
-    drawRealtimeWeaponSelect(); // リアルタイム武器選択UI
-    drawWeaponSelectUI();  // リアルタイム武器選択UI
+    drawRealtimeWeaponSelect(); // リアルタイム武器選択UI（コンパクト版）
 }
 
-// リアルタイム武器選択UI（ボスHPバーの左下）
-function drawWeaponSelectUI() {
-    if (!myPlayer || !myPlayer.weaponLevels) return;
-    
-    const startX = 15;
-    const startY = 130;  // ボスHPバーの下
-    const slotW = 70;
-    const slotH = 22;
-    const gap = 4;
-    
-    // カテゴリー
-    const categories = [
-        { name: 'MAIN', weapons: ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'], color: '#0ff' },
-        { name: 'SUPPORT', weapons: ['PHALANX', 'INTERCEPT', 'REFLECT', 'RIFT'], color: '#0f0' },
-        { name: 'TACTICAL', weapons: ['DASH', 'PIERCE', 'ANCHOR'], color: '#f80' }
-    ];
-    
-    ctx.font = '9px "Courier New"';
-    ctx.textAlign = 'left';
-    
-    categories.forEach((cat, catIdx) => {
-        const catY = startY + catIdx * (slotH + gap + 15);
-        
-        // カテゴリーラベル
-        ctx.fillStyle = cat.color;
-        ctx.globalAlpha = 0.8;
-        ctx.fillText(cat.name, startX, catY);
-        ctx.globalAlpha = 1;
-        
-        // 武器スロット
-        let slotX = startX;
-        cat.weapons.forEach((weaponKey, idx) => {
-            const level = myPlayer.weaponLevels[weaponKey] || 0;
-            if (level === 0) return; // 未取得はスキップ
-            
-            const weapon = WEAPON_DEFS[weaponKey];
-            if (!weapon) return;
-            
-            const slotY = catY + 5;
-            
-            // 背景
-            ctx.fillStyle = 'rgba(0,20,40,0.8)';
-            ctx.fillRect(slotX, slotY, slotW, slotH);
-            
-            // 枠
-            ctx.strokeStyle = weapon.color;
-            ctx.lineWidth = 1;
-            ctx.strokeRect(slotX, slotY, slotW, slotH);
-            
-            // 武器名とレベル
-            ctx.fillStyle = weapon.color;
-            ctx.font = '8px "Courier New"';
-            ctx.fillText(`${weaponKey.substring(0, 6)}`, slotX + 3, slotY + 10);
-            ctx.fillStyle = '#fff';
-            ctx.fillText(`Lv${level}`, slotX + 3, slotY + 19);
-            
-            slotX += slotW + gap;
-        });
-    });
-}
+// 旧drawWeaponSelectUIは削除（drawRealtimeWeaponSelectに統合）
 
 function drawMinimap() {
     // ミニマップをPLAYERSパネルの下（右上）に配置
@@ -5777,9 +5710,9 @@ function drawRealtimeWeaponSelect() {
     
     // カテゴリ定義
     const categories = [
-        { key: 'main', name: 'MAIN', weapons: ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'], color: '#00FFFF', equipped: equippedWeapons.main },
-        { key: 'allrange', name: 'SUPPORT', weapons: ['PHALANX', 'INTERCEPT', 'REFLECT', 'RIFT'], color: '#00FF66', equipped: equippedWeapons.allrange },
-        { key: 'tactical', name: 'SKILL', weapons: ['ANCHOR', 'DASH', 'PIERCE'], color: '#FF9933', equipped: equippedWeapons.tactical }
+        { key: 'main', name: 'M', weapons: ['PLAZMER', 'HOMING', 'LASER', 'THUNDER'], color: '#00FFFF', equipped: equippedWeapons.main },
+        { key: 'allrange', name: 'S', weapons: ['PHALANX', 'INTERCEPT', 'REFLECT', 'RIFT'], color: '#00FF66', equipped: equippedWeapons.allrange },
+        { key: 'tactical', name: 'T', weapons: ['ANCHOR', 'DASH', 'PIERCE'], color: '#FF9933', equipped: equippedWeapons.tactical }
     ];
     
     realtimeWeaponTouchArea = [];
@@ -5796,16 +5729,16 @@ function drawRealtimeWeaponSelect() {
             [ownedWeapons[0], ownedWeapons[equippedIdx]] = [ownedWeapons[equippedIdx], ownedWeapons[0]];
         }
         
-        // ★★★超大きいカード（タップしやすく）★★★
-        const cardW = 200, cardH = 70;
+        // コンパクトカード
+        const cardW = 110, cardH = 28;
         
         // 下のカード（重なり表示）
-        for (let i = Math.min(ownedWeapons.length - 1, 3); i > 0; i--) {
-            ctx.fillStyle = 'rgba(5,15,25,0.7)';
-            ctx.strokeStyle = 'rgba(60,60,60,0.5)';
+        for (let i = Math.min(ownedWeapons.length - 1, 2); i > 0; i--) {
+            ctx.fillStyle = 'rgba(5,15,25,0.6)';
+            ctx.strokeStyle = 'rgba(60,60,60,0.4)';
             ctx.lineWidth = 1;
             ctx.beginPath();
-            ctx.roundRect(startX + i * 8, currentY + i * 5, cardW, cardH, 12);
+            ctx.roundRect(startX + i * 3, currentY + i * 2, cardW, cardH, 5);
             ctx.fill();
             ctx.stroke();
         }
@@ -5816,64 +5749,51 @@ function drawRealtimeWeaponSelect() {
         const weaponColor = WEAPON_COLORS[topWeapon] || cat.color;
         
         // カード背景
-        ctx.fillStyle = 'rgba(0,8,16,0.98)';
+        ctx.fillStyle = 'rgba(0,8,16,0.95)';
         ctx.beginPath();
-        ctx.roundRect(startX, currentY, cardW, cardH, 12);
+        ctx.roundRect(startX, currentY, cardW, cardH, 5);
         ctx.fill();
         
-        // カード枠（太め、グロー付き）
+        // カード枠
         ctx.strokeStyle = weaponColor;
-        ctx.lineWidth = 3;
-        ctx.shadowBlur = 20;
+        ctx.lineWidth = 2;
+        ctx.shadowBlur = 8;
         ctx.shadowColor = weaponColor;
         ctx.stroke();
         ctx.shadowBlur = 0;
         
-        // カテゴリラベル（左上）
-        ctx.font = 'bold 11px "Courier New"';
-        ctx.fillStyle = cat.color;
-        ctx.textAlign = 'left';
-        ctx.fillText(cat.name, startX + 12, currentY + 16);
-        
-        // アイコン（大きく）
-        ctx.font = '36px Arial';
+        // アイコン
+        ctx.font = '16px Arial';
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'center';
-        ctx.fillText(WEAPON_EMOJI[topWeapon] || '?', startX + 38, currentY + 54);
+        ctx.fillText(WEAPON_EMOJI[topWeapon] || '?', startX + 14, currentY + 20);
         
-        // 武器名（大きく白）
-        ctx.font = 'bold 20px "Courier New"';
+        // 武器名
+        ctx.font = 'bold 11px "Courier New"';
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'left';
-        ctx.fillText(topWeapon, startX + 68, currentY + 40);
+        ctx.fillText(topWeapon, startX + 28, currentY + 14);
         
-        // レベル（カラー）
-        ctx.font = 'bold 16px "Courier New"';
+        // レベル
+        ctx.font = '9px "Courier New"';
         ctx.fillStyle = weaponColor;
-        ctx.fillText(`Lv${level}`, startX + 68, currentY + 60);
+        ctx.fillText(`Lv${level}`, startX + 28, currentY + 24);
         
-        // 所持数表示（タップで切替）- 大きなボタン
+        // 所持数表示
         if (ownedWeapons.length > 1) {
-            ctx.fillStyle = 'rgba(255,255,255,0.25)';
-            ctx.beginPath();
-            ctx.roundRect(startX + cardW - 55, currentY + 12, 48, 46, 10);
-            ctx.fill();
-            
-            ctx.font = 'bold 22px "Courier New"';
-            ctx.fillStyle = '#fff';
-            ctx.textAlign = 'center';
-            ctx.fillText(`▼`, startX + cardW - 31, currentY + 36);
-            ctx.font = 'bold 16px "Courier New"';
-            ctx.fillText(`${ownedWeapons.length}`, startX + cardW - 31, currentY + 54);
+            ctx.font = 'bold 10px "Courier New"';
+            ctx.fillStyle = '#888';
+            ctx.textAlign = 'right';
+            ctx.fillText(`▼${ownedWeapons.length}`, startX + cardW - 5, currentY + 19);
         }
         
-        // タッチエリアを保存（超大きめに）
+        // タッチエリアを保存
         realtimeWeaponTouchArea.push({
-            x: 0, y: currentY - 10, w: cardW + 50, h: cardH + 20,
+            x: 0, y: currentY - 5, w: cardW + 20, h: cardH + 10,
             category: cat.key, weapons: ownedWeapons
         });
         
-        currentY += cardH + 15;
+        currentY += cardH + 4;
     });
     
     ctx.textAlign = 'left';
