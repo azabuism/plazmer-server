@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>PLAZMERS Ver.1.0021 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0022 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body {
@@ -282,6 +282,32 @@
         .players-ready-status span { margin: 0 10px; }
         .players-ready-status .ready { color: #0f0; }
         .players-ready-status .waiting { color: #f80; }
+        
+        /* キャラクター選択画面 */
+        #character-select { max-width: 700px; margin: 0 auto; }
+        .char-select-title { font-size: 18px; color: #0ff; margin-bottom: 15px; letter-spacing: 3px; }
+        .char-cards { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 15px; }
+        .char-card {
+            width: 140px; padding: 10px; border: 2px solid #444; border-radius: 10px;
+            background: rgba(0,20,40,0.9); cursor: pointer; transition: all 0.3s;
+        }
+        .char-card:hover { border-color: #0ff; transform: translateY(-5px); box-shadow: 0 5px 20px rgba(0,255,255,0.3); }
+        .char-card.selected { border-color: #0f0; background: rgba(0,50,20,0.9); box-shadow: 0 0 30px rgba(0,255,0,0.5); }
+        .char-preview { width: 100px; height: 80px; margin: 0 auto 10px; background: rgba(0,0,0,0.5); border-radius: 5px; position: relative; overflow: hidden; }
+        .char-name { font-size: 14px; font-weight: bold; color: #fff; margin-bottom: 3px; }
+        .char-type { font-size: 10px; color: #888; margin-bottom: 8px; }
+        .char-desc { font-size: 9px; color: #aaa; line-height: 1.4; }
+        .char-weapons { color: #0ff; margin-bottom: 3px; }
+        .char-trait { color: #f80; }
+        .char-detail { background: rgba(0,20,40,0.8); padding: 10px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #333; }
+        .detail-name { font-size: 16px; font-weight: bold; color: #0ff; margin-bottom: 5px; }
+        .detail-desc { font-size: 11px; color: #aaa; line-height: 1.5; }
+        .confirm-btn { background: rgba(0,100,50,0.5); }
+        .confirm-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .confirm-btn:not(:disabled):hover { background: rgba(0,200,100,0.5); }
+        
+        /* キャラクタープレビューキャンバス */
+        .char-preview canvas { width: 100%; height: 100%; }
     </style>
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
 </head>
@@ -289,19 +315,59 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0021</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0022</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
         
         <div id="menu-buttons">
-            <button class="menu-btn" onclick="hostGame()">HOST GAME</button>
+            <button class="menu-btn" onclick="showCharacterSelect('host')">HOST GAME</button>
             <button class="menu-btn" onclick="showJoinForm()">JOIN GAME</button>
+        </div>
+        
+        <!-- キャラクター選択画面 -->
+        <div id="character-select" style="display:none;">
+            <div class="char-select-title">SELECT YOUR SHIP</div>
+            <div class="char-cards">
+                <div class="char-card" onclick="selectCharacter('EIRYKLAV')" id="char-EIRYKLAV">
+                    <div class="char-preview" id="preview-EIRYKLAV"></div>
+                    <div class="char-name">EIRYKLAV</div>
+                    <div class="char-type">BEGINNER</div>
+                    <div class="char-desc">
+                        <div class="char-weapons">🔷PLAZMER + 🔮HOMING</div>
+                        <div class="char-trait">バランス型・初心者向け</div>
+                    </div>
+                </div>
+                <div class="char-card" onclick="selectCharacter('AGIREKIK')" id="char-AGIREKIK">
+                    <div class="char-preview" id="preview-AGIREKIK"></div>
+                    <div class="char-name">AGIREKIK</div>
+                    <div class="char-type">EXPERT</div>
+                    <div class="char-desc">
+                        <div class="char-weapons">🛡️PHALANX + 🔰REFLECT</div>
+                        <div class="char-trait">触手攻撃・制圧型</div>
+                    </div>
+                </div>
+                <div class="char-card" onclick="selectCharacter('NAGAL')" id="char-NAGAL">
+                    <div class="char-preview" id="preview-NAGAL"></div>
+                    <div class="char-name">NAGAL</div>
+                    <div class="char-type">MASTER</div>
+                    <div class="char-desc">
+                        <div class="char-weapons">⛈️THUNDER + 🦠PARASITE</div>
+                        <div class="char-trait">寄生雷撃・上級者向け</div>
+                    </div>
+                </div>
+            </div>
+            <div class="char-detail" id="char-detail">
+                <div class="detail-name" id="detail-name">-</div>
+                <div class="detail-desc" id="detail-desc">キャラクターを選択してください</div>
+            </div>
+            <button class="menu-btn confirm-btn" id="confirm-char-btn" onclick="confirmCharacter()" disabled>SELECT</button>
+            <button class="menu-btn back-btn" onclick="showMainMenu()">BACK</button>
         </div>
         
         <div id="join-form" style="display:none;">
             <input type="text" id="room-id" class="room-input" placeholder="4-DIGIT CODE" maxlength="4">
-            <button class="menu-btn" onclick="joinGame()">JOIN</button>
+            <button class="menu-btn" onclick="showCharacterSelect('join')">JOIN</button>
             <button class="menu-btn back-btn" onclick="showMainMenu()">BACK</button>
         </div>
         
@@ -441,6 +507,72 @@ let reflectShield = null; // REFLECTシールド
 let interceptLasers = []; // INTERCEPT迎撃レーザー
 let riftVortex = null; // RIFT渦
 let pierceGrab = null; // PIERCE掴み
+
+// ========== キャラクター定義 ==========
+let selectedCharacter = null; // 選択されたキャラクター
+let characterSelectMode = 'host'; // 'host' or 'join'
+let parasiteTarget = null; // PARASITE対象の敵
+
+const CHARACTER_DEFS = {
+    EIRYKLAV: {
+        name: 'EIRYKLAV',
+        nameJP: 'エイリイクラブ',
+        type: 'BEGINNER',
+        desc: '量産型の完成形。「撃つ・避ける・当てる」が最も分かりやすい。初心者でも火力を出せるバランス型。',
+        color: '#00CCFF',
+        glowColor: '#00FFFF',
+        weapons: {
+            main: 'PLAZMER',
+            sub: 'HOMING',
+            skill: 'DASH'
+        },
+        traits: {
+            speed: 3.5,
+            hp: 200,
+            fireRate: 1.0,
+            special: '追尾ミサイル自動発射'
+        }
+    },
+    AGIREKIK: {
+        name: 'AGIREKIK',
+        nameJP: 'アギレキック',
+        type: 'EXPERT',
+        desc: '異形の生体ユニット。触手が意思を持つかのように動き、攻撃と防御が同時進行する制圧型。',
+        color: '#66FF66',
+        glowColor: '#00FF00',
+        weapons: {
+            main: 'PLAZMER',
+            sub: 'PHALANX',
+            skill: 'REFLECT'
+        },
+        traits: {
+            speed: 3.0,
+            hp: 250,
+            fireRate: 0.8,
+            special: '触手フォーメーション'
+        }
+    },
+    NAGAL: {
+        name: 'NAGAL',
+        nameJP: 'ナガル',
+        type: 'MASTER',
+        desc: '小型高速ユニット。敵に貼り付き、敵の内部から破壊する危険な存在。上級者向け。',
+        color: '#FFCC00',
+        glowColor: '#FFFF00',
+        weapons: {
+            main: 'THUNDER',
+            sub: 'PARASITE',
+            skill: 'DASH'
+        },
+        traits: {
+            speed: 4.5,
+            hp: 150,
+            fireRate: 1.2,
+            special: '敵寄生＋雷撃'
+        }
+    }
+};
+
 
 // ========== 欠けていた変数（修正） ==========
 // 装備武器管理
@@ -2883,8 +3015,209 @@ function joinGame() {
     const name = document.getElementById('player-name').value || 'Player';
     const roomId = document.getElementById('room-id').value;
     if (!roomId || roomId.length !== 4) { alert('Please enter a 4-digit room code!'); return; }
-    socket.emit('joinRoom', { name, roomId });
+    socket.emit('joinRoom', { name, roomId, character: selectedCharacter });
 }
+
+// ========== キャラクター選択システム ==========
+function showCharacterSelect(mode) {
+    characterSelectMode = mode;
+    document.getElementById('menu-buttons').style.display = 'none';
+    document.getElementById('join-form').style.display = 'none';
+    document.getElementById('character-select').style.display = 'block';
+    selectedCharacter = null;
+    document.getElementById('confirm-char-btn').disabled = true;
+    document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
+    drawCharacterPreviews();
+}
+
+function selectCharacter(charId) {
+    selectedCharacter = charId;
+    document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
+    document.getElementById('char-' + charId).classList.add('selected');
+    document.getElementById('confirm-char-btn').disabled = false;
+    
+    // 詳細表示
+    const char = CHARACTER_DEFS[charId];
+    document.getElementById('detail-name').textContent = `${char.name} (${char.nameJP})`;
+    document.getElementById('detail-desc').innerHTML = `
+        <div style="color:#0ff; margin-bottom:5px;">■ ${char.type} - ${char.desc}</div>
+        <div style="color:#0f0;">武器: ${char.weapons.main} + ${char.weapons.sub}</div>
+        <div style="color:#f80;">特殊: ${char.traits.special}</div>
+        <div style="color:#888; margin-top:5px;">HP:${char.traits.hp} / SPD:${char.traits.speed} / RATE:${char.traits.fireRate}</div>
+    `;
+}
+
+function confirmCharacter() {
+    if (!selectedCharacter) return;
+    document.getElementById('character-select').style.display = 'none';
+    
+    if (characterSelectMode === 'host') {
+        hostGame();
+    } else {
+        // JOINの場合はルームID入力後にjoinGame()
+        const roomId = document.getElementById('room-id').value;
+        if (!roomId || roomId.length !== 4) {
+            alert('Please enter a 4-digit room code!');
+            document.getElementById('join-form').style.display = 'block';
+            return;
+        }
+        joinGame();
+    }
+}
+
+function drawCharacterPreviews() {
+    // 各キャラクターのプレビューを描画
+    Object.keys(CHARACTER_DEFS).forEach(charId => {
+        const container = document.getElementById('preview-' + charId);
+        if (!container) return;
+        
+        // キャンバスを作成
+        let canvas = container.querySelector('canvas');
+        if (!canvas) {
+            canvas = document.createElement('canvas');
+            canvas.width = 100;
+            canvas.height = 80;
+            container.appendChild(canvas);
+        }
+        
+        const ctx = canvas.getContext('2d');
+        const char = CHARACTER_DEFS[charId];
+        
+        // 背景
+        ctx.fillStyle = '#000510';
+        ctx.fillRect(0, 0, 100, 80);
+        
+        // キャラクター描画
+        ctx.save();
+        ctx.translate(50, 40);
+        drawCharacterShape(ctx, charId, char.color, char.glowColor, 0, 1.5);
+        ctx.restore();
+    });
+}
+
+function drawCharacterShape(ctx, charId, color, glowColor, frame, scale = 1) {
+    ctx.save();
+    ctx.scale(scale, scale);
+    
+    if (charId === 'EIRYKLAV') {
+        // ソルバルウ風の戦闘機
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = glowColor;
+        
+        // メイン機体
+        ctx.fillStyle = '#1a1a2e';
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        
+        ctx.beginPath();
+        ctx.moveTo(20, 0);      // 先端
+        ctx.lineTo(10, -8);     // 右上
+        ctx.lineTo(-5, -12);    // 右翼
+        ctx.lineTo(-15, -8);    // 右後
+        ctx.lineTo(-18, 0);     // 後端
+        ctx.lineTo(-15, 8);     // 左後
+        ctx.lineTo(-5, 12);     // 左翼
+        ctx.lineTo(10, 8);      // 左上
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        
+        // コックピット
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.ellipse(5, 0, 6, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // エンジン光
+        ctx.fillStyle = '#00FFFF';
+        ctx.shadowBlur = 20;
+        ctx.beginPath();
+        ctx.ellipse(-15, -4, 3, 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(-15, 4, 3, 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+    } else if (charId === 'AGIREKIK') {
+        // ブラウブロ風の宇宙船（MAっぽい）
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = glowColor;
+        
+        // メイン機体（有機的な形状）
+        ctx.fillStyle = '#0a2010';
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        
+        // 中央ボディ
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 15, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        
+        // 触手（4本）
+        const tentacleAngle = (frame || 0) * 0.05;
+        for (let i = 0; i < 4; i++) {
+            const baseAngle = (Math.PI * 2 / 4) * i + Math.PI / 4;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(baseAngle) * 12, Math.sin(baseAngle) * 8);
+            const wave = Math.sin(tentacleAngle + i) * 5;
+            ctx.quadraticCurveTo(
+                Math.cos(baseAngle) * 20 + wave, Math.sin(baseAngle) * 15 + wave,
+                Math.cos(baseAngle) * 28, Math.sin(baseAngle) * 20
+            );
+            ctx.stroke();
+            
+            // 触手先端
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(Math.cos(baseAngle) * 28, Math.sin(baseAngle) * 20, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // 中央コア
+        ctx.fillStyle = color;
+        ctx.shadowBlur = 25;
+        ctx.beginPath();
+        ctx.arc(0, 0, 5, 0, Math.PI * 2);
+        ctx.fill();
+        
+    } else if (charId === 'NAGAL') {
+        // 現在のデザイン（生体っぽい）
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = glowColor;
+        ctx.fillStyle = color;
+        
+        // 有機的な形状
+        ctx.beginPath();
+        for (let i = 0; i < 8; i++) {
+            const a = (Math.PI * 2 / 8) * i + (frame || 0) * 0.03;
+            const r = 12 + Math.sin(a * 3 + (frame || 0) * 0.1) * 3;
+            if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+            else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+        }
+        ctx.closePath();
+        ctx.fill();
+        
+        // 中央の黒い部分
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.beginPath();
+        ctx.arc(0, 0, 4, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 方向インジケーター
+        ctx.fillStyle = glowColor;
+        ctx.beginPath();
+        ctx.moveTo(18, 0);
+        ctx.lineTo(12, -4);
+        ctx.lineTo(12, 4);
+        ctx.fill();
+    }
+    
+    ctx.restore();
+}
+
 function hostGame() { 
     console.log('hostGame called'); 
     const name = document.getElementById('player-name').value || 'Host'; 
@@ -2893,12 +3226,16 @@ function hostGame() {
         alert('Server connection failed. Please refresh.');
         return;
     }
-    socket.emit('hostRoom', { name }); 
+    socket.emit('hostRoom', { name, character: selectedCharacter }); 
 }
 function showJoinForm() { document.getElementById('menu-buttons').style.display = 'none'; document.getElementById('join-form').style.display = 'block'; }
 function showMainMenu() {
-    document.getElementById('menu-buttons').style.display = 'block'; document.getElementById('join-form').style.display = 'none';
-    document.getElementById('host-info').style.display = 'none'; document.getElementById('guest-waiting').style.display = 'none';
+    document.getElementById('menu-buttons').style.display = 'block'; 
+    document.getElementById('join-form').style.display = 'none';
+    document.getElementById('host-info').style.display = 'none'; 
+    document.getElementById('guest-waiting').style.display = 'none';
+    document.getElementById('character-select').style.display = 'none';
+    selectedCharacter = null;
 }
 function cancelHost() { socket.emit('cancelHost'); location.reload(); }
 function leaveRoom() { location.reload(); }
@@ -5387,22 +5724,23 @@ function draw() {
             }
             
             if ((myPlayer.invincible || 0) % 4 < 2) {
-                ctx.save(); ctx.translate(sx, sy);
+                ctx.save(); 
+                ctx.translate(sx, sy);
                 ctx.shadowBlur = myPlayer.dashing ? 50 : 15; 
                 ctx.shadowColor = myPlayer.dashing ? '#fff' : glowColor;
-                ctx.fillStyle = myPlayer.dashing ? '#fff' : playerColor;
-                ctx.beginPath();
-                const baseSize = myPlayer.dashing ? 10 : 8;
-                for (let i = 0; i < 8; i++) { 
-                    const a = (Math.PI * 2 / 8) * i + frame * 0.03;
-                    const r = baseSize + Math.sin(a * 3 + frame * 0.1) * 2; 
-                    if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); 
-                    else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); 
+                
+                // キャラクターごとの描画
+                const charId = myPlayer.character || 'NAGAL';
+                if (myPlayer.dashing) {
+                    // ダッシュ中は白い光
+                    ctx.fillStyle = '#fff';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 12, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    ctx.rotate(myPlayer.angle);
+                    drawCharacterShape(ctx, charId, playerColor, glowColor, frame, 1);
                 }
-                ctx.closePath(); ctx.fill();
-                ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(0, 0, 3.2, 0, Math.PI * 2); ctx.fill();
-                ctx.rotate(myPlayer.angle); ctx.fillStyle = glowColor;
-                ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(8, -3); ctx.lineTo(8, 3); ctx.fill();
                 ctx.restore();
             }
             
