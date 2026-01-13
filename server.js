@@ -185,45 +185,66 @@ class GameRoom {
         return false;
     }
     
-    addPlayer(socket, name, isHost = false) {
+    addPlayer(socket, name, isHost = false, character = 'NAGAL') {
         const playerIndex = this.players.size;
         const colorData = PLAYER_COLORS[Math.min(playerIndex, PLAYER_COLORS.length - 1)];
+        
+        // キャラクターごとの初期設定
+        const charStats = {
+            EIRYKLAV: { hp: 200, speed: 3.5, main: 'PLAZMER', sub: 'HOMING', color: '#00CCFF', glow: '#00FFFF' },
+            AGIREKIK: { hp: 250, speed: 3.0, main: 'PLAZMER', sub: 'PHALANX', color: '#66FF66', glow: '#00FF00' },
+            NAGAL: { hp: 150, speed: 4.5, main: 'THUNDER', sub: 'PARASITE', color: '#FFCC00', glow: '#FFFF00' }
+        };
+        const stats = charStats[character] || charStats.NAGAL;
         
         const player = {
             id: socket.id,
             name: name || 'Player',
+            character: character, // キャラクター情報を保存
             x: WORLD_W / 2 + (Math.random() - 0.5) * 200,
             y: WORLD_H / 2 + (Math.random() - 0.5) * 200,
             angle: 0,
-            hp: 200,     // 150→200に増加
-            maxHp: 200,  // 150→200に増加  // 100→150に増加
-            speed: 3.5,  // 4.5→3.5に速度ダウン
+            hp: stats.hp,
+            maxHp: stats.hp,
+            speed: stats.speed,
             invincible: 60,
             dashing: false,
             dashTimer: 0,
-            weaponLevels: { ...DEFAULT_WEAPON_LEVELS },
-            // 新カテゴリ対応
+            weaponLevels: { 
+                PLAZMER: character === 'EIRYKLAV' || character === 'AGIREKIK' ? 1 : 0,
+                HOMING: character === 'EIRYKLAV' ? 1 : 0,
+                LASER: 0, 
+                THUNDER: character === 'NAGAL' ? 1 : 0,
+                PHALANX: character === 'AGIREKIK' ? 1 : 0,
+                INTERCEPT: 0, 
+                REFLECT: 0, 
+                RIFT: 0,
+                ANCHOR: 0, 
+                DASH: 1, // 全キャラ共通
+                PIERCE: 0,
+                PARASITE: character === 'NAGAL' ? 1 : 0
+            },
             equipped: { 
-                main: 'PLAZMER',      // メイン火力
-                allrange: 'PHALANX',  // オールレンジ
-                tactical: 'DASH',     // 戦術（初期はDASH固定）
-                ultimate: null        // 切り札
+                main: stats.main,
+                allrange: stats.sub,
+                tactical: 'DASH',
+                ultimate: null
             },
             overload: { available: false, active: false, used: false, timer: 0 },
-            thunderEnergy: 0,
-            options: [{ x: 0, y: 0, angle: 0 }], // 初期PHALANX 1機
-            phalanxFormation: 'defense', // PHALANXフォーメーション
+            thunderEnergy: character === 'NAGAL' ? 180 : 0, // NAGALは雷撃チャージ済み
+            options: character === 'AGIREKIK' ? [{ x: 0, y: 0, angle: 0 }] : [], // AGIREKIKのみ初期PHALANX
+            phalanxFormation: 'defense',
             score: 0,
             alive: true,
             lastInput: { x: 0, y: 0, angle: 0, dash: false },
-            // 新規追加
             isHost: isHost,
             playerIndex: playerIndex,
             color: colorData.main,
             glowColor: colorData.glow,
             colorName: colorData.name,
-            ready: isHost, // ホストは常にready
-            respawnTimer: 0
+            ready: isHost,
+            respawnTimer: 0,
+            parasiteTarget: null // NAGAL用：寄生中の敵ID
         };
         
         this.players.set(socket.id, player);
@@ -1269,6 +1290,7 @@ class GameRoom {
         return {
             id: player.id,
             name: player.name,
+            character: player.character, // キャラクター情報を追加
             x: player.x,
             y: player.y,
             angle: player.angle,
@@ -1282,14 +1304,14 @@ class GameRoom {
             options: player.options,
             formation: player.formation,
             score: player.score,
-            // 新規追加
             isHost: player.isHost,
             playerIndex: player.playerIndex,
             color: player.color,
             glowColor: player.glowColor,
             colorName: player.colorName,
             ready: player.ready,
-            respawnTimer: player.respawnTimer
+            respawnTimer: player.respawnTimer,
+            parasiteTarget: player.parasiteTarget
         };
     }
     
@@ -1353,6 +1375,7 @@ io.on('connection', (socket) => {
     // ホストとしてルーム作成
     socket.on('hostRoom', (data) => {
         const playerName = data.name || 'Host';
+        const character = data.character || 'NAGAL';
         const roomId = generateRoomCode();
         
         // 新しいルームを作成
@@ -1363,7 +1386,7 @@ io.on('connection', (socket) => {
         currentRoom = room;
         socket.join(roomId);
         
-        const player = currentRoom.addPlayer(socket, playerName, true); // isHost = true
+        const player = currentRoom.addPlayer(socket, playerName, true, character); // isHost = true
         
         socket.emit('hosted', {
             playerId: socket.id,
@@ -1375,13 +1398,14 @@ io.on('connection', (socket) => {
             players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p))
         });
         
-        console.log(`Player ${playerName} hosted room ${roomId}`);
+        console.log(`Player ${playerName} (${character}) hosted room ${roomId}`);
     });
     
     // 既存ルームに参加
     socket.on('joinRoom', (data) => {
         const roomId = data.roomId;
         const playerName = data.name || 'Player';
+        const character = data.character || 'NAGAL';
         
         // ルームが存在するかチェック
         if (!rooms.has(roomId)) {
@@ -1406,7 +1430,7 @@ io.on('connection', (socket) => {
         currentRoom = room;
         socket.join(roomId);
         
-        const player = currentRoom.addPlayer(socket, playerName, false); // isHost = false
+        const player = currentRoom.addPlayer(socket, playerName, false, character); // isHost = false
         
         socket.emit('joined', {
             playerId: socket.id,
@@ -1425,7 +1449,7 @@ io.on('connection', (socket) => {
             players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p))
         });
         
-        console.log(`Player ${playerName} joined room ${roomId} as Guest ${player.playerIndex}`);
+        console.log(`Player ${playerName} (${character}) joined room ${roomId} as Guest ${player.playerIndex}`);
     });
     
     // ゲストがREADY
@@ -1671,7 +1695,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0021`);
+    console.log(`PLAZMERS Server Ver.1.0022`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');
