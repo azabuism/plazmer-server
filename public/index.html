@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>PLAZMERS Ver.1.0022 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0025 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body {
@@ -315,7 +315,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0022</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0025</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -334,17 +334,17 @@
                     <div class="char-name">EIRYKLAV</div>
                     <div class="char-type">BEGINNER</div>
                     <div class="char-desc">
-                        <div class="char-weapons">🔷PLAZMER + 🔮HOMING</div>
-                        <div class="char-trait">バランス型・初心者向け</div>
+                        <div class="char-weapons">🔷PLAZMER ↔ ⚡LASER</div>
+                        <div class="char-trait">切替式・主人公機</div>
                     </div>
                 </div>
-                <div class="char-card" onclick="selectCharacter('AGIREKIK')" id="char-AGIREKIK">
-                    <div class="char-preview" id="preview-AGIREKIK"></div>
-                    <div class="char-name">AGIREKIK</div>
+                <div class="char-card" onclick="selectCharacter('AGOREKIK')" id="char-AGOREKIK">
+                    <div class="char-preview" id="preview-AGOREKIK"></div>
+                    <div class="char-name">AGOREKIK</div>
                     <div class="char-type">EXPERT</div>
                     <div class="char-desc">
-                        <div class="char-weapons">🛡️PHALANX + 🔰REFLECT</div>
-                        <div class="char-trait">触手攻撃・制圧型</div>
+                        <div class="char-weapons">🐙BIO PHALANX</div>
+                        <div class="char-trait">触手制圧・変態向け</div>
                     </div>
                 </div>
                 <div class="char-card" onclick="selectCharacter('NAGAL')" id="char-NAGAL">
@@ -352,8 +352,8 @@
                     <div class="char-name">NAGAL</div>
                     <div class="char-type">MASTER</div>
                     <div class="char-desc">
-                        <div class="char-weapons">⛈️THUNDER + 🦠PARASITE</div>
-                        <div class="char-trait">寄生雷撃・上級者向け</div>
+                        <div class="char-weapons">🦠PARASITE + ⛈️</div>
+                        <div class="char-trait">捕食寄生・上級者</div>
                     </div>
                 </div>
             </div>
@@ -361,7 +361,7 @@
                 <div class="detail-name" id="detail-name">-</div>
                 <div class="detail-desc" id="detail-desc">キャラクターを選択してください</div>
             </div>
-            <button class="menu-btn confirm-btn" id="confirm-char-btn" onclick="confirmCharacter()" disabled>SELECT</button>
+            <button class="menu-btn confirm-btn" id="confirm-char-btn" disabled>READY</button>
             <button class="menu-btn back-btn" onclick="showMainMenu()">BACK</button>
         </div>
         
@@ -422,9 +422,17 @@
         <div id="joystick-stick"></div>
     </div>
     <div id="mobile-buttons">
-        <div class="mobile-btn overload-btn" id="btn-overload" style="display:none;">☢️<br>OVERLOAD</div>
         <div class="mobile-btn" id="btn-dash">DASH</div>
-        <div class="mobile-btn" id="btn-form" style="border-color:#00FF66; color:#00FF66; background:rgba(0,255,102,0.3); box-shadow:0 0 15px rgba(0,255,102,0.5); line-height:1.2;">🛡️<br>DEFENSE</div>
+        <!-- EIRYKLAV用：武器切替ボタン -->
+        <div class="mobile-btn" id="btn-weapon" style="display:none; border-color:#00CCFF; color:#00CCFF; background:rgba(0,204,255,0.3); line-height:1.2;">🔷<br>PLAZMER</div>
+        <!-- AGOREKIK用：オーバードライブ -->
+        <div class="mobile-btn" id="btn-overdrive" style="display:none; border-color:#00FF66; color:#00FF66; background:rgba(0,255,102,0.3); line-height:1.2;">🐙<br>BURST</div>
+        <!-- AGOREKIK用：触手集中 -->
+        <div class="mobile-btn" id="btn-concentrate" style="display:none; border-color:#88FF88; color:#88FF88; background:rgba(136,255,136,0.3); line-height:1.2;">🎯<br>FOCUS</div>
+        <!-- NAGAL用：サンダーON/OFF -->
+        <div class="mobile-btn" id="btn-thunder" style="display:none; border-color:#FFCC00; color:#FFCC00; background:rgba(255,204,0,0.3); line-height:1.2;">⛈️<br>OFF</div>
+        <!-- NAGAL用：寄生キル -->
+        <div class="mobile-btn" id="btn-kill" style="display:none; border-color:#FF0000; color:#FF0000; background:rgba(255,0,0,0.3); line-height:1.2;">💀<br>KILL</div>
     </div>
     
     <div id="game-over">
@@ -518,57 +526,57 @@ const CHARACTER_DEFS = {
         name: 'EIRYKLAV',
         nameJP: 'エイリイクラブ',
         type: 'BEGINNER',
-        desc: '量産型の完成形。「撃つ・避ける・当てる」が最も分かりやすい。初心者でも火力を出せるバランス型。',
+        desc: '王道の主人公機。PLAZMER/LASERを切り替えながら戦う安定火力型。初心者でも直感的に操作可能。',
         color: '#00CCFF',
         glowColor: '#00FFFF',
         weapons: {
             main: 'PLAZMER',
-            sub: 'HOMING',
+            sub: 'LASER',
             skill: 'DASH'
         },
         traits: {
             speed: 3.5,
             hp: 200,
             fireRate: 1.0,
-            special: '追尾ミサイル自動発射'
+            special: 'PLAZMER↔LASER切替'
         }
     },
-    AGIREKIK: {
-        name: 'AGIREKIK',
-        nameJP: 'アギレキック',
+    AGOREKIK: {
+        name: 'AGOREKIK',
+        nameJP: 'アゴレキック',
         type: 'EXPERT',
-        desc: '異形の生体ユニット。触手が意思を持つかのように動き、攻撃と防御が同時進行する制圧型。',
+        desc: '異形の生体ユニット。タコ足のような触手が自動で敵を焼却。画面制圧力が異常に高い変態向け機体。',
         color: '#66FF66',
         glowColor: '#00FF00',
         weapons: {
-            main: 'PLAZMER',
-            sub: 'PHALANX',
-            skill: 'REFLECT'
+            main: 'BIO_PHALANX',
+            sub: 'TENTACLE',
+            skill: 'OVERDRIVE'
         },
         traits: {
             speed: 3.0,
             hp: 250,
             fireRate: 0.8,
-            special: '触手フォーメーション'
+            special: '生体触手フォーメーション'
         }
     },
     NAGAL: {
         name: 'NAGAL',
         nameJP: 'ナガル',
         type: 'MASTER',
-        desc: '小型高速ユニット。敵に貼り付き、敵の内部から破壊する危険な存在。上級者向け。',
+        desc: '小型高速の捕食者。弱った敵に寄生し、敵の攻撃を奪い取る。倒した敵はゾンビ化して味方に。',
         color: '#FFCC00',
         glowColor: '#FFFF00',
         weapons: {
-            main: 'THUNDER',
-            sub: 'PARASITE',
+            main: 'PARASITE',
+            sub: 'THUNDER',
             skill: 'DASH'
         },
         traits: {
             speed: 4.5,
             hp: 150,
             fireRate: 1.2,
-            special: '敵寄生＋雷撃'
+            special: '敵寄生＋ゾンビ化'
         }
     }
 };
@@ -2617,13 +2625,12 @@ function connectToServer() {
         ui.startScreen.style.display = 'none';
         ui.hud.style.display = 'block';
         ui.playersList.style.display = 'block';
-        // ui.weapons.style.display = 'flex'; // 旧UI削除
-        // ui.formationDisplay.style.display = 'block'; // 旧UI削除
         if (data.players) {
             const me = data.players.find(p => p.id === myPlayerId);
             if (me) myPlayer = me;
         }
         updateWeaponUI();
+        setupCharacterButtons(); // キャラ別ボタン設定
         showMessage('◆ GAME START ◆');
         // ゲスト側も音楽開始（まだ開始していなければ）
         if (!musicInitialized) {
@@ -2707,6 +2714,76 @@ function connectToServer() {
     });
     socket.on('bossSpawn', (data) => { showMessage(`◆ ${data.boss.name} APPEARED ◆`); triggerScreenShake(5); });
     socket.on('bossDefeated', () => { showMessage('◆ PATHOGEN ELIMINATED ◆'); triggerScreenShake(8); });
+    
+    // ========== キャラクター固有イベント ==========
+    
+    // AGOREKIK: 触手ヒット
+    socket.on('tentacleHit', (data) => {
+        // ヒットエフェクト（ダメージ数字など）
+        const enemy = gameState?.enemies?.find(e => e.id === data.targetId);
+        if (enemy) {
+            const re = remoteEnemies.get(data.targetId);
+            const ex = re ? re.x : enemy.x;
+            const ey = re ? re.y : enemy.y;
+            damageTexts.push({
+                x: ex, y: ey - 10,
+                damage: data.damage,
+                color: '#00FF00',
+                life: 40, alpha: 1, vy: -1
+            });
+        }
+    });
+    
+    // NAGAL: 寄生成功
+    socket.on('parasiteAttached', (data) => {
+        if (data.playerId === myPlayerId) {
+            showMessage('🦠 PARASITE ATTACHED!');
+        }
+    });
+    
+    // NAGAL: 敵ゾンビ化
+    socket.on('enemyZombified', (data) => {
+        if (data.playerId === myPlayerId) {
+            showMessage('💀 ENEMY ZOMBIFIED!');
+        }
+        // 敵をゾンビとしてマーク
+        const enemy = gameState?.enemies?.find(e => e.id === data.enemyId);
+        if (enemy) {
+            enemy.isZombie = true;
+            enemy.zombieOwner = data.playerId;
+        }
+    });
+    
+    // NAGAL: ボスゾンビ化（特別演出）
+    socket.on('bossZombified', (data) => {
+        if (data.playerId === myPlayerId) {
+            showMessage(`👑💀 BOSS ${data.bossName} ZOMBIFIED! 👑💀`);
+        } else {
+            showMessage(`👑💀 ${data.bossName} BECAME ZOMBIE! 👑💀`);
+        }
+        triggerScreenShake(15);
+        // ボスをゾンビとしてマーク
+        const boss = gameState?.enemies?.find(e => e.id === data.bossId);
+        if (boss) {
+            boss.isZombie = true;
+            boss.zombieBoss = true;
+            boss.zombieOwner = data.playerId;
+        }
+    });
+    
+    // AGOREKIK: 触手集中
+    socket.on('tentacleConcentrated', (data) => {
+        if (data.playerId === myPlayerId) {
+            // 自分の触手を集中方向に向ける
+            if (myPlayer && myPlayer.tentacles) {
+                myPlayer.tentacleConcentrate = {
+                    active: true,
+                    angle: data.angle,
+                    timer: 60
+                };
+            }
+        }
+    });
     
     // OVERLOAD発動通知
     socket.on('overloadActivated', (data) => {
@@ -2871,6 +2948,19 @@ function connectToServer() {
             myPlayer.options = me.options;
             myPlayer.score = me.score;
             myPlayer.respawnTimer = me.respawnTimer;
+            // キャラ固有情報
+            myPlayer.tentacles = me.tentacles;
+            myPlayer.tentacleConcentrate = me.tentacleConcentrate;
+            myPlayer.parasiteTarget = me.parasiteTarget;
+            myPlayer.parasiteBoss = me.parasiteBoss;
+            myPlayer.zombies = me.zombies;
+            myPlayer.thunderActive = me.thunderActive;
+            myPlayer.character = me.character;
+            // 寄生中は敵の位置に同期
+            if (me.parasiteTarget) {
+                myPlayer.x = me.x;
+                myPlayer.y = me.y;
+            }
             // 死亡時やリスポーン時は位置も同期
             if (!me.alive || me.invincible > 170) {
                 myPlayer.x = me.x;
@@ -3028,6 +3118,23 @@ function showCharacterSelect(mode) {
     document.getElementById('confirm-char-btn').disabled = true;
     document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
     drawCharacterPreviews();
+    
+    // READYボタンにタッチ/クリックイベントを設定
+    const confirmBtn = document.getElementById('confirm-char-btn');
+    confirmBtn.onclick = confirmCharacter;
+    confirmBtn.ontouchend = (e) => {
+        e.preventDefault();
+        confirmCharacter();
+    };
+    
+    // キャラカードにもタッチイベントを設定
+    document.querySelectorAll('.char-card').forEach(card => {
+        const charId = card.id.replace('char-', '');
+        card.ontouchend = (e) => {
+            e.preventDefault();
+            selectCharacter(charId);
+        };
+    });
 }
 
 function selectCharacter(charId) {
@@ -3138,7 +3245,7 @@ function drawCharacterShape(ctx, charId, color, glowColor, frame, scale = 1) {
         ctx.ellipse(-15, 4, 3, 2, 0, 0, Math.PI * 2);
         ctx.fill();
         
-    } else if (charId === 'AGIREKIK') {
+    } else if (charId === 'AGOREKIK') {
         // ブラウブロ風の宇宙船（MAっぽい）
         ctx.shadowBlur = 15;
         ctx.shadowColor = glowColor;
@@ -3218,6 +3325,199 @@ function drawCharacterShape(ctx, charId, color, glowColor, frame, scale = 1) {
     ctx.restore();
 }
 
+// ========== キャラクター固有エフェクト描画 ==========
+
+// AGOREKIK: 触手描画
+function drawAgorekikTentacles(ctx, player, sx, sy, frame) {
+    if (player.character !== 'AGOREKIK') return;
+    
+    const tentacles = player.tentacles || [];
+    const burstMode = agorekikBurstActive;
+    const color = burstMode ? '#FF3333' : '#00FF66';
+    
+    // 集中モードの処理
+    const concentrate = player.tentacleConcentrate;
+    if (concentrate && concentrate.active) {
+        concentrate.timer--;
+        if (concentrate.timer <= 0) {
+            concentrate.active = false;
+        }
+    }
+    
+    ctx.save();
+    
+    tentacles.forEach((tent, i) => {
+        // 集中モード時は全触手を同じ方向に
+        let baseAngle;
+        if (concentrate && concentrate.active) {
+            // 集中方向に少しだけ散らす
+            const spread = (i - tentacles.length / 2) * 0.15;
+            baseAngle = concentrate.angle + spread;
+        } else {
+            baseAngle = tent.angle + frame * 0.02;
+        }
+        
+        const waveOffset = Math.sin(frame * 0.1 + i * 1.5) * 10;
+        // 集中モード時は触手を長く
+        const lengthBonus = (concentrate && concentrate.active) ? 30 : 0;
+        const length = tent.length + waveOffset + lengthBonus;
+        
+        // 触手の根元
+        const startX = sx + Math.cos(baseAngle) * 15;
+        const startY = sy + Math.sin(baseAngle) * 15;
+        
+        // 触手の先端
+        const endX = sx + Math.cos(baseAngle) * length;
+        const endY = sy + Math.sin(baseAngle) * length;
+        
+        // 触手本体（曲線）
+        const currentColor = (concentrate && concentrate.active) ? '#FFFF00' : color;
+        ctx.strokeStyle = currentColor;
+        ctx.lineWidth = burstMode ? 5 : (concentrate && concentrate.active) ? 4 : 3;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = currentColor;
+        ctx.lineCap = 'round';
+        
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        
+        // 波打つ触手（集中時は直線的に）
+        if (concentrate && concentrate.active) {
+            ctx.lineTo(endX, endY);
+        } else {
+            const midX = (startX + endX) / 2 + Math.sin(frame * 0.15 + i) * 15;
+            const midY = (startY + endY) / 2 + Math.cos(frame * 0.15 + i) * 15;
+            ctx.quadraticCurveTo(midX, midY, endX, endY);
+        }
+        ctx.stroke();
+        
+        // 触手先端（吸盤風）
+        ctx.fillStyle = currentColor;
+        ctx.beginPath();
+        ctx.arc(endX, endY, burstMode ? 6 : 4, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // バーストモードまたは集中モード時はビーム発射
+        if ((burstMode || (concentrate && concentrate.active)) && frame % 10 < 5) {
+            ctx.strokeStyle = '#FFFF00';
+            ctx.lineWidth = (concentrate && concentrate.active) ? 4 : 2;
+            ctx.shadowColor = '#FFFF00';
+            ctx.beginPath();
+            ctx.moveTo(endX, endY);
+            const beamLength = (concentrate && concentrate.active) ? 150 : 100;
+            ctx.lineTo(endX + Math.cos(baseAngle) * beamLength, endY + Math.sin(baseAngle) * beamLength);
+            ctx.stroke();
+        }
+    });
+    
+    ctx.restore();
+}
+
+// NAGAL: 寄生エフェクト描画
+function drawNagalParasiteEffect(ctx, player, sx, sy, frame) {
+    if (player.character !== 'NAGAL') return;
+    
+    // サンダーON時のエフェクト
+    if (nagalThunderActive && player.thunderEnergy > 0) {
+        ctx.save();
+        ctx.strokeStyle = '#FFFF00';
+        ctx.lineWidth = 2;
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = '#FFFF00';
+        
+        // 周囲に電撃
+        for (let i = 0; i < 6; i++) {
+            const angle = (Math.PI * 2 / 6) * i + frame * 0.1;
+            const dist = 30 + Math.sin(frame * 0.2 + i) * 10;
+            
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            
+            // ジグザグの電撃
+            let px = sx, py = sy;
+            for (let j = 0; j < 4; j++) {
+                const nx = sx + Math.cos(angle) * (dist / 4) * (j + 1) + (Math.random() - 0.5) * 15;
+                const ny = sy + Math.sin(angle) * (dist / 4) * (j + 1) + (Math.random() - 0.5) * 15;
+                ctx.lineTo(nx, ny);
+                px = nx; py = ny;
+            }
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+    
+    // 寄生中のエフェクト
+    if (player.parasiteTarget) {
+        ctx.save();
+        
+        // ボス寄生中は特別なエフェクト
+        if (player.parasiteBoss) {
+            // 金色のオーラ
+            ctx.fillStyle = 'rgba(255, 215, 0, 0.4)';
+            ctx.beginPath();
+            ctx.arc(sx, sy, 40 + Math.sin(frame * 0.15) * 10, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 放射状のエネルギー
+            ctx.strokeStyle = '#FFD700';
+            ctx.lineWidth = 3;
+            ctx.shadowBlur = 25;
+            ctx.shadowColor = '#FFD700';
+            for (let i = 0; i < 8; i++) {
+                const angle = (Math.PI * 2 / 8) * i + frame * 0.05;
+                ctx.beginPath();
+                ctx.moveTo(sx + Math.cos(angle) * 20, sy + Math.sin(angle) * 20);
+                ctx.lineTo(sx + Math.cos(angle) * 50, sy + Math.sin(angle) * 50);
+                ctx.stroke();
+            }
+            
+            // 「BOSS PARASITE」テキスト
+            ctx.fillStyle = '#FFD700';
+            ctx.font = 'bold 12px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('👑 BOSS PARASITE 👑', sx, sy - 40);
+        } else {
+            // 通常の寄生エフェクト
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+            ctx.beginPath();
+            ctx.arc(sx, sy, 25 + Math.sin(frame * 0.2) * 5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 「寄生中」テキスト
+            ctx.fillStyle = '#FF0000';
+            ctx.font = 'bold 10px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('PARASITE', sx, sy - 30);
+        }
+        
+        ctx.restore();
+    }
+}
+
+// ゾンビ敵の描画
+function drawZombieEnemy(ctx, enemy, sx, sy, frame) {
+    if (!enemy.isZombie) return;
+    
+    ctx.save();
+    
+    // ゾンビは緑色のオーラ
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = '#00FF00';
+    ctx.strokeStyle = '#00FF00';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(sx, sy, enemy.size + 5, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // 「ZOMBIE」テキスト
+    ctx.fillStyle = '#00FF00';
+    ctx.font = 'bold 8px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText('ZOMBIE', sx, sy - enemy.size - 10);
+    
+    ctx.restore();
+}
+
 function hostGame() { 
     console.log('hostGame called'); 
     const name = document.getElementById('player-name').value || 'Host'; 
@@ -3236,6 +3536,138 @@ function showMainMenu() {
     document.getElementById('guest-waiting').style.display = 'none';
     document.getElementById('character-select').style.display = 'none';
     selectedCharacter = null;
+}
+
+// ========== キャラクター別ボタン設定 ==========
+function setupCharacterButtons() {
+    const char = myPlayer?.character || selectedCharacter || 'EIRYKLAV';
+    
+    // 全ボタン非表示
+    document.getElementById('btn-weapon').style.display = 'none';
+    document.getElementById('btn-overdrive').style.display = 'none';
+    document.getElementById('btn-concentrate').style.display = 'none';
+    document.getElementById('btn-thunder').style.display = 'none';
+    document.getElementById('btn-kill').style.display = 'none';
+    
+    // キャラ別ボタン表示
+    if (char === 'EIRYKLAV') {
+        document.getElementById('btn-weapon').style.display = 'flex';
+        setupEiryklavButtons();
+    } else if (char === 'AGOREKIK') {
+        document.getElementById('btn-overdrive').style.display = 'flex';
+        document.getElementById('btn-concentrate').style.display = 'flex';
+        setupAgorekikButtons();
+    } else if (char === 'NAGAL') {
+        document.getElementById('btn-thunder').style.display = 'flex';
+        document.getElementById('btn-kill').style.display = 'flex';
+        setupNagalButtons();
+    }
+    
+    // ジョイスティック表示
+    document.getElementById('joystick-zone').style.display = 'block';
+    document.getElementById('mobile-buttons').style.display = 'flex';
+}
+
+// EIRYKLAV: 武器切替ボタン
+let currentWeaponEiryklav = 'PLAZMER';
+function setupEiryklavButtons() {
+    const btn = document.getElementById('btn-weapon');
+    const toggle = () => {
+        currentWeaponEiryklav = currentWeaponEiryklav === 'PLAZMER' ? 'LASER' : 'PLAZMER';
+        if (currentWeaponEiryklav === 'PLAZMER') {
+            btn.innerHTML = '🔷<br>PLAZMER';
+            btn.style.borderColor = '#00CCFF';
+            btn.style.color = '#00CCFF';
+            btn.style.background = 'rgba(0,204,255,0.3)';
+        } else {
+            btn.innerHTML = '⚡<br>LASER';
+            btn.style.borderColor = '#FF00FF';
+            btn.style.color = '#FF00FF';
+            btn.style.background = 'rgba(255,0,255,0.3)';
+        }
+        socket.emit('switchWeapon', { weapon: currentWeaponEiryklav });
+    };
+    btn.onclick = toggle;
+    btn.ontouchend = (e) => { e.preventDefault(); toggle(); };
+}
+
+// AGOREKIK: 触手バーストボタン & 集中ボタン
+let agorekikBurstActive = false;
+let tentacleConcentrateActive = false;
+function setupAgorekikButtons() {
+    const btn = document.getElementById('btn-overdrive');
+    const toggle = () => {
+        agorekikBurstActive = !agorekikBurstActive;
+        if (agorekikBurstActive) {
+            btn.innerHTML = '🐙<br>BURST!';
+            btn.style.background = 'rgba(255,0,0,0.5)';
+            btn.style.boxShadow = '0 0 20px rgba(255,0,0,0.8)';
+        } else {
+            btn.innerHTML = '🐙<br>BURST';
+            btn.style.background = 'rgba(0,255,102,0.3)';
+            btn.style.boxShadow = 'none';
+        }
+        socket.emit('tentacleBurst', { active: agorekikBurstActive });
+    };
+    btn.onclick = toggle;
+    btn.ontouchend = (e) => { e.preventDefault(); toggle(); };
+    
+    // 触手集中ボタン
+    const concentrateBtn = document.getElementById('btn-concentrate');
+    const concentrate = () => {
+        if (!myPlayer) return;
+        // 現在向いている方向に触手を集中
+        socket.emit('tentacleConcentrate', { angle: myPlayer.angle });
+        concentrateBtn.innerHTML = '🎯<br>FOCUS!';
+        concentrateBtn.style.background = 'rgba(255,255,0,0.5)';
+        showMessage('🎯 TENTACLE FOCUS!');
+        setTimeout(() => {
+            concentrateBtn.innerHTML = '🎯<br>FOCUS';
+            concentrateBtn.style.background = 'rgba(136,255,136,0.3)';
+        }, 1000);
+    };
+    concentrateBtn.onclick = concentrate;
+    concentrateBtn.ontouchend = (e) => { e.preventDefault(); concentrate(); };
+}
+
+// NAGAL: サンダーON/OFFボタン & キルボタン
+let nagalThunderActive = false;
+function setupNagalButtons() {
+    const btn = document.getElementById('btn-thunder');
+    const toggle = () => {
+        nagalThunderActive = !nagalThunderActive;
+        if (nagalThunderActive) {
+            btn.innerHTML = '⛈️<br>ON';
+            btn.style.background = 'rgba(255,255,0,0.5)';
+            btn.style.boxShadow = '0 0 20px rgba(255,255,0,0.8)';
+        } else {
+            btn.innerHTML = '⛈️<br>OFF';
+            btn.style.background = 'rgba(255,204,0,0.3)';
+            btn.style.boxShadow = 'none';
+        }
+        socket.emit('thunderToggle', { active: nagalThunderActive });
+    };
+    btn.onclick = toggle;
+    btn.ontouchend = (e) => { e.preventDefault(); toggle(); };
+    
+    // キルボタン（寄生中の敵をゾンビ化）
+    const killBtn = document.getElementById('btn-kill');
+    const kill = () => {
+        if (!myPlayer || !myPlayer.parasiteTarget) {
+            showMessage('❌ No parasite target!');
+            return;
+        }
+        socket.emit('parasiteKill', {});
+        killBtn.innerHTML = '💀<br>KILL!';
+        killBtn.style.background = 'rgba(255,0,0,0.8)';
+        showMessage('💀 ZOMBIFY!');
+        setTimeout(() => {
+            killBtn.innerHTML = '💀<br>KILL';
+            killBtn.style.background = 'rgba(255,0,0,0.3)';
+        }, 500);
+    };
+    killBtn.onclick = kill;
+    killBtn.ontouchend = (e) => { e.preventDefault(); kill(); };
 }
 function cancelHost() { socket.emit('cancelHost'); location.reload(); }
 function leaveRoom() { location.reload(); }
@@ -3528,67 +3960,121 @@ function fireWeapons() {
         myPlayer.weaponLevels = { ...DEFAULT_WEAPON_LEVELS };
     }
     
-    // OVERLOAD中の効果
-    const overloadBonus = overloadState.active ? {
-        damageMultiplier: 2.0,  // ダメージ2倍
-        fireRateBoost: true     // 発射レート上昇（weaponTimer短縮）
-    } : {
-        damageMultiplier: 1.0,
-        fireRateBoost: false
-    };
-    
     const hits = [];
+    const char = myPlayer.character || 'EIRYKLAV';
     
-    // パッシブ武器の発動（装備しているもののみ）
-    if (isEquipped('PLAZMER')) {
-        socket.emit('fire', { type: 'PLAZMER', angle: myPlayer.angle, overload: overloadState.active });
-        firePlazmer(hits, overloadBonus.damageMultiplier);
-    }
+    // ========== キャラクター別攻撃処理 ==========
     
-    if (isEquipped('HOMING') && myPlayer.weaponLevels.HOMING > 0) {
-        fireHoming(overloadBonus.damageMultiplier);
-        socket.emit('fire', { type: 'HOMING', angle: myPlayer.angle, overload: overloadState.active });
-    }
-    
-    if (isEquipped('LASER') && myPlayer.weaponLevels.LASER > 0 && !activeLaser) {
-        fireLaser(overloadBonus.damageMultiplier);
-    }
-    
-    if (isEquipped('THUNDER') && myPlayer.weaponLevels.THUNDER > 0) {
-        // OVERLOAD中はエネルギー要件緩和
-        const energyRequired = overloadState.active ? 90 : 180;
-        if ((myPlayer.thunderEnergy || 0) >= energyRequired) {
-            fireThunder(hits, overloadBonus.damageMultiplier);
+    if (char === 'EIRYKLAV') {
+        // EIRYKLAV: PLAZMER↔LASER切替式
+        if (currentWeaponEiryklav === 'PLAZMER') {
+            socket.emit('fire', { type: 'PLAZMER', angle: myPlayer.angle });
+            firePlazmer(hits);
+        } else if (currentWeaponEiryklav === 'LASER' && !activeLaser) {
+            fireLaser();
+        }
+    } else if (char === 'AGOREKIK') {
+        // AGOREKIK: 触手自動攻撃（BIO PHALANX）
+        fireAgorekikTentacles(hits);
+    } else if (char === 'NAGAL') {
+        // NAGAL: 寄生＋サンダー
+        if (nagalThunderActive && (myPlayer.thunderEnergy || 0) >= 180) {
+            fireThunder(hits);
             myPlayer.thunderEnergy = 0;
-            socket.emit('fire', { type: 'THUNDER', angle: myPlayer.angle, overload: overloadState.active });
+            socket.emit('fire', { type: 'THUNDER', angle: myPlayer.angle });
         }
-    }
-    
-    // INTERCEPT - 自動迎撃（装備時のみ！）
-    if (isEquipped('INTERCEPT')) {
-        fireIntercept();
-    }
-    
-    // REFLECT - 反射シールド（装備時のみ）
-    if (isEquipped('REFLECT')) {
-        if (!reflectShield) {
-            reflectShield = new ReflectShield();
-        }
-    } else {
-        reflectShield = null;
-    }
-    
-    // PHALANX - オプションビーム（装備時のみ）
-    if (isEquipped('PHALANX') && myPlayer.weaponLevels.PHALANX > 0) {
-        localOptions.forEach((opt, idx) => {
-            const existingBeam = optionBeams.find(b => b.index === idx && !b.dead);
-            if (!existingBeam) {
-                optionBeams.push(new OptionBeam(opt, idx));
-            }
-        });
+        // 寄生チェックは自動で行う
+        checkNagalParasite();
     }
     
     playSound('shoot');
+}
+
+// AGOREKIK: 触手攻撃
+function fireAgorekikTentacles(hits) {
+    const tentacles = myPlayer.tentacles || [];
+    if (tentacles.length === 0) return;
+    
+    // 各触手から自動攻撃
+    tentacles.forEach((tent, i) => {
+        const angle = tent.angle + frame * 0.02;
+        const tipX = myPlayer.x + Math.cos(angle) * tent.length;
+        const tipY = myPlayer.y + Math.sin(angle) * tent.length;
+        
+        // 最も近い敵を探す
+        let target = null;
+        let minDist = agorekikBurstActive ? 300 : 150; // バースト時は範囲拡大
+        
+        if (gameState && gameState.enemies) {
+            gameState.enemies.forEach(e => {
+                if (e.hp <= 0 || e.isZombie) return;
+                const re = remoteEnemies.get(e.id);
+                const ex = re ? re.x : e.x;
+                const ey = re ? re.y : e.y;
+                const dist = Math.hypot(ex - tipX, ey - tipY);
+                if (dist < minDist) {
+                    minDist = dist;
+                    target = { id: e.id, x: ex, y: ey };
+                }
+            });
+        }
+        
+        // 敵が近くにいれば攻撃
+        if (target) {
+            const damage = agorekikBurstActive ? 15 : 8;
+            socket.emit('tentacleAttack', { 
+                targetId: target.id, 
+                damage: damage,
+                tentacleIndex: i 
+            });
+            
+            // ビームエフェクト追加
+            tentacleBeams.push({
+                x1: tipX, y1: tipY,
+                x2: target.x, y2: target.y,
+                life: 10,
+                color: agorekikBurstActive ? '#FF0000' : '#00FF00'
+            });
+        }
+    });
+}
+
+// 触手ビームエフェクト配列
+let tentacleBeams = [];
+
+// NAGAL: 寄生チェック
+function checkNagalParasite() {
+    if (!gameState || !gameState.enemies) return;
+    if (myPlayer.parasiteTarget) return; // 既に寄生中
+    
+    // 弱った敵に近づくと寄生（ボスはHP10%以下、通常敵はHP30%以下）
+    gameState.enemies.forEach(e => {
+        if (e.hp <= 0 || e.isZombie) return;
+        const hpRatio = e.hp / e.maxHp;
+        
+        // ボスはHP10%以下、通常敵はHP30%以下で寄生可能
+        const threshold = e.isBoss ? 0.1 : 0.3;
+        if (hpRatio > threshold) return;
+        
+        const re = remoteEnemies.get(e.id);
+        const ex = re ? re.x : e.x;
+        const ey = re ? re.y : e.y;
+        const dist = Math.hypot(ex - myPlayer.x, ey - myPlayer.y);
+        
+        // 近距離で寄生発動（ボスはもう少し遠くからでも）
+        const attachRange = e.isBoss ? 80 : 50;
+        if (dist < attachRange) {
+            socket.emit('parasiteAttach', { targetId: e.id });
+            myPlayer.parasiteTarget = e.id;
+            myPlayer.parasiteBoss = e.isBoss;
+            if (e.isBoss) {
+                showMessage(`👑🦠 BOSS PARASITE! 👑🦠`);
+                triggerScreenShake(10);
+            } else {
+                showMessage('🦠 PARASITE ATTACHED!');
+            }
+        }
+    });
 }
 
 // INTERCEPT発射（INTERCEPTだけが敵弾を迎撃できる）
@@ -5446,27 +5932,87 @@ function draw() {
             const ex = re ? re.x : e.x;
             const ey = re ? re.y : e.y;
             const sx = ex - camera.x + screenShake.x, sy = ey - camera.y + screenShake.y;
-            ctx.fillStyle = e.color; ctx.shadowBlur = e.isBoss ? 30 : 15; ctx.shadowColor = e.color;
-            ctx.beginPath(); ctx.arc(sx, sy, e.size, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(sx, sy, e.size * 0.4, 0, Math.PI * 2); ctx.fill();
+            
+            // ゾンビ敵は緑色で表示
+            if (e.isZombie) {
+                // ゾンビボスは特別な表示
+                const isZombieBoss = e.isBoss || e.zombieBoss;
+                const zombieColor = isZombieBoss ? '#00FFAA' : '#00FF00';
+                const zombieSize = isZombieBoss ? e.size * 1.2 : e.size;
+                
+                ctx.fillStyle = zombieColor;
+                ctx.shadowBlur = isZombieBoss ? 40 : 25;
+                ctx.shadowColor = zombieColor;
+                ctx.beginPath();
+                ctx.arc(sx, sy, zombieSize, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 内側
+                ctx.fillStyle = isZombieBoss ? 'rgba(0,100,50,0.5)' : 'rgba(0,50,0,0.5)';
+                ctx.beginPath();
+                ctx.arc(sx, sy, zombieSize * 0.4, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // ゾンビマーク
+                ctx.fillStyle = zombieColor;
+                ctx.font = isZombieBoss ? 'bold 14px Courier New' : 'bold 10px Courier New';
+                ctx.textAlign = 'center';
+                if (isZombieBoss) {
+                    ctx.fillText('👑 ZOMBIE BOSS 👑', sx, sy - zombieSize - 10);
+                } else {
+                    ctx.fillText('ZOMBIE', sx, sy - zombieSize - 5);
+                }
+                
+                // ゾンビボスは追加エフェクト（回転するオーラ）
+                if (isZombieBoss) {
+                    ctx.strokeStyle = zombieColor;
+                    ctx.lineWidth = 3;
+                    ctx.globalAlpha = 0.5 + Math.sin(frame * 0.1) * 0.3;
+                    ctx.beginPath();
+                    ctx.arc(sx, sy, zombieSize + 15 + Math.sin(frame * 0.2) * 5, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.globalAlpha = 1;
+                }
+            } else {
+                ctx.fillStyle = e.color; ctx.shadowBlur = e.isBoss ? 30 : 15; ctx.shadowColor = e.color;
+                ctx.beginPath(); ctx.arc(sx, sy, e.size, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(sx, sy, e.size * 0.4, 0, Math.PI * 2); ctx.fill();
+                
+                // 寄生中インジケーター
+                if (e.parasitedBy) {
+                    ctx.strokeStyle = '#FF0000';
+                    ctx.lineWidth = 3;
+                    ctx.shadowBlur = 20;
+                    ctx.shadowColor = '#FF0000';
+                    ctx.beginPath();
+                    ctx.arc(sx, sy, e.size + 8, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.fillStyle = '#FF0000';
+                    ctx.font = 'bold 10px Courier New';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('🦠 PARASITED', sx, sy - e.size - 15);
+                }
+            }
             ctx.shadowBlur = 0;
             
-            // HPゲージと数字（全ての敵に表示）
-            const barWidth = Math.max(30, e.size * 1.5);
-            const hpRatio = e.hp / e.maxHp;
-            ctx.fillStyle = '#300'; 
-            ctx.fillRect(sx - barWidth/2, sy - e.size - 12, barWidth, 5);
-            ctx.fillStyle = hpRatio > 0.5 ? '#0f0' : hpRatio > 0.25 ? '#ff0' : '#f00';
-            ctx.fillRect(sx - barWidth/2, sy - e.size - 12, barWidth * hpRatio, 5);
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 0.5;
-            ctx.strokeRect(sx - barWidth/2, sy - e.size - 12, barWidth, 5);
-            
-            // HP数字
-            ctx.fillStyle = '#fff';
-            ctx.font = 'bold 9px Courier New';
-            ctx.textAlign = 'center';
-            ctx.fillText(`${e.hp}/${e.maxHp}`, sx, sy - e.size - 16);
+            // HPゲージと数字（ゾンビ以外に表示）
+            if (!e.isZombie) {
+                const barWidth = Math.max(30, e.size * 1.5);
+                const hpRatio = e.hp / e.maxHp;
+                ctx.fillStyle = '#300'; 
+                ctx.fillRect(sx - barWidth/2, sy - e.size - 12, barWidth, 5);
+                ctx.fillStyle = hpRatio > 0.5 ? '#0f0' : hpRatio > 0.25 ? '#ff0' : '#f00';
+                ctx.fillRect(sx - barWidth/2, sy - e.size - 12, barWidth * hpRatio, 5);
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 0.5;
+                ctx.strokeRect(sx - barWidth/2, sy - e.size - 12, barWidth, 5);
+                
+                // HP数字
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 9px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText(`${e.hp}/${e.maxHp}`, sx, sy - e.size - 16);
+            }
         });
         
         // 画面外の敵インジケーター（矢印で方向を示す）
@@ -5746,6 +6292,10 @@ function draw() {
             
             ctx.fillStyle = playerColor; ctx.font = 'bold 10px Courier New'; ctx.textAlign = 'center';
             ctx.shadowBlur = 5; ctx.shadowColor = glowColor; ctx.fillText(myPlayer.name || 'Player', sx, sy - 20); ctx.shadowBlur = 0;
+            
+            // キャラ固有エフェクト描画
+            drawAgorekikTentacles(ctx, myPlayer, sx, sy, frame);
+            drawNagalParasiteEffect(ctx, myPlayer, sx, sy, frame);
         }
     }
     
@@ -5887,6 +6437,29 @@ function draw() {
         ctx.fillStyle = p.color; ctx.globalAlpha = p.life / 30;
         ctx.beginPath(); ctx.arc(sx, sy, p.size, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 1;
+    });
+    
+    // 触手ビーム描画（AGOREKIK用）
+    tentacleBeams = tentacleBeams.filter(beam => beam.life > 0);
+    tentacleBeams.forEach(beam => {
+        const sx1 = beam.x1 - camera.x + screenShake.x;
+        const sy1 = beam.y1 - camera.y + screenShake.y;
+        const sx2 = beam.x2 - camera.x + screenShake.x;
+        const sy2 = beam.y2 - camera.y + screenShake.y;
+        
+        ctx.save();
+        ctx.strokeStyle = beam.color;
+        ctx.lineWidth = 3;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = beam.color;
+        ctx.globalAlpha = beam.life / 10;
+        ctx.beginPath();
+        ctx.moveTo(sx1, sy1);
+        ctx.lineTo(sx2, sy2);
+        ctx.stroke();
+        ctx.restore();
+        
+        beam.life--;
     });
     
     // ダメージテキスト描画

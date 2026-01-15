@@ -185,22 +185,22 @@ class GameRoom {
         return false;
     }
     
-    addPlayer(socket, name, isHost = false, character = 'NAGAL') {
+    addPlayer(socket, name, isHost = false, character = 'EIRYKLAV') {
         const playerIndex = this.players.size;
         const colorData = PLAYER_COLORS[Math.min(playerIndex, PLAYER_COLORS.length - 1)];
         
-        // キャラクターごとの初期設定
+        // Ver.1.0025: キャラクターごとの初期設定
         const charStats = {
-            EIRYKLAV: { hp: 200, speed: 3.5, main: 'PLAZMER', sub: 'HOMING', color: '#00CCFF', glow: '#00FFFF' },
-            AGIREKIK: { hp: 250, speed: 3.0, main: 'PLAZMER', sub: 'PHALANX', color: '#66FF66', glow: '#00FF00' },
-            NAGAL: { hp: 150, speed: 4.5, main: 'THUNDER', sub: 'PARASITE', color: '#FFCC00', glow: '#FFFF00' }
+            EIRYKLAV: { hp: 200, speed: 3.5, main: 'PLAZMER', sub: 'LASER' },
+            AGOREKIK: { hp: 250, speed: 3.0, main: 'BIO_PHALANX', sub: 'TENTACLE' },
+            NAGAL: { hp: 150, speed: 4.5, main: 'PARASITE', sub: 'THUNDER' }
         };
-        const stats = charStats[character] || charStats.NAGAL;
+        const stats = charStats[character] || charStats.EIRYKLAV;
         
         const player = {
             id: socket.id,
             name: name || 'Player',
-            character: character, // キャラクター情報を保存
+            character: character,
             x: WORLD_W / 2 + (Math.random() - 0.5) * 200,
             y: WORLD_H / 2 + (Math.random() - 0.5) * 200,
             angle: 0,
@@ -210,30 +210,37 @@ class GameRoom {
             invincible: 60,
             dashing: false,
             dashTimer: 0,
+            // Ver.1.0025: キャラ固定武器
             weaponLevels: { 
-                PLAZMER: character === 'EIRYKLAV' || character === 'AGIREKIK' ? 1 : 0,
-                HOMING: character === 'EIRYKLAV' ? 1 : 0,
-                LASER: 0, 
+                // EIRYKLAV用
+                PLAZMER: character === 'EIRYKLAV' ? 1 : 0,
+                LASER: character === 'EIRYKLAV' ? 1 : 0,
+                // AGOREKIK用
+                BIO_PHALANX: character === 'AGOREKIK' ? 1 : 0,
+                TENTACLE: character === 'AGOREKIK' ? 1 : 0,
+                // NAGAL用
+                PARASITE: character === 'NAGAL' ? 1 : 0,
                 THUNDER: character === 'NAGAL' ? 1 : 0,
-                PHALANX: character === 'AGIREKIK' ? 1 : 0,
-                INTERCEPT: 0, 
-                REFLECT: 0, 
-                RIFT: 0,
-                ANCHOR: 0, 
-                DASH: 1, // 全キャラ共通
-                PIERCE: 0,
-                PARASITE: character === 'NAGAL' ? 1 : 0
+                // 共通
+                DASH: 1
             },
             equipped: { 
                 main: stats.main,
-                allrange: stats.sub,
-                tactical: 'DASH',
-                ultimate: null
+                sub: stats.sub,
+                activeWeapon: stats.main // 現在使用中の武器（EIRYKLAV用）
             },
-            overload: { available: false, active: false, used: false, timer: 0 },
-            thunderEnergy: character === 'NAGAL' ? 180 : 0, // NAGALは雷撃チャージ済み
-            options: character === 'AGIREKIK' ? [{ x: 0, y: 0, angle: 0 }] : [], // AGIREKIKのみ初期PHALANX
-            phalanxFormation: 'defense',
+            thunderEnergy: character === 'NAGAL' ? 180 : 0,
+            thunderActive: false, // NAGAL用：サンダーON/OFF
+            // AGOREKIK用：触手（4本から開始）
+            tentacles: character === 'AGOREKIK' ? [
+                { angle: 0, length: 50 },
+                { angle: Math.PI / 2, length: 50 },
+                { angle: Math.PI, length: 50 },
+                { angle: Math.PI * 1.5, length: 50 }
+            ] : [],
+            // NAGAL用：寄生システム
+            parasiteTarget: null,
+            zombies: [], // ゾンビ化した敵のID
             score: 0,
             alive: true,
             lastInput: { x: 0, y: 0, angle: 0, dash: false },
@@ -243,8 +250,7 @@ class GameRoom {
             glowColor: colorData.glow,
             colorName: colorData.name,
             ready: isHost,
-            respawnTimer: 0,
-            parasiteTarget: null // NAGAL用：寄生中の敵ID
+            respawnTimer: 0
         };
         
         this.players.set(socket.id, player);
@@ -533,6 +539,65 @@ class GameRoom {
             return;
         }
         
+        // ========== キャラクター固有の更新処理 ==========
+        
+        // AGOREKIK: 触手集中タイマー
+        if (player.character === 'AGOREKIK' && player.tentacleConcentrate) {
+            if (player.tentacleConcentrate.active) {
+                player.tentacleConcentrate.timer--;
+                if (player.tentacleConcentrate.timer <= 0) {
+                    player.tentacleConcentrate.active = false;
+                }
+            }
+        }
+        
+        // NAGAL: 寄生中の処理
+        if (player.character === 'NAGAL' && player.parasiteTarget) {
+            const enemy = this.enemies.find(e => e.id === player.parasiteTarget);
+            if (enemy) {
+                // NAGALは敵の位置に貼り付く
+                player.x = enemy.x;
+                player.y = enemy.y;
+                
+                // 寄生中は無敵
+                player.invincible = Math.max(player.invincible, 10);
+                
+                // 敵が死んだら寄生解除
+                if (enemy.hp <= 0) {
+                    player.parasiteTarget = null;
+                    player.parasiteBoss = false;
+                }
+            } else {
+                // 敵がいなくなったら寄生解除
+                player.parasiteTarget = null;
+                player.parasiteBoss = false;
+            }
+        }
+        
+        // NAGAL: サンダーON時の自動放電
+        if (player.character === 'NAGAL' && player.thunderActive) {
+            // 3秒ごとに周囲の敵にダメージ
+            if (this.frame % 180 === 0 && player.thunderEnergy >= 60) {
+                player.thunderEnergy -= 60;
+                this.enemies.forEach(e => {
+                    if (e.isZombie || e.hp <= 0) return;
+                    const dist = Math.hypot(e.x - player.x, e.y - player.y);
+                    if (dist < 150) {
+                        e.hp -= 20;
+                        io.to(this.id).emit('thunderHit', {
+                            playerId: player.id,
+                            targetId: e.id,
+                            x: e.x, y: e.y
+                        });
+                        
+                        if (e.hp <= 0) {
+                            this.handleEnemyDeath(e, player);
+                        }
+                    }
+                });
+            }
+        }
+        
         // invincibleとoverloadはupdate()で既に更新済み
         
         // 壁脱出
@@ -667,9 +732,92 @@ class GameRoom {
             return nearest;
         };
         
+        // ゾンビ用：最も近い敵（非ゾンビ）を探す
+        const findNearestEnemy = (x, y, excludeId) => {
+            let nearest = null, minDist = Infinity;
+            this.enemies.forEach(enemy => {
+                if (enemy.hp <= 0 || enemy.isZombie || enemy.id === excludeId) return;
+                const d = Math.hypot(enemy.x - x, enemy.y - y);
+                if (d < minDist) { minDist = d; nearest = enemy; }
+            });
+            return nearest;
+        };
+        
         this.enemies.forEach(enemy => {
             if (enemy.hp <= 0) return;
             enemy.timer++;
+            
+            // ========== ゾンビ敵のAI ==========
+            if (enemy.isZombie) {
+                const target = findNearestEnemy(enemy.x, enemy.y, enemy.id);
+                
+                if (target) {
+                    const angle = Math.atan2(target.y - enemy.y, target.x - enemy.x);
+                    const dist = Math.hypot(target.x - enemy.x, target.y - enemy.y);
+                    
+                    // ゾンビボスは特別な行動
+                    if (enemy.zombieBoss) {
+                        // ゾンビボスの移動（遅いが強力）
+                        const speed = enemy.speed * 0.8;
+                        enemy.x += Math.cos(angle) * speed;
+                        enemy.y += Math.sin(angle) * speed;
+                        
+                        // ゾンビボスの攻撃パターン
+                        if (enemy.timer % 45 === 0) {
+                            // 放射状のゾンビ弾
+                            const bulletCount = 8;
+                            for (let i = 0; i < bulletCount; i++) {
+                                const bulletAngle = (Math.PI * 2 / bulletCount) * i + enemy.timer * 0.05;
+                                this.enemyBullets.push({
+                                    id: 'zb_' + this.enemyIdCounter++,
+                                    x: enemy.x, y: enemy.y,
+                                    vx: Math.cos(bulletAngle) * 6, 
+                                    vy: Math.sin(bulletAngle) * 6,
+                                    life: 90, size: 8, color: '#00FF00',
+                                    isZombieBullet: true, zombieOwner: enemy.zombieOwner
+                                });
+                            }
+                        }
+                        
+                        // 接触で大ダメージ
+                        if (dist < enemy.size + target.size) {
+                            target.hp -= 20;
+                            if (target.hp <= 0 && !target.isBoss) {
+                                target.isZombie = true;
+                                target.zombieOwner = enemy.zombieOwner;
+                                target.hp = target.maxHp * 0.5;
+                            }
+                        }
+                    } else {
+                        // 通常ゾンビの行動
+                        const speed = enemy.speed * 1.5;
+                        enemy.x += Math.cos(angle) * speed;
+                        enemy.y += Math.sin(angle) * speed;
+                        
+                        // 接触でダメージ
+                        if (dist < enemy.size + target.size) {
+                            target.hp -= 5;
+                            if (target.hp <= 0 && !target.isBoss) {
+                                target.isZombie = true;
+                                target.zombieOwner = enemy.zombieOwner;
+                                target.hp = target.maxHp * 0.3;
+                            }
+                        }
+                        
+                        // ゾンビの弾発射
+                        if (enemy.timer % 60 === 0) {
+                            this.enemyBullets.push({
+                                id: 'zb_' + this.enemyIdCounter++,
+                                x: enemy.x, y: enemy.y,
+                                vx: Math.cos(angle) * 8, vy: Math.sin(angle) * 8,
+                                life: 60, size: 4, color: '#00FF00',
+                                isZombieBullet: true, zombieOwner: enemy.zombieOwner
+                            });
+                        }
+                    }
+                }
+                return; // ゾンビはここで処理終了
+            }
             
             // ANCHOR状態の処理
             if (enemy.anchored) {
@@ -678,6 +826,20 @@ class GameRoom {
                     enemy.anchored = false;
                 }
                 // 固定中は移動しない
+                return;
+            }
+            
+            // 寄生されている敵
+            if (enemy.parasitedBy) {
+                // 寄生中は継続ダメージ
+                enemy.hp -= 2;
+                
+                // 寄生主の位置を追従
+                const parasiteOwner = this.players.get(enemy.parasitedBy);
+                if (parasiteOwner) {
+                    // NAGALは敵の位置に移動
+                    // （クライアント側で処理）
+                }
                 return;
             }
             
@@ -718,8 +880,8 @@ class GameRoom {
             }
         });
         
-        // 死んだ敵を除去
-        this.enemies = this.enemies.filter(e => e.hp > 0);
+        // 死んだ敵を除去（ゾンビは除外しない）
+        this.enemies = this.enemies.filter(e => e.hp > 0 || e.isZombie);
     }
     
     bossAttack(boss, target) {
@@ -947,6 +1109,34 @@ class GameRoom {
     
     updateEnemyBullets() {
         this.enemyBullets.forEach(b => {
+            // ゾンビ弾は敵に向かう
+            if (b.isZombieBullet) {
+                // ゾンビ弾は非ゾンビ敵に当たる
+                this.enemies.forEach(enemy => {
+                    if (enemy.isZombie || enemy.hp <= 0) return;
+                    if (Math.hypot(enemy.x - b.x, enemy.y - b.y) < enemy.size + b.size) {
+                        enemy.hp -= 10;
+                        b.dead = true;
+                        
+                        // ゾンビ弾で倒した敵もゾンビ化
+                        if (enemy.hp <= 0 && !enemy.isBoss) {
+                            enemy.isZombie = true;
+                            enemy.zombieOwner = b.zombieOwner;
+                            enemy.hp = enemy.maxHp * 0.3;
+                        }
+                    }
+                });
+                
+                b.x += b.vx;
+                b.y += b.vy;
+                b.life--;
+                
+                if (b.life <= 0 || this.checkWall(b.x, b.y)) {
+                    b.dead = true;
+                }
+                return; // ゾンビ弾はプレイヤーに当たらない
+            }
+            
             // 追尾弾の処理
             if (b.homing && b.target) {
                 const player = this.players.get(b.target.id);
@@ -1300,9 +1490,14 @@ class GameRoom {
             dashing: player.dashing,
             alive: player.alive,
             weaponLevels: player.weaponLevels,
+            equipped: player.equipped,
             thunderEnergy: player.thunderEnergy,
-            options: player.options,
-            formation: player.formation,
+            thunderActive: player.thunderActive,
+            tentacles: player.tentacles,
+            tentacleConcentrate: player.tentacleConcentrate, // 触手集中
+            parasiteTarget: player.parasiteTarget,
+            parasiteBoss: player.parasiteBoss, // ボス寄生フラグ
+            zombies: player.zombies,
             score: player.score,
             isHost: player.isHost,
             playerIndex: player.playerIndex,
@@ -1310,8 +1505,7 @@ class GameRoom {
             glowColor: player.glowColor,
             colorName: player.colorName,
             ready: player.ready,
-            respawnTimer: player.respawnTimer,
-            parasiteTarget: player.parasiteTarget
+            respawnTimer: player.respawnTimer
         };
     }
     
@@ -1327,7 +1521,10 @@ class GameRoom {
             color: enemy.color,
             isBoss: enemy.isBoss,
             name: enemy.name,
-            pattern: enemy.pattern
+            pattern: enemy.pattern,
+            isZombie: enemy.isZombie || false,
+            zombieOwner: enemy.zombieOwner || null,
+            parasitedBy: enemy.parasitedBy || null
         };
     }
     
@@ -1480,6 +1677,157 @@ io.on('connection', (socket) => {
             players: Array.from(currentRoom.players.values()).map(p => currentRoom.sanitizePlayer(p))
         });
         console.log(`Game started in room ${currentRoom.id}`);
+    });
+    
+    // ========== キャラクター固有アクション ==========
+    
+    // EIRYKLAV: 武器切替
+    socket.on('switchWeapon', (data) => {
+        if (!currentRoom) return;
+        const player = currentRoom.players.get(socket.id);
+        if (!player || player.character !== 'EIRYKLAV') return;
+        
+        if (data.weapon === 'PLAZMER' || data.weapon === 'LASER') {
+            player.equipped.activeWeapon = data.weapon;
+            console.log(`${player.name} switched to ${data.weapon}`);
+        }
+    });
+    
+    // AGOREKIK: 触手バースト
+    socket.on('tentacleBurst', (data) => {
+        if (!currentRoom) return;
+        const player = currentRoom.players.get(socket.id);
+        if (!player || player.character !== 'AGOREKIK') return;
+        
+        player.tentacleBurst = data.active;
+        console.log(`${player.name} tentacle burst: ${data.active}`);
+    });
+    
+    // NAGAL: サンダートグル
+    socket.on('thunderToggle', (data) => {
+        if (!currentRoom) return;
+        const player = currentRoom.players.get(socket.id);
+        if (!player || player.character !== 'NAGAL') return;
+        
+        player.thunderActive = data.active;
+        console.log(`${player.name} thunder: ${data.active}`);
+    });
+    
+    // AGOREKIK: 触手攻撃
+    socket.on('tentacleAttack', (data) => {
+        if (!currentRoom) return;
+        const player = currentRoom.players.get(socket.id);
+        if (!player || player.character !== 'AGOREKIK') return;
+        
+        const enemy = currentRoom.enemies.find(e => e.id === data.targetId);
+        if (enemy && enemy.hp > 0 && !enemy.isZombie) {
+            enemy.hp -= data.damage;
+            
+            if (enemy.hp <= 0) {
+                currentRoom.handleEnemyDeath(enemy, player);
+            }
+            
+            // 全員に通知
+            io.to(currentRoom.id).emit('tentacleHit', {
+                playerId: socket.id,
+                targetId: data.targetId,
+                damage: data.damage,
+                tentacleIndex: data.tentacleIndex
+            });
+        }
+    });
+    
+    // NAGAL: 寄生開始
+    socket.on('parasiteAttach', (data) => {
+        if (!currentRoom) return;
+        const player = currentRoom.players.get(socket.id);
+        if (!player || player.character !== 'NAGAL') return;
+        if (player.parasiteTarget) return; // 既に寄生中
+        
+        const enemy = currentRoom.enemies.find(e => e.id === data.targetId);
+        if (enemy && enemy.hp > 0 && !enemy.isZombie) {
+            // ボスはHP10%以下、通常敵はHP30%以下で寄生可能
+            const threshold = enemy.isBoss ? 0.1 : 0.3;
+            if (enemy.hp / enemy.maxHp > threshold) return;
+            
+            player.parasiteTarget = enemy.id;
+            player.parasiteBoss = enemy.isBoss; // ボス寄生フラグ
+            enemy.parasitedBy = socket.id;
+            
+            // 全員に通知
+            io.to(currentRoom.id).emit('parasiteAttached', {
+                playerId: socket.id,
+                targetId: enemy.id,
+                isBoss: enemy.isBoss
+            });
+            
+            console.log(`${player.name} parasited ${enemy.isBoss ? 'BOSS' : 'enemy'} ${enemy.id}`);
+        }
+    });
+    
+    // NAGAL: 寄生解除＆ゾンビ化
+    socket.on('parasiteKill', (data) => {
+        if (!currentRoom) return;
+        const player = currentRoom.players.get(socket.id);
+        if (!player || player.character !== 'NAGAL') return;
+        
+        const enemy = currentRoom.enemies.find(e => e.id === player.parasiteTarget);
+        if (enemy) {
+            // ボスの場合は特別処理
+            if (enemy.isBoss) {
+                // ボスをゾンビ化（味方ボスとして参戦）
+                enemy.isZombie = true;
+                enemy.zombieOwner = socket.id;
+                enemy.hp = enemy.maxHp * 0.3; // HP30%で復活
+                enemy.zombieBoss = true; // ゾンビボスフラグ
+                
+                io.to(currentRoom.id).emit('bossZombified', {
+                    playerId: socket.id,
+                    bossId: enemy.id,
+                    bossName: enemy.name
+                });
+                
+                console.log(`${player.name} ZOMBIFIED BOSS ${enemy.name}!`);
+            } else {
+                // 通常敵をゾンビ化
+                enemy.isZombie = true;
+                enemy.zombieOwner = socket.id;
+                enemy.hp = enemy.maxHp * 0.5; // HP50%で復活
+                
+                io.to(currentRoom.id).emit('enemyZombified', {
+                    playerId: socket.id,
+                    enemyId: enemy.id
+                });
+                
+                console.log(`${player.name} zombified enemy ${enemy.id}`);
+            }
+            
+            player.parasiteTarget = null;
+            player.parasiteBoss = false;
+            player.zombies = player.zombies || [];
+            player.zombies.push(enemy.id);
+        }
+    });
+    
+    // AGOREKIK: 触手集中命令
+    socket.on('tentacleConcentrate', (data) => {
+        if (!currentRoom) return;
+        const player = currentRoom.players.get(socket.id);
+        if (!player || player.character !== 'AGOREKIK') return;
+        
+        // 全触手を指定方向に集中
+        player.tentacleConcentrate = {
+            active: true,
+            angle: data.angle,
+            timer: 60 // 1秒間集中
+        };
+        
+        io.to(currentRoom.id).emit('tentacleConcentrated', {
+            playerId: socket.id,
+            angle: data.angle
+        });
+        
+        console.log(`${player.name} concentrated tentacles to angle ${data.angle}`);
     });
     
     // 武器選択完了
@@ -1695,7 +2043,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0022`);
+    console.log(`PLAZMERS Server Ver.1.0025`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');
