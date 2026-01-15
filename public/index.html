@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>PLAZMERS Ver.1.0025 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0027 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body {
@@ -315,7 +315,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0025</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0027</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -357,11 +357,13 @@
                     </div>
                 </div>
             </div>
-            <div class="char-detail" id="char-detail">
+            <!-- 詳細とREADYボタンは非表示（ダブルタップで確認ダイアログに置き換え） -->
+            <div class="char-detail" id="char-detail" style="display:none;">
                 <div class="detail-name" id="detail-name">-</div>
                 <div class="detail-desc" id="detail-desc">キャラクターを選択してください</div>
             </div>
-            <button class="menu-btn confirm-btn" id="confirm-char-btn" disabled>READY</button>
+            <button class="menu-btn confirm-btn" id="confirm-char-btn" style="display:none;" disabled>READY</button>
+            <div style="color:#888; font-size:12px; text-align:center; margin: 10px 0;">▶ キャラをダブルタップでREADY</div>
             <button class="menu-btn back-btn" onclick="showMainMenu()">BACK</button>
         </div>
         
@@ -2420,21 +2422,7 @@ function initMobileControls() {
         stopContinuousDash();
     }, { passive: false });
     
-    // FORMボタン
-    const formBtn = document.getElementById('btn-form');
-    formBtn.addEventListener('touchstart', e => { 
-        e.preventDefault();
-        e.stopPropagation();
-        cycleFormation(); 
-    }, { passive: false });
-    
-    // OVERLOADボタン（核ミサイル）
-    const overloadBtn = document.getElementById('btn-overload');
-    overloadBtn.addEventListener('touchstart', e => { 
-        e.preventDefault();
-        e.stopPropagation();
-        triggerOverload(); 
-    }, { passive: false });
+    // キャラ別ボタンはゲーム開始時に setupCharacterButtons() で設定
 }
 
 // ========== 初期化 ==========
@@ -3137,8 +3125,23 @@ function showCharacterSelect(mode) {
     });
 }
 
+let lastSelectedChar = null;
+let lastSelectTime = 0;
+
 function selectCharacter(charId) {
+    const now = Date.now();
+    
+    // 同じキャラを短時間（500ms以内）に2回タップしたら確認
+    if (lastSelectedChar === charId && (now - lastSelectTime) < 500) {
+        // 確認ダイアログ
+        showReadyConfirm(charId);
+        return;
+    }
+    
+    lastSelectedChar = charId;
+    lastSelectTime = now;
     selectedCharacter = charId;
+    
     document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
     document.getElementById('char-' + charId).classList.add('selected');
     document.getElementById('confirm-char-btn').disabled = false;
@@ -3150,8 +3153,57 @@ function selectCharacter(charId) {
         <div style="color:#0ff; margin-bottom:5px;">■ ${char.type} - ${char.desc}</div>
         <div style="color:#0f0;">武器: ${char.weapons.main} + ${char.weapons.sub}</div>
         <div style="color:#f80;">特殊: ${char.traits.special}</div>
-        <div style="color:#888; margin-top:5px;">HP:${char.traits.hp} / SPD:${char.traits.speed} / RATE:${char.traits.fireRate}</div>
+        <div style="color:#888; margin-top:5px;">HP:${char.traits.hp} / SPD:${char.traits.speed}</div>
+        <div style="color:#ff0; margin-top:8px; font-size:12px;">▶ ダブルタップでREADY</div>
     `;
+}
+
+function showReadyConfirm(charId) {
+    const char = CHARACTER_DEFS[charId];
+    
+    // カスタム確認ダイアログを作成
+    const overlay = document.createElement('div');
+    overlay.id = 'ready-confirm-overlay';
+    overlay.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.8); z-index: 9999;
+        display: flex; justify-content: center; align-items: center;
+    `;
+    
+    overlay.innerHTML = `
+        <div style="background: #0a1520; border: 2px solid #0ff; border-radius: 15px; padding: 30px; text-align: center; max-width: 300px;">
+            <div style="color: #0ff; font-size: 24px; font-weight: bold; margin-bottom: 15px;">READY?</div>
+            <div style="color: #fff; font-size: 18px; margin-bottom: 10px;">${char.name}</div>
+            <div style="color: #888; font-size: 14px; margin-bottom: 20px;">${char.nameJP}</div>
+            <div style="display: flex; gap: 15px; justify-content: center;">
+                <button onclick="confirmReady()" style="
+                    background: linear-gradient(180deg, #00ff88, #00aa55);
+                    border: none; border-radius: 10px; padding: 15px 40px;
+                    color: #000; font-size: 18px; font-weight: bold; cursor: pointer;
+                ">YES</button>
+                <button onclick="cancelReady()" style="
+                    background: linear-gradient(180deg, #555, #333);
+                    border: 1px solid #888; border-radius: 10px; padding: 15px 30px;
+                    color: #fff; font-size: 18px; cursor: pointer;
+                ">NO</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(overlay);
+}
+
+function confirmReady() {
+    const overlay = document.getElementById('ready-confirm-overlay');
+    if (overlay) overlay.remove();
+    confirmCharacter();
+}
+
+function cancelReady() {
+    const overlay = document.getElementById('ready-confirm-overlay');
+    if (overlay) overlay.remove();
+    lastSelectedChar = null;
+    lastSelectTime = 0;
 }
 
 function confirmCharacter() {
