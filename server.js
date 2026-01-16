@@ -189,7 +189,7 @@ class GameRoom {
         const playerIndex = this.players.size;
         const colorData = PLAYER_COLORS[Math.min(playerIndex, PLAYER_COLORS.length - 1)];
         
-        // Ver.1.0027: キャラクターごとの初期設定
+        // Ver.1.0028: キャラクターごとの初期設定
         const charStats = {
             EIRYKLAV: { hp: 200, speed: 3.5, main: 'PLAZMER', sub: 'LASER' },
             AGOREKIK: { hp: 250, speed: 3.0, main: 'BIO_PHALANX', sub: 'TENTACLE' },
@@ -210,7 +210,7 @@ class GameRoom {
             invincible: 60,
             dashing: false,
             dashTimer: 0,
-            // Ver.1.0027: キャラ固定武器
+            // Ver.1.0028: キャラ固定武器
             weaponLevels: { 
                 // EIRYKLAV用
                 PLAZMER: character === 'EIRYKLAV' ? 1 : 0,
@@ -591,7 +591,7 @@ class GameRoom {
                         });
                         
                         if (e.hp <= 0) {
-                            this.handleEnemyDeath(e, player);
+                            this.defeatEnemy(e, player.id);
                         }
                     }
                 });
@@ -615,11 +615,11 @@ class GameRoom {
             player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
             player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
             
-            // DASH中の敵へのダメージ（1敵1回のみ）
+            // DASH中の敵へのダメージ（1敵1回のみ、ゾンビは除外）
             if (!player.dashHitEnemies) player.dashHitEnemies = new Set();
             
             this.enemies.forEach(e => {
-                if (e.hp <= 0) return;
+                if (!e || e.hp <= 0 || e.isZombie) return; // ゾンビは攻撃しない
                 if (player.dashHitEnemies.has(e.id)) return; // 既にヒット済み
                 
                 const dist = Math.hypot(e.x - player.x, e.y - player.y);
@@ -647,7 +647,7 @@ class GameRoom {
             
             if (player.dashTimer <= 0) {
                 player.dashing = false;
-                player.dashHitEnemies.clear(); // DASH終了時にクリア
+                if (player.dashHitEnemies) player.dashHitEnemies.clear(); // DASH終了時にクリア
                 // ダッシュ終了時に壁の中にいたら脱出
                 if (this.checkWall(player.x, player.y)) {
                     this.escapeFromWall(player);
@@ -1724,7 +1724,7 @@ io.on('connection', (socket) => {
             enemy.hp -= data.damage;
             
             if (enemy.hp <= 0) {
-                currentRoom.handleEnemyDeath(enemy, player);
+                currentRoom.defeatEnemy(enemy, socket.id);
             }
             
             // 全員に通知
@@ -2043,7 +2043,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0027`);
+    console.log(`PLAZMERS Server Ver.1.0028`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');
