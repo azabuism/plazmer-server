@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>PLAZMERS Ver.1.0030 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0031 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body {
@@ -315,7 +315,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0030</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0031</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -481,18 +481,18 @@ let offenseAttacking = false; // オフェンス攻撃中フラグ
 
 // ゲームミュージック
 const MUSIC_TRACKS = [
-    'https://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IoDrift-2.mp3',
-    'https://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IonDrift.mp3',
-    'https://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IonDriftProtocol-2.mp3',
-    'https://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IonDriftProtocol.mp3',
-    'https://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/PhotonRushProtocol.mp3',
-    'https://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/PulsefireDrift.mp3',
-    'https://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/QuantumCrossfire.mp3'
+    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IoDrift-2.mp3',
+    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IonDrift.mp3',
+    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IonDriftProtocol-2.mp3',
+    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/IonDriftProtocol.mp3',
+    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/PhotonRushProtocol.mp3',
+    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/PulsefireDrift.mp3',
+    'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/music/QuantumCrossfire.mp3'
 ];
 let bgmA = null;
 let bgmB = null;
 let currentMusicIndex = -1;
-let musicVolume = 0.1; // BGM音量を下げる（0.2→0.1）
+let musicVolume = 0.15; // BGM音量
 let musicInitialized = false;
 
 // 敵弾補間用
@@ -920,7 +920,7 @@ function updateScreenShake() {
 
 // 補間更新（滑らかな動き）
 function updateInterpolation() {
-    const lerpFactor = 0.45; // 補間速度（上げてカクカク軽減）
+    const lerpFactor = 0.4; // 補間速度
     
     // 他プレイヤーの補間
     remotePlayers.forEach(rp => {
@@ -2205,18 +2205,18 @@ function drawItemPopup() {
 // サウンド再生（クールダウン付き）
 const soundCooldowns = {};
 const SOUND_COOLDOWN = {
-    shoot: 3,      // 3フレーム
-    missile: 10,
-    laser: 30,
-    thunder: 20,
-    dash: 15,
-    intercept: 5,
+    shoot: 8,      // 8フレーム（増加）
+    missile: 15,   // 増加
+    laser: 45,     // 増加
+    thunder: 30,   // 増加
+    dash: 20,
+    intercept: 10,
     anchor: 30,
     rift: 60,
     pierce: 30,
     overload: 480,
-    hit: 2,
-    explosion: 5
+    hit: 5,
+    explosion: 10
 };
 
 // ========== SE（効果音）定義 ==========
@@ -2233,7 +2233,7 @@ const SE_URLS = {
 
 // SEキャッシュ
 const seCache = {};
-const SE_VOLUME = 0.15; // SE音量（小さめ）
+const SE_VOLUME = 0.08; // SE音量（さらに小さく）
 
 // SE事前ロード
 function preloadSE() {
@@ -2330,44 +2330,58 @@ function fadeIn(bgm, duration) {
 
 function playBGM(url, fadeTime = 1500) {
     try {
-        const newBGM = new Audio(url);
+        const newBGM = new Audio();
+        newBGM.src = url;
         newBGM.loop = false;
         newBGM.volume = 0;
+        newBGM.preload = 'auto';
         
         newBGM.addEventListener('ended', () => {
-            playRandomMusic();
+            setTimeout(() => playRandomMusic(), 500);
         });
         
         newBGM.addEventListener('error', (e) => {
             console.warn('BGM load error:', url);
+            // エラー時は次の曲を試す
+            setTimeout(() => playRandomMusic(), 2000);
         });
         
+        bgmA = newBGM;
+        
         newBGM.play().then(() => {
-            console.log('BGM playing:', url.split('/').pop());
+            console.log('BGM started:', url.split('/').pop());
+            fadeIn(bgmA, fadeTime);
         }).catch((e) => {
             console.log('Autoplay blocked - will play on next user interaction');
         });
         
-        if (!bgmA) {
-            bgmA = newBGM;
-            fadeIn(bgmA, fadeTime);
-            return;
-        }
-        bgmB = newBGM;
-        crossFade(bgmA, bgmB, fadeTime);
     } catch (e) {
         console.warn('BGM error:', e);
+        setTimeout(() => playRandomMusic(), 2000);
     }
 }
 
 function playRandomMusic() {
+    // 既存のBGMを停止
+    if (bgmA) { 
+        bgmA.pause(); 
+        bgmA.src = '';
+        bgmA = null; 
+    }
+    if (bgmB) { 
+        bgmB.pause(); 
+        bgmB.src = '';
+        bgmB = null; 
+    }
+    
     let newIndex;
     do {
         newIndex = Math.floor(Math.random() * MUSIC_TRACKS.length);
     } while (newIndex === currentMusicIndex && MUSIC_TRACKS.length > 1);
     currentMusicIndex = newIndex;
-    playBGM(MUSIC_TRACKS[currentMusicIndex], 1500);
+    
     console.log('Playing:', MUSIC_TRACKS[currentMusicIndex].split('/').pop());
+    playBGM(MUSIC_TRACKS[currentMusicIndex], 1500);
 }
 
 function stopMusic() {

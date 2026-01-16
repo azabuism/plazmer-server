@@ -189,7 +189,7 @@ class GameRoom {
         const playerIndex = this.players.size;
         const colorData = PLAYER_COLORS[Math.min(playerIndex, PLAYER_COLORS.length - 1)];
         
-        // Ver.1.0030: キャラクターごとの初期設定
+        // Ver.1.0031: キャラクターごとの初期設定
         const charStats = {
             EIRYKLAV: { hp: 200, speed: 3.5, main: 'PLAZMER', sub: 'LASER' },
             AGOREKIK: { hp: 250, speed: 3.0, main: 'BIO_PHALANX', sub: 'TENTACLE' },
@@ -210,7 +210,7 @@ class GameRoom {
             invincible: 60,
             dashing: false,
             dashTimer: 0,
-            // Ver.1.0030: キャラ固定武器
+            // Ver.1.0031: キャラ固定武器
             weaponLevels: { 
                 // EIRYKLAV用
                 PLAZMER: character === 'EIRYKLAV' ? 1 : 0,
@@ -523,8 +523,8 @@ class GameRoom {
             }, 3000);
         }
         
-        // 状態送信（45fps - カクカク軽減）
-        if (this.frame % 1 === 0) {
+        // 状態送信（30fps - 安定性重視）
+        if (this.frame % 2 === 0) {
             this.broadcastState();
         }
     }
@@ -736,16 +736,21 @@ class GameRoom {
         const findNearestEnemy = (x, y, excludeId) => {
             let nearest = null, minDist = Infinity;
             this.enemies.forEach(enemy => {
-                if (enemy.hp <= 0 || enemy.isZombie || enemy.id === excludeId) return;
+                if (!enemy || enemy.hp <= 0 || enemy.isZombie || enemy.id === excludeId) return;
                 const d = Math.hypot(enemy.x - x, enemy.y - y);
                 if (d < minDist) { minDist = d; nearest = enemy; }
             });
             return nearest;
         };
         
-        this.enemies.forEach(enemy => {
-            if (enemy.hp <= 0) return;
-            enemy.timer++;
+        // 各敵を個別にtry-catchで処理（1つのエラーで全体が止まらないように）
+        for (let i = 0; i < this.enemies.length; i++) {
+            const enemy = this.enemies[i];
+            if (!enemy) continue;
+            
+            try {
+                if (enemy.hp <= 0) continue;
+                enemy.timer = (enemy.timer || 0) + 1;
             
             // ========== ゾンビ敵のAI ==========
             if (enemy.isZombie) {
@@ -827,7 +832,7 @@ class GameRoom {
                     enemy.x = Math.max(100, Math.min(WORLD_W - 100, enemy.x));
                     enemy.y = Math.max(100, Math.min(WORLD_H - 100, enemy.y));
                 }
-                return; // ゾンビはここで処理終了
+                continue; // ゾンビはここで処理終了
             }
             
             // ANCHOR状態の処理
@@ -837,7 +842,7 @@ class GameRoom {
                     enemy.anchored = false;
                 }
                 // 固定中は移動しない
-                return;
+                continue;
             }
             
             // 寄生されている敵
@@ -851,7 +856,7 @@ class GameRoom {
                     // NAGALは敵の位置に移動
                     // （クライアント側で処理）
                 }
-                return;
+                continue;
             }
             
             if (this.checkWall(enemy.x, enemy.y)) {
@@ -885,14 +890,32 @@ class GameRoom {
                 
                 // ボス攻撃
                 if (enemy.isBoss) {
+                    if (!enemy.attackTimer) enemy.attackTimer = 0;
                     enemy.attackTimer++;
                     this.bossAttack(enemy, target);
                 }
+            } else {
+                // プレイヤーがいない場合はランダムに徘徊
+                if (!enemy.wanderAngle || enemy.timer % 90 === 0) {
+                    enemy.wanderAngle = Math.random() * Math.PI * 2;
+                }
+                const vx = Math.cos(enemy.wanderAngle) * enemy.speed * 0.5;
+                const vy = Math.sin(enemy.wanderAngle) * enemy.speed * 0.5;
+                if (!this.checkWall(enemy.x + vx, enemy.y + vy)) {
+                    enemy.x += vx;
+                    enemy.y += vy;
+                }
+                enemy.x = Math.max(100, Math.min(WORLD_W - 100, enemy.x));
+                enemy.y = Math.max(100, Math.min(WORLD_H - 100, enemy.y));
             }
-        });
+            } catch(err) {
+                // エラーが発生しても他の敵の処理を続行
+                console.error('Enemy update error:', err.message);
+            }
+        }
         
         // 死んだ敵を除去（ゾンビは除外しない）
-        this.enemies = this.enemies.filter(e => e.hp > 0 || e.isZombie);
+        this.enemies = this.enemies.filter(e => e && e.hp > 0 || e.isZombie);
     }
     
     bossAttack(boss, target) {
@@ -2057,7 +2080,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0030`);
+    console.log(`PLAZMERS Server Ver.1.0031`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');
