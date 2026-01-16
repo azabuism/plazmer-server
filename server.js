@@ -189,7 +189,7 @@ class GameRoom {
         const playerIndex = this.players.size;
         const colorData = PLAYER_COLORS[Math.min(playerIndex, PLAYER_COLORS.length - 1)];
         
-        // Ver.1.0029: キャラクターごとの初期設定
+        // Ver.1.0030: キャラクターごとの初期設定
         const charStats = {
             EIRYKLAV: { hp: 200, speed: 3.5, main: 'PLAZMER', sub: 'LASER' },
             AGOREKIK: { hp: 250, speed: 3.0, main: 'BIO_PHALANX', sub: 'TENTACLE' },
@@ -210,7 +210,7 @@ class GameRoom {
             invincible: 60,
             dashing: false,
             dashTimer: 0,
-            // Ver.1.0029: キャラ固定武器
+            // Ver.1.0030: キャラ固定武器
             weaponLevels: { 
                 // EIRYKLAV用
                 PLAZMER: character === 'EIRYKLAV' ? 1 : 0,
@@ -523,8 +523,8 @@ class GameRoom {
             }, 3000);
         }
         
-        // 状態送信（30fps）
-        if (this.frame % 2 === 0) {
+        // 状態送信（45fps - カクカク軽減）
+        if (this.frame % 1 === 0) {
             this.broadcastState();
         }
     }
@@ -815,6 +815,17 @@ class GameRoom {
                             });
                         }
                     }
+                } else {
+                    // ターゲットがいない場合はランダムに徘徊
+                    if (!enemy.wanderAngle || enemy.timer % 60 === 0) {
+                        enemy.wanderAngle = Math.random() * Math.PI * 2;
+                    }
+                    const speed = enemy.speed * 0.5;
+                    enemy.x += Math.cos(enemy.wanderAngle) * speed;
+                    enemy.y += Math.sin(enemy.wanderAngle) * speed;
+                    // 画面外に出ないように
+                    enemy.x = Math.max(100, Math.min(WORLD_W - 100, enemy.x));
+                    enemy.y = Math.max(100, Math.min(WORLD_H - 100, enemy.y));
                 }
                 return; // ゾンビはここで処理終了
             }
@@ -1273,6 +1284,9 @@ class GameRoom {
     }
     
     defeatEnemy(enemy, attackerId) {
+        // 敵のHPを0に設定（確実に死亡させる）
+        enemy.hp = 0;
+        
         const attacker = this.players.get(attackerId);
         if (attacker) {
             attacker.score += enemy.score;
@@ -2043,7 +2057,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0029`);
+    console.log(`PLAZMERS Server Ver.1.0030`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');

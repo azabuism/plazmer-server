@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>PLAZMERS Ver.1.0029 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0030 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body {
@@ -315,7 +315,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0029</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0030</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -920,7 +920,7 @@ function updateScreenShake() {
 
 // 補間更新（滑らかな動き）
 function updateInterpolation() {
-    const lerpFactor = 0.35; // 補間速度（上げてラグ軽減）
+    const lerpFactor = 0.45; // 補間速度（上げてカクカク軽減）
     
     // 他プレイヤーの補間
     remotePlayers.forEach(rp => {
@@ -933,7 +933,7 @@ function updateInterpolation() {
         rp.angle += angleDiff * lerpFactor;
     });
     
-    // 敵の補間
+    // 敵の補間（より滑らかに）
     remoteEnemies.forEach(re => {
         re.x += (re.targetX - re.x) * lerpFactor;
         re.y += (re.targetY - re.y) * lerpFactor;
@@ -2224,6 +2224,7 @@ const SE_URLS = {
     laser: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Laser_weapon_activat_%234-1768536982670.mp3',
     plazmer: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Continuous_sci-fi_pl_%232-1768537054826.mp3',
     thunder: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Electric_thunder.mp3',
+    missile: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Overwhelming_micro_m_%231-1768539782290.mp3',
     bio1: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Organic_alien_weapon_%231-1768536349732.mp3',
     bio2: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Organic_alien_weapon_%232-1768536253695.mp3',
     bio3: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Organic_alien_weapon_%233-1768536349735.mp3',
@@ -2269,6 +2270,8 @@ function playSound(type) {
             seKey = 'laser';
         } else if (type === 'thunder') {
             seKey = 'thunder';
+        } else if (type === 'missile') {
+            seKey = 'missile';
         } else if (type === 'bio' || type === 'tentacle') {
             seKey = 'bio' + (Math.floor(Math.random() * 4) + 1);
         }
