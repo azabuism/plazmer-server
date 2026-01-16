@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>PLAZMERS Ver.1.0032 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0033 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body {
@@ -315,7 +315,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0032</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0033</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -796,7 +796,7 @@ let joystick = { active: false, dx: 0, dy: 0, centerX: 0, centerY: 0, touchId: n
 let continuousDash = {
     active: false,        // ダッシュボタンを押しているか
     cooldown: 0,          // 次のダッシュまでのクールダウン
-    interval: 8           // ダッシュ間隔（フレーム）- 12→8に短縮
+    interval: 4           // ダッシュ間隔（フレーム）- さらに短縮
 };
 
 // カメラ
@@ -2233,7 +2233,7 @@ const SE_URLS = {
 
 // SEキャッシュ
 const seCache = {};
-const SE_VOLUME = 0.08; // SE音量（さらに小さく）
+const SE_VOLUME = 0.02; // SE音量（さらに50%削減）
 
 // SE事前ロード
 function preloadSE() {
@@ -3029,6 +3029,10 @@ function connectToServer() {
             myPlayer.parasiteBoss = me.parasiteBoss;
             myPlayer.zombies = me.zombies;
             myPlayer.thunderActive = me.thunderActive;
+            // NAGALの場合、nagalThunderActive変数も同期
+            if (me.character === 'NAGAL') {
+                nagalThunderActive = me.thunderActive;
+            }
             myPlayer.character = me.character;
             // 寄生中は敵の位置に同期
             if (me.parasiteTarget) {
@@ -3842,9 +3846,15 @@ function setupAgorekikButtons() {
 }
 
 // NAGAL: サンダーON/OFFボタン & キルボタン
-let nagalThunderActive = false;
+let nagalThunderActive = true; // 最初からON
 function setupNagalButtons() {
     const btn = document.getElementById('btn-thunder');
+    
+    // 初期状態をONに設定
+    btn.innerHTML = '⛈️<br>ON';
+    btn.style.background = 'rgba(255,255,0,0.5)';
+    btn.style.boxShadow = '0 0 20px rgba(255,255,0,0.8)';
+    
     const toggle = () => {
         nagalThunderActive = !nagalThunderActive;
         if (nagalThunderActive) {
@@ -4028,7 +4038,12 @@ function updateContinuousDash() {
 // ダッシュ発動（PC・モバイル共通）
 function triggerDash() { 
     input.dash = true; 
-    playSound('dash'); 
+    playSound('dash');
+    
+    // ダッシュは即座に送信（INPUT_RATEを待たない）
+    if (socket && myPlayer && myPlayer.alive) {
+        socket.emit('input', { angle: myPlayer.angle, moving: true, dash: true, x: myPlayer.x, y: myPlayer.y });
+    } 
     
     // ダッシュ開始時のバースト粒子
     if (myPlayer && myPlayer.alive) {

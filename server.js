@@ -214,7 +214,7 @@ class GameRoom {
         const playerIndex = this.players.size;
         const colorData = PLAYER_COLORS[Math.min(playerIndex, PLAYER_COLORS.length - 1)];
         
-        // Ver.1.0032: キャラクターごとの初期設定
+        // Ver.1.0033: キャラクターごとの初期設定
         const charStats = {
             EIRYKLAV: { hp: 200, speed: 3.5, main: 'PLAZMER', sub: 'LASER' },
             AGOREKIK: { hp: 250, speed: 3.0, main: 'BIO_PHALANX', sub: 'TENTACLE' },
@@ -235,7 +235,7 @@ class GameRoom {
             invincible: 60,
             dashing: false,
             dashTimer: 0,
-            // Ver.1.0032: キャラ固定武器
+            // Ver.1.0033: キャラ固定武器
             weaponLevels: { 
                 // EIRYKLAV用
                 PLAZMER: character === 'EIRYKLAV' ? 1 : 0,
@@ -255,7 +255,7 @@ class GameRoom {
                 activeWeapon: stats.main // 現在使用中の武器（EIRYKLAV用）
             },
             thunderEnergy: character === 'NAGAL' ? 180 : 0,
-            thunderActive: false, // NAGAL用：サンダーON/OFF
+            thunderActive: character === 'NAGAL' ? true : false, // NAGALは最初からサンダーON
             // AGOREKIK用：触手（4本から開始）
             tentacles: character === 'AGOREKIK' ? [
                 { angle: 0, length: 50 },
@@ -374,8 +374,9 @@ class GameRoom {
             score: 3000 + this.wave * 500,
             isBoss: true,
             timer: 0,
-            attackTimer: 0,
-            phase: 0
+            attackTimer: 1,  // 0だと即攻撃してしまうので1から開始
+            phase: 0,
+            spawnDelay: 120   // 2秒間は攻撃しない
         };
         
         this.enemies.push(boss);
@@ -957,17 +958,27 @@ class GameRoom {
     }
     
     bossAttack(boss, target) {
-        // 弾数上限チェック（先に確認）
-        if (this.enemyBullets.length >= MAX_ENEMY_BULLETS - 20) return;
-        
-        const angle = Math.atan2(target.y - boss.y, target.x - boss.x);
-        
-        // Wave別の攻撃間隔倍率（序盤は緩く、後半も緩和）
-        const waveMultiplier = Math.max(1.5, 3 - this.wave * 0.08);
-        
-        switch (boss.pattern) {
-            case 'radial':
-                // 放射状弾幕（大幅緩和）
+        try {
+            // スポーン直後は攻撃しない
+            if (boss.spawnDelay > 0) {
+                boss.spawnDelay--;
+                return;
+            }
+            
+            // 弾数上限チェック（先に確認）
+            if (this.enemyBullets.length >= MAX_ENEMY_BULLETS - 20) return;
+            
+            // ボスのpatternが未定義の場合は何もしない
+            if (!boss.pattern) return;
+            
+            const angle = Math.atan2(target.y - boss.y, target.x - boss.x);
+            
+            // Wave別の攻撃間隔倍率（序盤は緩く、後半も緩和）
+            const waveMultiplier = Math.max(1.5, 3 - this.wave * 0.08);
+            
+            switch (boss.pattern) {
+                case 'radial':
+                    // 放射状弾幕（大幅緩和）
                 if (boss.attackTimer % Math.floor(120 * waveMultiplier) === 0) {
                     const bulletCount = Math.min(8, 6 + Math.floor(this.wave / 4));
                     for (let i = 0; i < bulletCount; i++) {
@@ -1146,6 +1157,9 @@ class GameRoom {
                     }
                 }
                 break;
+        }
+        } catch(err) {
+            console.error('bossAttack error:', err.message);
         }
     }
     
@@ -1504,8 +1518,8 @@ class GameRoom {
         
         if (input.dash && !player.dashing) {
             player.dashing = true;
-            player.dashTimer = 10;
-            player.invincible = Math.max(player.invincible, 12);
+            player.dashTimer = 8;  // 10→8に短縮（発動しやすく）
+            player.invincible = Math.max(player.invincible, 10);
         }
     }
     
@@ -2105,7 +2119,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0032`);
+    console.log(`PLAZMERS Server Ver.1.0033`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');
