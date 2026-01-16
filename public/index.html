@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>PLAZMERS Ver.1.0034 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0035 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body {
@@ -315,7 +315,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0034</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0035</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -2219,79 +2219,14 @@ const SOUND_COOLDOWN = {
     explosion: 10
 };
 
-// ========== SE（効果音）定義 ==========
-const SE_URLS = {
-    laser: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Laser_weapon_activat_%234-1768536982670.mp3',
-    plazmer: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Continuous_sci-fi_pl_%232-1768537054826.mp3',
-    thunder: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Electric_thunder.mp3',
-    missile: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Overwhelming_micro_m_%231-1768539782290.mp3',
-    bio1: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Organic_alien_weapon_%231-1768536349732.mp3',
-    bio2: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Organic_alien_weapon_%232-1768536253695.mp3',
-    bio3: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Organic_alien_weapon_%233-1768536349735.mp3',
-    bio4: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Organic_alien_weapon_%234-1768536349735.mp3'
-};
-
-// SEキャッシュ
+// ========== SE（効果音）無効化 ==========
+const SE_URLS = {};
 const seCache = {};
-const SE_VOLUME = 0.01; // SE音量（最小）
+const SE_VOLUME = 0;
 
-// SE事前ロード
-function preloadSE() {
-    Object.entries(SE_URLS).forEach(([key, url]) => {
-        const audio = new Audio();
-        audio.src = url;
-        audio.volume = SE_VOLUME;
-        audio.preload = 'auto';
-        seCache[key] = audio;
-    });
-}
+function preloadSE() { /* SE無効化 */ }
 
-function playSound(type) {
-    // クールダウンチェック
-    if (soundCooldowns[type] && soundCooldowns[type] > 0) return;
-    soundCooldowns[type] = SOUND_COOLDOWN[type] || 5;
-    
-    try {
-        let seKey = type;
-        
-        // 武器タイプに応じてSEを選択
-        if (type === 'shoot') {
-            // キャラクター別にSEを選択
-            const char = myPlayer?.character || 'EIRYKLAV';
-            if (char === 'EIRYKLAV') {
-                seKey = currentWeaponEiryklav === 'LASER' ? 'laser' : 'plazmer';
-            } else if (char === 'AGOREKIK') {
-                // 生体武器はランダム
-                seKey = 'bio' + (Math.floor(Math.random() * 4) + 1);
-            } else if (char === 'NAGAL') {
-                seKey = nagalThunderActive ? 'thunder' : 'plazmer';
-            }
-        } else if (type === 'laser') {
-            seKey = 'laser';
-        } else if (type === 'thunder') {
-            seKey = 'thunder';
-        } else if (type === 'missile') {
-            seKey = 'missile';
-        } else if (type === 'bio' || type === 'tentacle') {
-            seKey = 'bio' + (Math.floor(Math.random() * 4) + 1);
-        }
-        
-        // SEがあれば再生
-        if (seCache[seKey]) {
-            // クローンして再生（同時再生対応）
-            const se = seCache[seKey].cloneNode();
-            se.volume = SE_VOLUME;
-            se.play().catch(() => {});
-        } else if (SE_URLS[seKey]) {
-            // キャッシュがなければ新規作成
-            const se = new Audio(SE_URLS[seKey]);
-            se.volume = SE_VOLUME;
-            se.play().catch(() => {});
-        }
-    } catch (e) {
-        // エラー無視
-    }
-}
+function playSound(type) { /* SE無効化 */ }
 
 // サウンドクールダウン更新（gameLoopで呼ぶ）
 function updateSoundCooldowns() {
@@ -3016,6 +2951,7 @@ function connectToServer() {
             myPlayer.maxHp = me.maxHp;
             myPlayer.invincible = me.invincible;
             myPlayer.dashing = me.dashing;
+            myPlayer.dashReady = me.dashReady; // ダッシュ準備状態
             myPlayer.alive = me.alive;
             myPlayer.weaponLevels = me.weaponLevels;
             myPlayer.thunderEnergy = me.thunderEnergy;
@@ -3986,28 +3922,25 @@ function updateInput() {
     input.dash = false;
 }
 
-// 連続ダッシュ開始（ボタンを押したとき）
+// ダッシュ準備開始（ボタンを押したとき）
 function startContinuousDash() {
     if (!myPlayer || !myPlayer.alive) return;
     
-    continuousDash.active = true;
+    // ダッシュ準備状態をサーバーに送信
+    if (socket) {
+        socket.emit('input', { angle: myPlayer.angle, moving: false, dash: true, x: myPlayer.x, y: myPlayer.y });
+    }
     
     // DASHボタンを光らせる
     const dashBtn = document.getElementById('btn-dash');
     if (dashBtn) {
-        dashBtn.style.background = 'rgba(255,153,51,0.5)';
-        dashBtn.style.boxShadow = '0 0 20px #f93';
+        dashBtn.style.background = 'rgba(255,153,51,0.7)';
+        dashBtn.style.boxShadow = '0 0 30px #f93';
     }
-    
-    // 即座に最初のダッシュを発動
-    triggerDash();
 }
 
-// 連続ダッシュ停止（ボタンを離したとき）
+// ダッシュ準備解除（ボタンを離したとき）
 function stopContinuousDash() {
-    continuousDash.active = false;
-    continuousDash.cooldown = 0;
-    
     // DASHボタンを元に戻す
     const dashBtn = document.getElementById('btn-dash');
     if (dashBtn) {
@@ -4016,33 +3949,18 @@ function stopContinuousDash() {
     }
 }
 
-// 連続ダッシュ更新（毎フレーム呼ぶ）
+// 連続ダッシュ更新（使用しない）
 function updateContinuousDash() {
-    if (!continuousDash.active) return;
-    if (!myPlayer || !myPlayer.alive) {
-        stopContinuousDash();
-        return;
-    }
-    
-    // クールダウンを減らす
-    if (continuousDash.cooldown > 0) {
-        continuousDash.cooldown--;
-        return;
-    }
-    
-    // ダッシュ発動
-    triggerDash();
-    continuousDash.cooldown = continuousDash.interval;
+    // 新仕様では不要
 }
 
 // ダッシュ発動（PC・モバイル共通）
 function triggerDash() { 
-    input.dash = true; 
-    playSound('dash');
+    if (!myPlayer || !myPlayer.alive) return;
     
-    // ダッシュは即座に送信（INPUT_RATEを待たない）
-    if (socket && myPlayer && myPlayer.alive) {
-        socket.emit('input', { angle: myPlayer.angle, moving: true, dash: true, x: myPlayer.x, y: myPlayer.y });
+    // ダッシュ準備状態をサーバーに送信
+    if (socket) {
+        socket.emit('input', { angle: myPlayer.angle, moving: false, dash: true, x: myPlayer.x, y: myPlayer.y });
     } 
     
     // ダッシュ開始時のバースト粒子
@@ -6498,11 +6416,35 @@ function draw() {
                 ctx.strokeStyle = fillRatio >= 1 ? '#ff0' : '#880'; ctx.lineWidth = 1; ctx.strokeRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
             }
             
+            // ダッシュ準備中のオーラエフェクト
+            if (myPlayer.dashReady) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(sx, sy, 25 + Math.sin(frame * 0.3) * 5, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(255, 200, 100, ${0.5 + Math.sin(frame * 0.2) * 0.3})`;
+                ctx.lineWidth = 4;
+                ctx.shadowBlur = 30;
+                ctx.shadowColor = '#f93';
+                ctx.stroke();
+                
+                // 放射状のライン
+                for (let i = 0; i < 8; i++) {
+                    const angle = (Math.PI * 2 / 8) * i + frame * 0.05;
+                    ctx.beginPath();
+                    ctx.moveTo(sx + Math.cos(angle) * 15, sy + Math.sin(angle) * 15);
+                    ctx.lineTo(sx + Math.cos(angle) * (30 + Math.sin(frame * 0.3 + i) * 5), sy + Math.sin(angle) * (30 + Math.sin(frame * 0.3 + i) * 5));
+                    ctx.strokeStyle = '#fc0';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+            
             if ((myPlayer.invincible || 0) % 4 < 2) {
                 ctx.save(); 
                 ctx.translate(sx, sy);
-                ctx.shadowBlur = myPlayer.dashing ? 50 : 15; 
-                ctx.shadowColor = myPlayer.dashing ? '#fff' : glowColor;
+                ctx.shadowBlur = myPlayer.dashing ? 60 : (myPlayer.dashReady ? 40 : 15); 
+                ctx.shadowColor = myPlayer.dashing ? '#fff' : (myPlayer.dashReady ? '#fc0' : glowColor);
                 
                 // キャラクターごとの描画
                 const charId = myPlayer.character || 'NAGAL';
@@ -6510,7 +6452,7 @@ function draw() {
                     // ダッシュ中は白い光
                     ctx.fillStyle = '#fff';
                     ctx.beginPath();
-                    ctx.arc(0, 0, 12, 0, Math.PI * 2);
+                    ctx.arc(0, 0, 14, 0, Math.PI * 2);
                     ctx.fill();
                 } else {
                     ctx.rotate(myPlayer.angle);
