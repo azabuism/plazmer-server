@@ -214,7 +214,7 @@ class GameRoom {
         const playerIndex = this.players.size;
         const colorData = PLAYER_COLORS[Math.min(playerIndex, PLAYER_COLORS.length - 1)];
         
-        // Ver.1.0034: キャラクターごとの初期設定
+        // Ver.1.0035: キャラクターごとの初期設定
         const charStats = {
             EIRYKLAV: { hp: 200, speed: 3.5, main: 'PLAZMER', sub: 'LASER' },
             AGOREKIK: { hp: 250, speed: 3.0, main: 'BIO_PHALANX', sub: 'TENTACLE' },
@@ -235,7 +235,7 @@ class GameRoom {
             invincible: 60,
             dashing: false,
             dashTimer: 0,
-            // Ver.1.0034: キャラ固定武器
+            // Ver.1.0035: キャラ固定武器
             weaponLevels: { 
                 // EIRYKLAV用
                 PLAZMER: character === 'EIRYKLAV' ? 1 : 0,
@@ -645,28 +645,37 @@ class GameRoom {
             this.escapeFromWall(player);
         }
         
-        // ダッシュ処理（壁抜け可能）
+        // ダッシュ準備状態のタイマー更新
+        if (player.dashReady && player.dashReadyTimer > 0) {
+            player.dashReadyTimer--;
+            if (player.dashReadyTimer <= 0) {
+                player.dashReady = false; // タイムアウト
+            }
+        }
+        
+        // ダッシュ実行中の処理
         if (player.dashing) {
             player.dashTimer--;
-            const vx = Math.cos(player.angle) * 35; // 速度アップ
-            const vy = Math.sin(player.angle) * 35;
+            player.invincible = Math.max(player.invincible, 5); // ダッシュ中は常に無敵
+            
+            const vx = Math.cos(player.angle) * 40; // 高速移動
+            const vy = Math.sin(player.angle) * 40;
             player.x += vx;
             player.y += vy;
             player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
             player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
             
-            // DASH中の敵へのダメージ（1敵1回のみ、ゾンビは除外）
+            // DASH中の敵へのダメージ（1敵1回のみ）
             if (!player.dashHitEnemies) player.dashHitEnemies = new Set();
             
             this.enemies.forEach(e => {
-                if (!e || e.hp <= 0 || e.isZombie) return; // ゾンビは攻撃しない
-                if (player.dashHitEnemies.has(e.id)) return; // 既にヒット済み
+                if (!e || e.hp <= 0 || e.isZombie) return;
+                if (player.dashHitEnemies.has(e.id)) return;
                 
                 const dist = Math.hypot(e.x - player.x, e.y - player.y);
-                if (dist < e.size + 20) {
-                    // ダッシュ攻撃ダメージ（1回のみ）
-                    const damage = 15;
-                    player.dashHitEnemies.add(e.id); // ヒット記録
+                if (dist < e.size + 25) {
+                    const damage = 20; // ダメージ増加
+                    player.dashHitEnemies.add(e.id);
                     e.hp -= damage;
                     io.to(this.id).emit('enemyDamaged', { 
                         enemyId: e.id, damage, 
@@ -674,35 +683,38 @@ class GameRoom {
                         weaponType: 'DASH' 
                     });
                     if (e.hp <= 0) {
-                        this.score += e.score || 100;
-                        io.to(this.id).emit('enemyDefeated', { 
-                            enemyId: e.id, 
-                            x: e.x, y: e.y, 
-                            isBoss: e.isBoss 
-                        });
-                        this.dropItems(e.x, e.y, e.isBoss);
+                        this.defeatEnemy(e, player.id);
                     }
                 }
             });
             
             if (player.dashTimer <= 0) {
                 player.dashing = false;
-                if (player.dashHitEnemies) player.dashHitEnemies.clear(); // DASH終了時にクリア
-                // ダッシュ終了時に壁の中にいたら脱出
+                player.dashReady = false;
+                if (player.dashHitEnemies) player.dashHitEnemies.clear();
                 if (this.checkWall(player.x, player.y)) {
                     this.escapeFromWall(player);
                 }
             }
         } else {
-            // 入力による移動
+            // 通常移動
             const input = player.lastInput;
-            if (input.moving) {
+            
+            // ダッシュ準備中に移動入力があればダッシュ発動
+            if (player.dashReady && input.moving) {
+                player.dashing = true;
+                player.dashTimer = 12; // ダッシュ時間
+                player.dashReady = false;
+                player.invincible = Math.max(player.invincible, 20);
+                player.angle = input.angle; // 移動方向にダッシュ
+            } else if (input.moving) {
+                // 通常移動
                 const vx = Math.cos(input.angle) * player.speed;
                 const vy = Math.sin(input.angle) * player.speed;
                 if (!this.checkWall(player.x + vx, player.y)) player.x += vx;
                 if (!this.checkWall(player.x, player.y + vy)) player.y += vy;
+                player.angle = input.angle;
             }
-            player.angle = input.angle;
         }
         
         player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
@@ -761,200 +773,66 @@ class GameRoom {
     }
     
     updateEnemies() {
-        // 最も近いプレイヤーを探す関数
-        const findNearestPlayer = (x, y) => {
-            let nearest = null, minDist = Infinity;
-            this.players.forEach(player => {
-                if (!player.alive) return;
-                const d = Math.hypot(player.x - x, player.y - y);
-                if (d < minDist) { minDist = d; nearest = player; }
-            });
-            return nearest;
-        };
-        
-        // ゾンビ用：最も近い敵（非ゾンビ）を探す
-        const findNearestEnemy = (x, y, excludeId) => {
-            let nearest = null, minDist = Infinity;
-            this.enemies.forEach(enemy => {
-                if (!enemy || enemy.hp <= 0 || enemy.isZombie || enemy.id === excludeId) return;
-                const d = Math.hypot(enemy.x - x, enemy.y - y);
-                if (d < minDist) { minDist = d; nearest = enemy; }
-            });
-            return nearest;
-        };
-        
-        // 各敵を個別にtry-catchで処理（1つのエラーで全体が止まらないように）
-        for (let i = 0; i < this.enemies.length; i++) {
-            const enemy = this.enemies[i];
-            if (!enemy) continue;
+        try {
+            // 敵数が多すぎる場合は制限
+            if (this.enemies.length > MAX_ENEMIES) {
+                this.enemies = this.enemies.slice(0, MAX_ENEMIES);
+            }
             
-            try {
-                if (enemy.hp <= 0) continue;
+            // 各敵を更新
+            for (let i = 0; i < this.enemies.length; i++) {
+                const enemy = this.enemies[i];
+                if (!enemy || enemy.hp <= 0) continue;
+                
                 enemy.timer = (enemy.timer || 0) + 1;
-            
-            // ========== ゾンビ敵のAI ==========
-            if (enemy.isZombie) {
-                const target = findNearestEnemy(enemy.x, enemy.y, enemy.id);
+                
+                // ゾンビ/固定/寄生状態は単純処理
+                if (enemy.isZombie || enemy.anchored || enemy.parasitedBy) {
+                    if (enemy.anchored && enemy.anchorTimer > 0) enemy.anchorTimer--;
+                    if (enemy.parasitedBy) enemy.hp -= 2;
+                    continue;
+                }
+                
+                // 最も近いプレイヤーを探す
+                let target = null, minDist = Infinity;
+                this.players.forEach(p => {
+                    if (!p.alive) return;
+                    const d = Math.hypot(p.x - enemy.x, p.y - enemy.y);
+                    if (d < minDist) { minDist = d; target = p; }
+                });
                 
                 if (target) {
+                    // プレイヤーに向かって移動
                     const angle = Math.atan2(target.y - enemy.y, target.x - enemy.x);
-                    const dist = Math.hypot(target.x - enemy.x, target.y - enemy.y);
+                    enemy.x += Math.cos(angle) * enemy.speed;
+                    enemy.y += Math.sin(angle) * enemy.speed;
                     
-                    // ゾンビボスは特別な行動
-                    if (enemy.zombieBoss) {
-                        // ゾンビボスの移動（遅いが強力）
-                        const speed = enemy.speed * 0.8;
-                        enemy.x += Math.cos(angle) * speed;
-                        enemy.y += Math.sin(angle) * speed;
-                        
-                        // ゾンビボスの攻撃パターン（弾数削減＋間隔延長）
-                        if (enemy.timer % 90 === 0 && this.enemyBullets.length < MAX_ENEMY_BULLETS - 10) {
-                            // 放射状のゾンビ弾（4発に削減）
-                            for (let bi = 0; bi < 4; bi++) {
-                                const bulletAngle = (Math.PI * 2 / 4) * bi + enemy.timer * 0.05;
-                                this.addBullet({
-                                    id: 'zb_' + this.enemyIdCounter++,
-                                    x: enemy.x, y: enemy.y,
-                                    vx: Math.cos(bulletAngle) * 5, 
-                                    vy: Math.sin(bulletAngle) * 5,
-                                    life: 60, size: 8, color: '#00FF00',
-                                    isZombieBullet: true, zombieOwner: enemy.zombieOwner
-                                });
-                            }
-                        }
-                        
-                        // 接触で大ダメージ
-                        if (dist < enemy.size + target.size) {
-                            target.hp -= 20;
-                            if (target.hp <= 0 && !target.isBoss) {
-                                target.isZombie = true;
-                                target.zombieOwner = enemy.zombieOwner;
-                                target.hp = target.maxHp * 0.5;
-                            }
-                        }
-                    } else {
-                        // 通常ゾンビの行動
-                        const speed = enemy.speed * 1.5;
-                        enemy.x += Math.cos(angle) * speed;
-                        enemy.y += Math.sin(angle) * speed;
-                        
-                        // 接触でダメージ
-                        if (dist < enemy.size + target.size) {
-                            target.hp -= 5;
-                            if (target.hp <= 0 && !target.isBoss) {
-                                target.isZombie = true;
-                                target.zombieOwner = enemy.zombieOwner;
-                                target.hp = target.maxHp * 0.3;
-                            }
-                        }
-                        
-                        // ゾンビの弾発射（間隔延長＋上限チェック）
-                        if (enemy.timer % 120 === 0 && this.enemyBullets.length < MAX_ENEMY_BULLETS - 5) {
-                            this.addBullet({
-                                id: 'zb_' + this.enemyIdCounter++,
-                                x: enemy.x, y: enemy.y,
-                                vx: Math.cos(angle) * 6, vy: Math.sin(angle) * 6,
-                                life: 45, size: 4, color: '#00FF00',
-                                isZombieBullet: true, zombieOwner: enemy.zombieOwner
-                            });
+                    // ボス攻撃（間隔を長く）
+                    if (enemy.isBoss) {
+                        enemy.attackTimer = (enemy.attackTimer || 0) + 1;
+                        if (enemy.attackTimer > 120) { // 2秒ごと
+                            this.bossAttack(enemy, target);
                         }
                     }
                 } else {
-                    // ターゲットがいない場合はランダムに徘徊
-                    if (!enemy.wanderAngle || enemy.timer % 60 === 0) {
+                    // ランダム徘徊
+                    if (!enemy.wanderAngle || enemy.timer % 90 === 0) {
                         enemy.wanderAngle = Math.random() * Math.PI * 2;
                     }
-                    const speed = enemy.speed * 0.5;
-                    enemy.x += Math.cos(enemy.wanderAngle) * speed;
-                    enemy.y += Math.sin(enemy.wanderAngle) * speed;
-                    // 画面外に出ないように
-                    enemy.x = Math.max(100, Math.min(WORLD_W - 100, enemy.x));
-                    enemy.y = Math.max(100, Math.min(WORLD_H - 100, enemy.y));
-                }
-                continue; // ゾンビはここで処理終了
-            }
-            
-            // ANCHOR状態の処理
-            if (enemy.anchored) {
-                enemy.anchorTimer--;
-                if (enemy.anchorTimer <= 0) {
-                    enemy.anchored = false;
-                }
-                // 固定中は移動しない
-                continue;
-            }
-            
-            // 寄生されている敵
-            if (enemy.parasitedBy) {
-                // 寄生中は継続ダメージ
-                enemy.hp -= 2;
-                
-                // 寄生主の位置を追従
-                const parasiteOwner = this.players.get(enemy.parasitedBy);
-                if (parasiteOwner) {
-                    // NAGALは敵の位置に移動
-                    // （クライアント側で処理）
-                }
-                continue;
-            }
-            
-            if (this.checkWall(enemy.x, enemy.y)) {
-                this.escapeFromWall(enemy);
-            }
-            
-            const target = findNearestPlayer(enemy.x, enemy.y);
-            if (target) {
-                const angle = Math.atan2(target.y - enemy.y, target.x - enemy.x);
-                const vx = Math.cos(angle) * enemy.speed;
-                const vy = Math.sin(angle) * enemy.speed;
-                
-                if (!this.checkWall(enemy.x + vx, enemy.y + vy)) {
-                    enemy.x += vx;
-                    enemy.y += vy;
-                } else {
-                    if (!this.checkWall(enemy.x + vx, enemy.y)) enemy.x += vx;
-                    else if (!this.checkWall(enemy.x, enemy.y + vy)) enemy.y += vy;
+                    enemy.x += Math.cos(enemy.wanderAngle) * enemy.speed * 0.3;
+                    enemy.y += Math.sin(enemy.wanderAngle) * enemy.speed * 0.3;
                 }
                 
-                // 射撃する敵（間隔延長＋上限チェック）
-                if (enemy.shoots && enemy.timer % 150 === 0 && this.enemyBullets.length < MAX_ENEMY_BULLETS - 5) {
-                    const a = Math.atan2(target.y - enemy.y, target.x - enemy.x);
-                    this.addBullet({
-                        id: 'eb_' + this.enemyIdCounter++,
-                        x: enemy.x, y: enemy.y,
-                        vx: Math.cos(a) * 4, vy: Math.sin(a) * 4,
-                        life: 90, size: 5, color: enemy.color
-                    });
-                }
-                
-                // ボス攻撃
-                if (enemy.isBoss) {
-                    if (!enemy.attackTimer) enemy.attackTimer = 0;
-                    enemy.attackTimer++;
-                    this.bossAttack(enemy, target);
-                }
-            } else {
-                // プレイヤーがいない場合はランダムに徘徊
-                if (!enemy.wanderAngle || enemy.timer % 90 === 0) {
-                    enemy.wanderAngle = Math.random() * Math.PI * 2;
-                }
-                const vx = Math.cos(enemy.wanderAngle) * enemy.speed * 0.5;
-                const vy = Math.sin(enemy.wanderAngle) * enemy.speed * 0.5;
-                if (!this.checkWall(enemy.x + vx, enemy.y + vy)) {
-                    enemy.x += vx;
-                    enemy.y += vy;
-                }
+                // 境界チェック
                 enemy.x = Math.max(100, Math.min(WORLD_W - 100, enemy.x));
                 enemy.y = Math.max(100, Math.min(WORLD_H - 100, enemy.y));
             }
-            } catch(err) {
-                // エラーが発生しても他の敵の処理を続行
-                console.error('Enemy update error:', err.message);
-            }
+            
+            // 死んだ敵を除去
+            this.enemies = this.enemies.filter(e => e && (e.hp > 0 || e.isZombie));
+        } catch (err) {
+            console.error('updateEnemies error:', err.message);
         }
-        
-        // 死んだ敵を除去（ゾンビは除外しない）
-        this.enemies = this.enemies.filter(e => e && (e.hp > 0 || e.isZombie));
     }
     
     bossAttack(boss, target) {
@@ -1518,17 +1396,16 @@ class GameRoom {
         // クライアントからの位置情報を考慮（ある程度の誤差は許容）
         if (input.x !== undefined && input.y !== undefined) {
             const dist = Math.hypot(input.x - player.x, input.y - player.y);
-            // 1フレームで移動できる最大距離の3倍以内なら許容
             if (dist < player.speed * 3) {
                 player.x = input.x;
                 player.y = input.y;
             }
         }
         
-        if (input.dash && !player.dashing) {
-            player.dashing = true;
-            player.dashTimer = 8;  // 10→8に短縮（発動しやすく）
-            player.invincible = Math.max(player.invincible, 10);
+        // ダッシュボタン押下 → ダッシュ準備状態に
+        if (input.dash && !player.dashing && !player.dashReady) {
+            player.dashReady = true;
+            player.dashReadyTimer = 90; // 1.5秒間有効
         }
     }
     
@@ -1548,7 +1425,7 @@ class GameRoom {
         return {
             id: player.id,
             name: player.name,
-            character: player.character, // キャラクター情報を追加
+            character: player.character,
             x: player.x,
             y: player.y,
             angle: player.angle,
@@ -1556,15 +1433,16 @@ class GameRoom {
             maxHp: player.maxHp,
             invincible: player.invincible,
             dashing: player.dashing,
+            dashReady: player.dashReady || false, // ダッシュ準備状態
             alive: player.alive,
             weaponLevels: player.weaponLevels,
             equipped: player.equipped,
             thunderEnergy: player.thunderEnergy,
             thunderActive: player.thunderActive,
             tentacles: player.tentacles,
-            tentacleConcentrate: player.tentacleConcentrate, // 触手集中
+            tentacleConcentrate: player.tentacleConcentrate,
             parasiteTarget: player.parasiteTarget,
-            parasiteBoss: player.parasiteBoss, // ボス寄生フラグ
+            parasiteBoss: player.parasiteBoss,
             zombies: player.zombies,
             score: player.score,
             isHost: player.isHost,
@@ -2128,7 +2006,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0034`);
+    console.log(`PLAZMERS Server Ver.1.0035`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');
