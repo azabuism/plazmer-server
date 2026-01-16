@@ -100,10 +100,10 @@ class GameRoom {
         return toAdd.length;
     }
     
-    // デバッグログ（5秒ごと）
+    // デバッグログ（1秒ごと）
     logStatus() {
-        if (this.frame % 300 === 0 && this.state === 'playing') {
-            console.log(`[Room ${this.id}] enemies:${this.enemies.length} bullets:${this.enemyBullets.length} items:${this.items.length} players:${this.players.size}`);
+        if (this.frame % 60 === 0 && this.state === 'playing') {
+            console.log(`[Room ${this.id}] frame:${this.frame} enemies:${this.enemies.length} alive:${this.enemies.filter(e => e && e.hp > 0).length} bullets:${this.enemyBullets.length} items:${this.items.length}`);
         }
     }
     
@@ -214,7 +214,7 @@ class GameRoom {
         const playerIndex = this.players.size;
         const colorData = PLAYER_COLORS[Math.min(playerIndex, PLAYER_COLORS.length - 1)];
         
-        // Ver.1.0033: キャラクターごとの初期設定
+        // Ver.1.0034: キャラクターごとの初期設定
         const charStats = {
             EIRYKLAV: { hp: 200, speed: 3.5, main: 'PLAZMER', sub: 'LASER' },
             AGOREKIK: { hp: 250, speed: 3.0, main: 'BIO_PHALANX', sub: 'TENTACLE' },
@@ -235,7 +235,7 @@ class GameRoom {
             invincible: 60,
             dashing: false,
             dashTimer: 0,
-            // Ver.1.0033: キャラ固定武器
+            // Ver.1.0034: キャラ固定武器
             weaponLevels: { 
                 // EIRYKLAV用
                 PLAZMER: character === 'EIRYKLAV' ? 1 : 0,
@@ -954,7 +954,7 @@ class GameRoom {
         }
         
         // 死んだ敵を除去（ゾンビは除外しない）
-        this.enemies = this.enemies.filter(e => e && e.hp > 0 || e.isZombie);
+        this.enemies = this.enemies.filter(e => e && (e.hp > 0 || e.isZombie));
     }
     
     bossAttack(boss, target) {
@@ -1312,31 +1312,37 @@ class GameRoom {
     }
     
     damageEnemy(enemyId, damage, weaponType, attackerId) {
-        const enemy = this.enemies.find(e => e.id === enemyId);
-        if (!enemy || enemy.hp <= 0) return;
-        
-        if (enemy.armor && weaponType !== 'THUNDER' && weaponType !== 'LASER') {
-            damage = Math.floor(damage / 2);
+        try {
+            const enemy = this.enemies.find(e => e.id === enemyId);
+            if (!enemy || enemy.hp <= 0) return;
+            
+            if (enemy.armor && weaponType !== 'THUNDER' && weaponType !== 'LASER') {
+                damage = Math.floor(damage / 2);
+            }
+            
+            enemy.hp -= damage;
+            
+            if (enemy.hp <= 0) {
+                this.defeatEnemy(enemy, attackerId);
+            }
+            
+            return enemy.hp;
+        } catch (err) {
+            console.error('damageEnemy error:', err.message);
+            return 0;
         }
-        
-        enemy.hp -= damage;
-        
-        if (enemy.hp <= 0) {
-            this.defeatEnemy(enemy, attackerId);
-        }
-        
-        return enemy.hp;
     }
     
     defeatEnemy(enemy, attackerId) {
-        // 敵のHPを0に設定（確実に死亡させる）
-        enemy.hp = 0;
-        
-        const attacker = this.players.get(attackerId);
-        if (attacker) {
-            attacker.score += enemy.score;
-        }
-        this.score += enemy.score;
+        try {
+            // 敵のHPを0に設定（確実に死亡させる）
+            enemy.hp = 0;
+            
+            const attacker = this.players.get(attackerId);
+            if (attacker) {
+                attacker.score += enemy.score || 0;
+            }
+            this.score += enemy.score || 0;
         
         // アイテムドロップ
         this.dropItems(enemy.x, enemy.y, enemy.isBoss);
@@ -1374,6 +1380,9 @@ class GameRoom {
             isBoss: enemy.isBoss,
             score: this.score 
         });
+        } catch (err) {
+            console.error('defeatEnemy error:', err.message);
+        }
     }
     
     dropItems(x, y, isBoss) {
@@ -2119,7 +2128,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0033`);
+    console.log(`PLAZMERS Server Ver.1.0034`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');
