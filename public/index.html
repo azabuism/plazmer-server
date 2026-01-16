@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>PLAZMERS Ver.1.0028 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0029 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body {
@@ -315,7 +315,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0028</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0029</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -363,7 +363,7 @@
                 <div class="detail-desc" id="detail-desc">キャラクターを選択してください</div>
             </div>
             <button class="menu-btn confirm-btn" id="confirm-char-btn" style="display:none;" disabled>READY</button>
-            <div style="color:#888; font-size:12px; text-align:center; margin: 10px 0;">▶ キャラをダブルタップでREADY</div>
+            <div style="color:#888; font-size:12px; text-align:center; margin: 10px 0;">▶ キャラをタップして選択</div>
             <button class="menu-btn back-btn" onclick="showMainMenu()">BACK</button>
         </div>
         
@@ -2219,15 +2219,75 @@ const SOUND_COOLDOWN = {
     explosion: 5
 };
 
+// ========== SE（効果音）定義 ==========
+const SE_URLS = {
+    laser: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Laser_weapon_activat_%234-1768536982670.mp3',
+    plazmer: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Continuous_sci-fi_pl_%232-1768537054826.mp3',
+    thunder: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Electric_thunder.mp3',
+    bio1: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Organic_alien_weapon_%231-1768536349732.mp3',
+    bio2: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Organic_alien_weapon_%232-1768536253695.mp3',
+    bio3: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Organic_alien_weapon_%233-1768536349735.mp3',
+    bio4: 'http://3536889646d6a816.main.jp/bestbridges/game/plasmer/se/Organic_alien_weapon_%234-1768536349735.mp3'
+};
+
+// SEキャッシュ
+const seCache = {};
+const SE_VOLUME = 0.15; // SE音量（小さめ）
+
+// SE事前ロード
+function preloadSE() {
+    Object.entries(SE_URLS).forEach(([key, url]) => {
+        const audio = new Audio();
+        audio.src = url;
+        audio.volume = SE_VOLUME;
+        audio.preload = 'auto';
+        seCache[key] = audio;
+    });
+}
+
 function playSound(type) {
     // クールダウンチェック
     if (soundCooldowns[type] && soundCooldowns[type] > 0) return;
     soundCooldowns[type] = SOUND_COOLDOWN[type] || 5;
     
-    // 将来のオーディオ実装用
-    // const sound = new Audio(`sounds/${type}.mp3`);
-    // sound.volume = 0.3;
-    // sound.play().catch(() => {});
+    try {
+        let seKey = type;
+        
+        // 武器タイプに応じてSEを選択
+        if (type === 'shoot') {
+            // キャラクター別にSEを選択
+            const char = myPlayer?.character || 'EIRYKLAV';
+            if (char === 'EIRYKLAV') {
+                seKey = currentWeaponEiryklav === 'LASER' ? 'laser' : 'plazmer';
+            } else if (char === 'AGOREKIK') {
+                // 生体武器はランダム
+                seKey = 'bio' + (Math.floor(Math.random() * 4) + 1);
+            } else if (char === 'NAGAL') {
+                seKey = nagalThunderActive ? 'thunder' : 'plazmer';
+            }
+        } else if (type === 'laser') {
+            seKey = 'laser';
+        } else if (type === 'thunder') {
+            seKey = 'thunder';
+        } else if (type === 'bio' || type === 'tentacle') {
+            seKey = 'bio' + (Math.floor(Math.random() * 4) + 1);
+        }
+        
+        // SEがあれば再生
+        if (seCache[seKey]) {
+            // クローンして再生（同時再生対応）
+            const se = seCache[seKey].cloneNode();
+            se.volume = SE_VOLUME;
+            se.play().catch(() => {});
+        } else if (SE_URLS[seKey]) {
+            // キャッシュがなければ新規作成
+            const se = new Audio(SE_URLS[seKey]);
+            se.volume = SE_VOLUME;
+            se.play().catch(() => {});
+        }
+    } catch (e) {
+        // エラー無視
+    }
 }
 
 // サウンドクールダウン更新（gameLoopで呼ぶ）
@@ -2430,27 +2490,35 @@ function init() {
     resize();
     window.addEventListener('resize', resize);
     
-    canvas.addEventListener('mousemove', e => {
-        input.x = e.clientX;
-        input.y = e.clientY;
-        input.hasMoved = true;
-    });
+    // タッチデバイス判定
+    const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
     
-    canvas.addEventListener('mousedown', (e) => {
-        if (e.button === 0 && myPlayer && myPlayer.alive) {
-            // 武器選択エリアをチェック
-            if (handleWeaponTap(e.clientX, e.clientY)) return;
-            cycleFormation();
-        }
-    });
+    // PC専用：マウスで方向入力
+    if (!isTouchDevice) {
+        canvas.addEventListener('mousemove', e => {
+            input.x = e.clientX;
+            input.y = e.clientY;
+            input.hasMoved = true;
+        });
+        
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 0 && myPlayer && myPlayer.alive) {
+                // 武器選択エリアをチェック
+                if (handleWeaponTap(e.clientX, e.clientY)) return;
+                cycleFormation();
+            }
+        });
+    }
     
-    // Canvas上のタッチで武器選択
+    // モバイル専用：タッチで武器選択（移動はジョイスティック）
     canvas.addEventListener('touchstart', (e) => {
         const touch = e.touches[0];
+        // 武器タップのみ処理、移動は無視
         if (handleWeaponTap(touch.clientX, touch.clientY)) {
             e.preventDefault();
             e.stopPropagation();
         }
+        // 何もしない（ジョイスティック以外のタップで移動しない）
     }, { passive: false });
     
     document.addEventListener('keydown', e => {
@@ -2470,6 +2538,7 @@ function init() {
     selectedLoadout = ['PLAZMER', 'HOMING', 'INTERCEPT'];
     
     initMobileControls();
+    preloadSE(); // SE事前ロード
     connectToServer();
     initBackground(); // 宇宙背景を初期化
     
@@ -3129,33 +3198,13 @@ let lastSelectedChar = null;
 let lastSelectTime = 0;
 
 function selectCharacter(charId) {
-    const now = Date.now();
-    
-    // 同じキャラを短時間（500ms以内）に2回タップしたら確認
-    if (lastSelectedChar === charId && (now - lastSelectTime) < 500) {
-        // 確認ダイアログ
-        showReadyConfirm(charId);
-        return;
-    }
-    
-    lastSelectedChar = charId;
-    lastSelectTime = now;
     selectedCharacter = charId;
     
     document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
     document.getElementById('char-' + charId).classList.add('selected');
-    document.getElementById('confirm-char-btn').disabled = false;
     
-    // 詳細表示
-    const char = CHARACTER_DEFS[charId];
-    document.getElementById('detail-name').textContent = `${char.name} (${char.nameJP})`;
-    document.getElementById('detail-desc').innerHTML = `
-        <div style="color:#0ff; margin-bottom:5px;">■ ${char.type} - ${char.desc}</div>
-        <div style="color:#0f0;">武器: ${char.weapons.main} + ${char.weapons.sub}</div>
-        <div style="color:#f80;">特殊: ${char.traits.special}</div>
-        <div style="color:#888; margin-top:5px;">HP:${char.traits.hp} / SPD:${char.traits.speed}</div>
-        <div style="color:#ff0; margin-top:8px; font-size:12px;">▶ ダブルタップでREADY</div>
-    `;
+    // 1回タップで即確認ダイアログ
+    showReadyConfirm(charId);
 }
 
 function showReadyConfirm(charId) {
@@ -3171,17 +3220,18 @@ function showReadyConfirm(charId) {
     `;
     
     overlay.innerHTML = `
-        <div style="background: #0a1520; border: 2px solid #0ff; border-radius: 15px; padding: 30px; text-align: center; max-width: 300px;">
+        <div style="background: #0a1520; border: 2px solid #0ff; border-radius: 15px; padding: 30px; text-align: center; max-width: 320px;">
             <div style="color: #0ff; font-size: 24px; font-weight: bold; margin-bottom: 15px;">READY?</div>
-            <div style="color: #fff; font-size: 18px; margin-bottom: 10px;">${char.name}</div>
-            <div style="color: #888; font-size: 14px; margin-bottom: 20px;">${char.nameJP}</div>
+            <div style="color: #fff; font-size: 20px; margin-bottom: 5px;">${char.name}</div>
+            <div style="color: #888; font-size: 14px; margin-bottom: 15px;">${char.nameJP}</div>
+            <div style="color: #0f0; font-size: 12px; margin-bottom: 15px;">${char.weapons.main} + ${char.weapons.sub}</div>
             <div style="display: flex; gap: 15px; justify-content: center;">
-                <button onclick="confirmReady()" style="
+                <button id="btn-ready-yes" style="
                     background: linear-gradient(180deg, #00ff88, #00aa55);
                     border: none; border-radius: 10px; padding: 15px 40px;
                     color: #000; font-size: 18px; font-weight: bold; cursor: pointer;
                 ">YES</button>
-                <button onclick="cancelReady()" style="
+                <button id="btn-ready-no" style="
                     background: linear-gradient(180deg, #555, #333);
                     border: 1px solid #888; border-radius: 10px; padding: 15px 30px;
                     color: #fff; font-size: 18px; cursor: pointer;
@@ -3191,6 +3241,15 @@ function showReadyConfirm(charId) {
     `;
     
     document.body.appendChild(overlay);
+    
+    // ボタンにイベント設定（タッチ対応）
+    const yesBtn = document.getElementById('btn-ready-yes');
+    const noBtn = document.getElementById('btn-ready-no');
+    
+    yesBtn.onclick = confirmReady;
+    yesBtn.ontouchend = (e) => { e.preventDefault(); confirmReady(); };
+    noBtn.onclick = cancelReady;
+    noBtn.ontouchend = (e) => { e.preventDefault(); cancelReady(); };
 }
 
 function confirmReady() {
@@ -3202,8 +3261,7 @@ function confirmReady() {
 function cancelReady() {
     const overlay = document.getElementById('ready-confirm-overlay');
     if (overlay) overlay.remove();
-    lastSelectedChar = null;
-    lastSelectTime = 0;
+    selectedCharacter = null;
 }
 
 function confirmCharacter() {
@@ -3259,88 +3317,172 @@ function drawCharacterShape(ctx, charId, color, glowColor, frame, scale = 1) {
     ctx.scale(scale, scale);
     
     if (charId === 'EIRYKLAV') {
-        // ソルバルウ風の戦闘機
+        // スーパーX風のステルス戦闘機
         ctx.shadowBlur = 15;
         ctx.shadowColor = glowColor;
         
-        // メイン機体
+        // メイン機体（三角形ベース）
         ctx.fillStyle = '#1a1a2e';
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         
+        // ボディ（菱形に近い三角）
         ctx.beginPath();
-        ctx.moveTo(20, 0);      // 先端
-        ctx.lineTo(10, -8);     // 右上
-        ctx.lineTo(-5, -12);    // 右翼
-        ctx.lineTo(-15, -8);    // 右後
-        ctx.lineTo(-18, 0);     // 後端
-        ctx.lineTo(-15, 8);     // 左後
-        ctx.lineTo(-5, 12);     // 左翼
-        ctx.lineTo(10, 8);      // 左上
+        ctx.moveTo(22, 0);       // 先端
+        ctx.lineTo(5, -6);       // 右前
+        ctx.lineTo(-8, -14);     // 右翼端
+        ctx.lineTo(-5, -8);      // 右翼内
+        ctx.lineTo(-15, -5);     // 右後
+        ctx.lineTo(-18, 0);      // 後端
+        ctx.lineTo(-15, 5);      // 左後
+        ctx.lineTo(-5, 8);       // 左翼内
+        ctx.lineTo(-8, 14);      // 左翼端
+        ctx.lineTo(5, 6);        // 左前
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
         
-        // コックピット
-        ctx.fillStyle = color;
+        // 装甲パネルライン
+        ctx.strokeStyle = 'rgba(0,255,255,0.3)';
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.ellipse(5, 0, 6, 3, 0, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(15, 0);
+        ctx.lineTo(-10, -6);
+        ctx.moveTo(15, 0);
+        ctx.lineTo(-10, 6);
+        ctx.stroke();
         
-        // エンジン光
+        // コックピット（光る窓）
         ctx.fillStyle = '#00FFFF';
         ctx.shadowBlur = 20;
         ctx.beginPath();
-        ctx.ellipse(-15, -4, 3, 2, 0, 0, Math.PI * 2);
+        ctx.moveTo(12, 0);
+        ctx.lineTo(5, -3);
+        ctx.lineTo(0, 0);
+        ctx.lineTo(5, 3);
+        ctx.closePath();
+        ctx.fill();
+        
+        // エンジンノズル（3基）
+        ctx.fillStyle = color;
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.arc(-16, 0, 3, 0, Math.PI * 2);
         ctx.fill();
         ctx.beginPath();
-        ctx.ellipse(-15, 4, 3, 2, 0, 0, Math.PI * 2);
+        ctx.arc(-12, -5, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(-12, 5, 2, 0, Math.PI * 2);
         ctx.fill();
         
+        // エンジン光（点滅）
+        if ((frame || 0) % 6 < 3) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.shadowColor = '#00FFFF';
+            ctx.shadowBlur = 30;
+            ctx.beginPath();
+            ctx.ellipse(-18, 0, 4, 2, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
     } else if (charId === 'AGOREKIK') {
-        // ブラウブロ風の宇宙船（MAっぽい）
-        ctx.shadowBlur = 15;
+        // ビオランテ（植獣形態）風デザイン
+        ctx.shadowBlur = 20;
         ctx.shadowColor = glowColor;
         
-        // メイン機体（有機的な形状）
+        // 中央のコア（花のような口）
         ctx.fillStyle = '#0a2010';
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         
-        // 中央ボディ
+        // 外殻（花弁のような形）
         ctx.beginPath();
-        ctx.ellipse(0, 0, 15, 10, 0, 0, Math.PI * 2);
+        for (let i = 0; i < 6; i++) {
+            const a = (Math.PI * 2 / 6) * i + (frame || 0) * 0.02;
+            const r = 12 + Math.sin(a * 3 + (frame || 0) * 0.1) * 3;
+            const px = Math.cos(a) * r;
+            const py = Math.sin(a) * r;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
         ctx.fill();
         ctx.stroke();
         
-        // 触手（4本）
-        const tentacleAngle = (frame || 0) * 0.05;
-        for (let i = 0; i < 4; i++) {
-            const baseAngle = (Math.PI * 2 / 4) * i + Math.PI / 4;
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 3;
+        // 口（中央の赤い部分）
+        ctx.fillStyle = '#330000';
+        ctx.beginPath();
+        ctx.arc(0, 0, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FF0033';
+        ctx.shadowColor = '#FF0033';
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.arc(0, 0, 3, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 蔓/触手（8本、波打つ）
+        const tentacleCount = 8;
+        for (let i = 0; i < tentacleCount; i++) {
+            const baseAngle = (Math.PI * 2 / tentacleCount) * i;
+            const wave = Math.sin((frame || 0) * 0.08 + i * 0.8) * 8;
+            const length = 25 + Math.sin((frame || 0) * 0.05 + i) * 5;
+            
+            // 蔓の太い部分
+            ctx.strokeStyle = '#00AA33';
+            ctx.lineWidth = 4;
+            ctx.lineCap = 'round';
+            ctx.shadowColor = '#00FF66';
+            ctx.shadowBlur = 10;
+            
             ctx.beginPath();
-            ctx.moveTo(Math.cos(baseAngle) * 12, Math.sin(baseAngle) * 8);
-            const wave = Math.sin(tentacleAngle + i) * 5;
-            ctx.quadraticCurveTo(
-                Math.cos(baseAngle) * 20 + wave, Math.sin(baseAngle) * 15 + wave,
-                Math.cos(baseAngle) * 28, Math.sin(baseAngle) * 20
-            );
+            const startX = Math.cos(baseAngle) * 10;
+            const startY = Math.sin(baseAngle) * 8;
+            ctx.moveTo(startX, startY);
+            
+            // 中間点（うねり）
+            const midX = Math.cos(baseAngle) * (length * 0.6) + Math.cos(baseAngle + Math.PI/2) * wave * 0.5;
+            const midY = Math.sin(baseAngle) * (length * 0.6) + Math.sin(baseAngle + Math.PI/2) * wave * 0.5;
+            
+            // 先端
+            const endX = Math.cos(baseAngle) * length + Math.cos(baseAngle + Math.PI/2) * wave;
+            const endY = Math.sin(baseAngle) * length + Math.sin(baseAngle + Math.PI/2) * wave;
+            
+            ctx.quadraticCurveTo(midX, midY, endX, endY);
             ctx.stroke();
             
-            // 触手先端
-            ctx.fillStyle = color;
+            // 蔓の先端（棘/葉）
+            ctx.fillStyle = '#00FF44';
+            ctx.shadowBlur = 15;
             ctx.beginPath();
-            ctx.arc(Math.cos(baseAngle) * 28, Math.sin(baseAngle) * 20, 3, 0, Math.PI * 2);
+            ctx.arc(endX, endY, 3 + Math.sin((frame || 0) * 0.1 + i) * 1, 0, Math.PI * 2);
             ctx.fill();
+            
+            // 小さな葉/棘
+            if (i % 2 === 0) {
+                const leafAngle = baseAngle + Math.PI / 4;
+                const leafX = Math.cos(baseAngle) * (length * 0.4);
+                const leafY = Math.sin(baseAngle) * (length * 0.4);
+                ctx.fillStyle = '#00DD22';
+                ctx.beginPath();
+                ctx.ellipse(leafX, leafY, 4, 2, leafAngle, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
         
-        // 中央コア
-        ctx.fillStyle = color;
-        ctx.shadowBlur = 25;
-        ctx.beginPath();
-        ctx.arc(0, 0, 5, 0, Math.PI * 2);
-        ctx.fill();
+        // 目（複数の光る点）
+        ctx.fillStyle = '#FFFF00';
+        ctx.shadowColor = '#FFFF00';
+        ctx.shadowBlur = 10;
+        for (let i = 0; i < 3; i++) {
+            const eyeAngle = -Math.PI/6 + (Math.PI/6) * i;
+            const eyeX = Math.cos(eyeAngle) * 5;
+            const eyeY = Math.sin(eyeAngle) * 3 - 2;
+            ctx.beginPath();
+            ctx.arc(eyeX, eyeY, 1.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
         
     } else if (charId === 'NAGAL') {
         // 現在のデザイン（生体っぽい）
@@ -3763,7 +3905,10 @@ function updateInput() {
     let moving = false;
     let angle = myPlayer.angle;
     
-    // モバイル：ジョイスティック入力
+    // タッチデバイス判定
+    const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    
+    // モバイル：ジョイスティック入力のみ
     if (joystick.active) {
         // ジョイスティックがアクティブな場合
         if (Math.abs(joystick.dx) > 0.15 || Math.abs(joystick.dy) > 0.15) {
@@ -3775,8 +3920,8 @@ function updateInput() {
             moving = false;
         }
     } 
-    // PC：マウス入力（ジョイスティックが非アクティブの時のみ）
-    else if (!joystick.active && input.hasMoved && input.x > 0 && input.y > 0) {
+    // PC専用：マウス入力（タッチデバイスでは完全無効）
+    else if (!isTouchDevice && input.hasMoved && input.x > 0 && input.y > 0) {
         const mx = input.x + camera.x; 
         const my = input.y + camera.y;
         const dist = Math.hypot(mx - myPlayer.x, my - myPlayer.y);
