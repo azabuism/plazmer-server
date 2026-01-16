@@ -214,8 +214,8 @@ class GameRoom {
         const playerIndex = this.players.size;
         const colorData = PLAYER_COLORS[Math.min(playerIndex, PLAYER_COLORS.length - 1)];
         
-        // Ver.1.0038: キャラクターごとの初期設定
-        // Ver.1.0038: キャラクター2体制（NAGAL削除）
+        // Ver.1.0039: キャラクターごとの初期設定
+        // Ver.1.0039: キャラクター2体制（NAGAL削除）
         const charStats = {
             EIRYKLAV: { hp: 200, speed: 4.0, main: 'PLAZMER', sub: 'MISSILE' }, // 主人公機・飛行機
             AGOREKIK: { hp: 280, speed: 3.0, main: 'BIO_PHALANX', sub: 'DEVOUR' } // 捕食キャラ
@@ -235,7 +235,7 @@ class GameRoom {
             invincible: 60,
             dashing: false,
             dashTimer: 0,
-            // Ver.1.0038: キャラ固定武器（シンプル化）
+            // Ver.1.0039: キャラ固定武器（シンプル化）
             weaponLevels: { 
                 // EIRYKLAV用
                 PLAZMER: character === 'EIRYKLAV' ? 1 : 0,
@@ -520,39 +520,57 @@ class GameRoom {
             this.spawnMobs();
         }
         
-        // プレイヤー更新（alive状態）
-        this.players.forEach(player => {
-            if (!player.alive) return;
-            this.updatePlayer(player);
-        });
+        // プレイヤー更新
+        try {
+            this.players.forEach(player => {
+                if (player && player.alive) {
+                    this.updatePlayer(player);
+                } else if (player && !player.alive) {
+                    player.respawnTimer = (player.respawnTimer || 0) + 1;
+                    if (player.respawnTimer >= 300) {
+                        this.respawnPlayer(player);
+                    }
+                }
+            });
+        } catch (err) {
+            console.error('Player update error:', err.message);
+        }
         
         // 敵更新
-        this.updateEnemies();
+        try {
+            this.updateEnemies();
+        } catch (err) {
+            console.error('Enemy update error:', err.message);
+        }
         
         // 敵弾更新
-        this.updateEnemyBullets();
+        try {
+            this.updateEnemyBullets();
+        } catch (err) {
+            console.error('Bullet update error:', err.message);
+        }
         
         // アイテム更新
         this.updateItems();
         
-        // ボス全滅チェック（ボスがスポーンされるまでスキップ）
-        const activeBosses = this.currentBosses.filter(b => b.hp > 0);
+        // ボス全滅チェック
+        const activeBosses = this.currentBosses.filter(b => b && b.hp > 0);
         if (this.currentBosses.length > 0 && activeBosses.length === 0) {
             this.currentBosses = [];
             // 残り雑魚も全滅
-            this.enemies.forEach(e => {
-                if (!e.isBoss && e.hp > 0) {
+            for (let i = 0; i < this.enemies.length; i++) {
+                const e = this.enemies[i];
+                if (e && !e.isBoss && e.hp > 0) {
                     e.hp = 0;
                     this.score += 50;
                 }
-            });
+            }
             
             io.to(this.id).emit('bossDefeated', { wave: this.wave, score: this.score });
             
-            // 武器選択を自動スキップして次のWAVEへ
+            // 次のWAVEへ
             setTimeout(() => {
                 if (this.state === 'playing') {
-                    // 次のWAVEを開始
                     this.startWave();
                     io.to(this.id).emit('waveStarting');
                     console.log(`Room ${this.id}: Auto-starting Wave ${this.wave}`);
@@ -560,113 +578,42 @@ class GameRoom {
             }, 3000);
         }
         
-        // 状態送信（30fps - 安定性重視）
+        // 状態送信（30fps）
         if (this.frame % 2 === 0) {
             this.broadcastState();
         }
     }
     
     updatePlayer(player) {
-        // リスポーン処理
-        if (!player.alive) {
-            player.respawnTimer++;
-            if (player.respawnTimer >= 300) { // 5秒でリスポーン
-                this.respawnPlayer(player);
-            }
-            return;
-        }
+        // 無敵時間減少
+        if (player.invincible > 0) player.invincible--;
         
         // ========== キャラクター固有の更新処理 ==========
         
-        // AGOREKIK: 触手集中タイマー
-        if (player.character === 'AGOREKIK' && player.tentacleConcentrate) {
-            if (player.tentacleConcentrate.active) {
-                player.tentacleConcentrate.timer--;
-                if (player.tentacleConcentrate.timer <= 0) {
-                    player.tentacleConcentrate.active = false;
-                }
-            }
-        }
-        
-        // AGOREKIK: 自動捕食システム
+        // AGOREKIK: 捕食システム
         if (player.character === 'AGOREKIK') {
-            // 捕食クールダウン減少
             if (player.devourCooldown > 0) player.devourCooldown--;
             if (player.devourBuff > 0) player.devourBuff--;
-            
-            // 近くの敵を自動捕食
-            if (player.devourCooldown <= 0) {
-                for (const enemy of this.enemies) {
-                    if (!enemy || enemy.hp <= 0 || enemy.isZombie) continue;
-                    
-                    const dist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
-                    const devourRange = 40 + (player.weaponLevels.DEVOUR || 1) * 5;
-                    
-                    if (dist < devourRange) {
-                        // ボスは捕食不可だが噛みつきダメージ
-                        if (enemy.isBoss) {
-                            enemy.hp -= 15; // 噛みつきダメージ
-                            io.to(this.id).emit('devourBite', {
-                                playerId: player.id,
-                                enemyId: enemy.id,
-                                x: enemy.x, y: enemy.y
-                            });
-                            player.devourCooldown = 30; // 0.5秒クールダウン
-                        } else {
-                            // 小型・中型は捕食可能（HPが30%以下か小型）
-                            const isSmall = enemy.size <= 15;
-                            const isWeak = enemy.hp <= enemy.maxHp * 0.3;
-                            
-                            if (isSmall || isWeak) {
-                                // 捕食成功！
-                                const healAmount = Math.min(20, enemy.maxHp * 0.2);
-                                player.hp = Math.min(player.maxHp, player.hp + healAmount);
-                                player.devourBuff = 180; // 3秒間攻撃バフ
-                                player.score += enemy.score * 2; // スコアボーナス
-                                
-                                io.to(this.id).emit('devourSuccess', {
-                                    playerId: player.id,
-                                    enemyId: enemy.id,
-                                    x: enemy.x, y: enemy.y,
-                                    heal: healAmount
-                                });
-                                
-                                enemy.hp = 0;
-                                this.defeatEnemy(enemy, player.id);
-                                player.devourCooldown = 20; // 捕食後クールダウン
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // 捕食バフ中は移動速度低下なし、攻撃力アップ
         }
         
         // EIRYKLAV: ミサイル自動発射
-        if (player.character === 'EIRYKLAV' && player.alive) {
-            if (this.frame % 90 === 0) { // 1.5秒ごと
-                // 最も近い敵にミサイル発射
-                let target = null, minDist = 400;
-                this.enemies.forEach(e => {
-                    if (!e || e.hp <= 0) return;
-                    const d = Math.hypot(e.x - player.x, e.y - player.y);
-                    if (d < minDist) { minDist = d; target = e; }
+        if (player.character === 'EIRYKLAV' && this.frame % 90 === 0) {
+            let target = null, minDist = 400;
+            for (let i = 0; i < this.enemies.length; i++) {
+                const e = this.enemies[i];
+                if (!e || e.hp <= 0) continue;
+                const d = Math.hypot(e.x - player.x, e.y - player.y);
+                if (d < minDist) { minDist = d; target = e; }
+            }
+            if (target) {
+                io.to(this.id).emit('autoMissile', {
+                    playerId: player.id,
+                    targetId: target.id,
+                    x: player.x, y: player.y,
+                    targetX: target.x, targetY: target.y
                 });
-                
-                if (target) {
-                    io.to(this.id).emit('autoMissile', {
-                        playerId: player.id,
-                        targetId: target.id,
-                        x: player.x, y: player.y,
-                        targetX: target.x, targetY: target.y
-                    });
-                }
             }
         }
-        
-        // invincibleとoverloadはupdate()で既に更新済み
         
         // 壁脱出
         if (this.checkWall(player.x, player.y)) {
@@ -674,36 +621,37 @@ class GameRoom {
         }
         
         // 移動処理（マリオBダッシュ方式）
-        const input = player.lastInput;
+        const input = player.lastInput || {};
         if (input.moving) {
-            // ダッシュ中は速度2倍
             const speedMultiplier = input.dashing ? 2.0 : 1.0;
-            const moveSpeed = player.speed * speedMultiplier;
+            const moveSpeed = (player.speed || 4) * speedMultiplier;
             
-            const vx = Math.cos(input.angle) * moveSpeed;
-            const vy = Math.sin(input.angle) * moveSpeed;
+            const vx = Math.cos(input.angle || 0) * moveSpeed;
+            const vy = Math.sin(input.angle || 0) * moveSpeed;
             
             if (!this.checkWall(player.x + vx, player.y)) player.x += vx;
             if (!this.checkWall(player.x, player.y + vy)) player.y += vy;
             
-            player.angle = input.angle;
+            player.angle = input.angle || 0;
         }
         
-        // ダッシュ中のエフェクト用フラグ
-        player.dashing = input.dashing || false;
+        player.dashing = (input.dashing && input.moving) || false;
         
         player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
         player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
         
-        // 敵との衝突
-        this.enemies.forEach(enemy => {
-            if (!enemy || enemy.hp <= 0) return;
-            if (Math.hypot(player.x - enemy.x, player.y - enemy.y) < 8 + enemy.size) {
+        // 敵との衝突（シンプルに）
+        for (let i = 0; i < this.enemies.length; i++) {
+            const enemy = this.enemies[i];
+            if (!enemy || enemy.hp <= 0) continue;
+            const dist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+            if (dist < 8 + (enemy.size || 10)) {
                 if (player.invincible <= 0) {
                     this.damagePlayer(player, enemy.isBoss ? 15 : 8);
+                    break; // 1フレーム1ダメージまで
                 }
             }
-        });
+        }
     }
     
     respawnPlayer(player) {
@@ -1508,7 +1456,7 @@ io.on('connection', (socket) => {
     // ホストとしてルーム作成
     socket.on('hostRoom', (data) => {
         const playerName = data.name || 'Host';
-        const character = data.character || 'NAGAL';
+        const character = data.character || 'EIRYKLAV'; // デフォルトをEIRYKLAVに
         const roomId = generateRoomCode();
         
         // 新しいルームを作成
@@ -1538,7 +1486,7 @@ io.on('connection', (socket) => {
     socket.on('joinRoom', (data) => {
         const roomId = data.roomId;
         const playerName = data.name || 'Player';
-        const character = data.character || 'NAGAL';
+        const character = data.character || 'EIRYKLAV'; // デフォルトをEIRYKLAVに
         
         // ルームが存在するかチェック
         if (!rooms.has(roomId)) {
@@ -1932,7 +1880,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0038`);
+    console.log(`PLAZMERS Server Ver.1.0039`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');
