@@ -214,8 +214,8 @@ class GameRoom {
         const playerIndex = this.players.size;
         const colorData = PLAYER_COLORS[Math.min(playerIndex, PLAYER_COLORS.length - 1)];
         
-        // Ver.1.0037: キャラクターごとの初期設定
-        // Ver.1.0037: キャラクター2体制（NAGAL削除）
+        // Ver.1.0038: キャラクターごとの初期設定
+        // Ver.1.0038: キャラクター2体制（NAGAL削除）
         const charStats = {
             EIRYKLAV: { hp: 200, speed: 4.0, main: 'PLAZMER', sub: 'MISSILE' }, // 主人公機・飛行機
             AGOREKIK: { hp: 280, speed: 3.0, main: 'BIO_PHALANX', sub: 'DEVOUR' } // 捕食キャラ
@@ -235,7 +235,7 @@ class GameRoom {
             invincible: 60,
             dashing: false,
             dashTimer: 0,
-            // Ver.1.0037: キャラ固定武器（シンプル化）
+            // Ver.1.0038: キャラ固定武器（シンプル化）
             weaponLevels: { 
                 // EIRYKLAV用
                 PLAZMER: character === 'EIRYKLAV' ? 1 : 0,
@@ -743,7 +743,14 @@ class GameRoom {
     }
     
     updateEnemies() {
-        // 死んだ敵を先に除去（重要！）
+        // 敵配列の安全性チェック
+        if (!this.enemies || !Array.isArray(this.enemies)) {
+            this.enemies = [];
+            return;
+        }
+        
+        // 死んだ敵を除去
+        const before = this.enemies.length;
         this.enemies = this.enemies.filter(e => e && e.hp > 0);
         
         // 敵数制限
@@ -754,60 +761,67 @@ class GameRoom {
         // 敵がいなければ終了
         if (this.enemies.length === 0) return;
         
-        // アクティブなプレイヤーを取得
-        const activePlayers = [];
+        // プレイヤー位置を取得（aliveなプレイヤーの中心点）
+        let targetX = WORLD_W / 2;
+        let targetY = WORLD_H / 2;
+        let hasTarget = false;
+        
         this.players.forEach(p => {
-            if (p.alive) activePlayers.push(p);
+            if (p && p.alive) {
+                targetX = p.x;
+                targetY = p.y;
+                hasTarget = true;
+            }
         });
         
-        // 各敵を更新（シンプルなループ）
-        for (let i = 0; i < this.enemies.length; i++) {
+        // 各敵を更新
+        const len = this.enemies.length;
+        for (let i = 0; i < len; i++) {
             const enemy = this.enemies[i];
             if (!enemy) continue;
             
+            // タイマー更新
             enemy.timer = (enemy.timer || 0) + 1;
             
-            // 固定状態
+            // 固定状態（ANCHOR）
             if (enemy.anchored) {
-                if (enemy.anchorTimer > 0) enemy.anchorTimer--;
-                else enemy.anchored = false;
+                if (enemy.anchorTimer > 0) {
+                    enemy.anchorTimer--;
+                } else {
+                    enemy.anchored = false;
+                }
                 continue;
             }
             
-            // ターゲットを探す
-            let target = null;
-            let minDist = Infinity;
-            for (const p of activePlayers) {
-                const d = Math.hypot(p.x - enemy.x, p.y - enemy.y);
-                if (d < minDist) {
-                    minDist = d;
-                    target = p;
-                }
-            }
+            // 速度（デフォルト2）
+            const speed = enemy.speed || 2;
             
-            // 移動
-            if (target) {
-                const angle = Math.atan2(target.y - enemy.y, target.x - enemy.x);
-                enemy.x += Math.cos(angle) * (enemy.speed || 2);
-                enemy.y += Math.sin(angle) * (enemy.speed || 2);
+            // 移動方向を計算
+            let moveAngle;
+            if (hasTarget) {
+                // プレイヤーに向かう
+                moveAngle = Math.atan2(targetY - enemy.y, targetX - enemy.x);
             } else {
                 // ランダム徘徊
                 if (!enemy.wanderAngle || enemy.timer % 60 === 0) {
                     enemy.wanderAngle = Math.random() * Math.PI * 2;
                 }
-                enemy.x += Math.cos(enemy.wanderAngle) * 1;
-                enemy.y += Math.sin(enemy.wanderAngle) * 1;
+                moveAngle = enemy.wanderAngle;
             }
+            
+            // 移動実行
+            enemy.x += Math.cos(moveAngle) * speed;
+            enemy.y += Math.sin(moveAngle) * speed;
             
             // 境界制限
             enemy.x = Math.max(50, Math.min(WORLD_W - 50, enemy.x));
             enemy.y = Math.max(50, Math.min(WORLD_H - 50, enemy.y));
             
             // ボス攻撃
-            if (enemy.isBoss && target) {
+            if (enemy.isBoss && hasTarget) {
                 enemy.attackTimer = (enemy.attackTimer || 0) + 1;
-                if (enemy.attackTimer > 180) { // 3秒ごと
-                    this.bossAttack(enemy, target);
+                if (enemy.attackTimer > 180) {
+                    this.bossAttack(enemy, { x: targetX, y: targetY });
                 }
             }
         }
@@ -1918,7 +1932,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0037`);
+    console.log(`PLAZMERS Server Ver.1.0038`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');
