@@ -214,8 +214,8 @@ class GameRoom {
         const playerIndex = this.players.size;
         const colorData = PLAYER_COLORS[Math.min(playerIndex, PLAYER_COLORS.length - 1)];
         
-        // Ver.1.0036: キャラクターごとの初期設定
-        // Ver.1.0036: キャラクター2体制（NAGAL削除）
+        // Ver.1.0037: キャラクターごとの初期設定
+        // Ver.1.0037: キャラクター2体制（NAGAL削除）
         const charStats = {
             EIRYKLAV: { hp: 200, speed: 4.0, main: 'PLAZMER', sub: 'MISSILE' }, // 主人公機・飛行機
             AGOREKIK: { hp: 280, speed: 3.0, main: 'BIO_PHALANX', sub: 'DEVOUR' } // 捕食キャラ
@@ -235,7 +235,7 @@ class GameRoom {
             invincible: 60,
             dashing: false,
             dashTimer: 0,
-            // Ver.1.0036: キャラ固定武器（シンプル化）
+            // Ver.1.0037: キャラ固定武器（シンプル化）
             weaponLevels: { 
                 // EIRYKLAV用
                 PLAZMER: character === 'EIRYKLAV' ? 1 : 0,
@@ -669,96 +669,38 @@ class GameRoom {
         // invincibleとoverloadはupdate()で既に更新済み
         
         // 壁脱出
-        if (this.checkWall(player.x, player.y) && !player.dashing) {
+        if (this.checkWall(player.x, player.y)) {
             this.escapeFromWall(player);
         }
         
-        // ダッシュ準備状態のタイマー更新
-        if (player.dashReady && player.dashReadyTimer > 0) {
-            player.dashReadyTimer--;
-            if (player.dashReadyTimer <= 0) {
-                player.dashReady = false; // タイムアウト
-            }
+        // 移動処理（マリオBダッシュ方式）
+        const input = player.lastInput;
+        if (input.moving) {
+            // ダッシュ中は速度2倍
+            const speedMultiplier = input.dashing ? 2.0 : 1.0;
+            const moveSpeed = player.speed * speedMultiplier;
+            
+            const vx = Math.cos(input.angle) * moveSpeed;
+            const vy = Math.sin(input.angle) * moveSpeed;
+            
+            if (!this.checkWall(player.x + vx, player.y)) player.x += vx;
+            if (!this.checkWall(player.x, player.y + vy)) player.y += vy;
+            
+            player.angle = input.angle;
         }
         
-        // ダッシュ実行中の処理
-        if (player.dashing) {
-            player.dashTimer--;
-            player.invincible = Math.max(player.invincible, 5); // ダッシュ中は常に無敵
-            
-            const vx = Math.cos(player.angle) * 40; // 高速移動
-            const vy = Math.sin(player.angle) * 40;
-            player.x += vx;
-            player.y += vy;
-            player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
-            player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
-            
-            // DASH中の敵へのダメージ（1敵1回のみ）
-            if (!player.dashHitEnemies) player.dashHitEnemies = new Set();
-            
-            this.enemies.forEach(e => {
-                if (!e || e.hp <= 0 || e.isZombie) return;
-                if (player.dashHitEnemies.has(e.id)) return;
-                
-                const dist = Math.hypot(e.x - player.x, e.y - player.y);
-                if (dist < e.size + 25) {
-                    const damage = 20; // ダメージ増加
-                    player.dashHitEnemies.add(e.id);
-                    e.hp -= damage;
-                    io.to(this.id).emit('enemyDamaged', { 
-                        enemyId: e.id, damage, 
-                        x: e.x, y: e.y, 
-                        weaponType: 'DASH' 
-                    });
-                    if (e.hp <= 0) {
-                        this.defeatEnemy(e, player.id);
-                    }
-                }
-            });
-            
-            if (player.dashTimer <= 0) {
-                player.dashing = false;
-                player.dashReady = false;
-                if (player.dashHitEnemies) player.dashHitEnemies.clear();
-                if (this.checkWall(player.x, player.y)) {
-                    this.escapeFromWall(player);
-                }
-            }
-        } else {
-            // 通常移動
-            const input = player.lastInput;
-            
-            // ダッシュ準備中に移動入力があればダッシュ発動
-            if (player.dashReady && input.moving) {
-                player.dashing = true;
-                player.dashTimer = 12; // ダッシュ時間
-                player.dashReady = false;
-                player.invincible = Math.max(player.invincible, 20);
-                player.angle = input.angle; // 移動方向にダッシュ
-            } else if (input.moving) {
-                // 通常移動
-                const vx = Math.cos(input.angle) * player.speed;
-                const vy = Math.sin(input.angle) * player.speed;
-                if (!this.checkWall(player.x + vx, player.y)) player.x += vx;
-                if (!this.checkWall(player.x, player.y + vy)) player.y += vy;
-                player.angle = input.angle;
-            }
-        }
+        // ダッシュ中のエフェクト用フラグ
+        player.dashing = input.dashing || false;
         
         player.x = Math.max(60, Math.min(WORLD_W - 60, player.x));
         player.y = Math.max(60, Math.min(WORLD_H - 60, player.y));
         
-        // サンダーエネルギー（180でキャップ）
-        if (player.weaponLevels.THUNDER > 0 && player.thunderEnergy < 180) {
-            player.thunderEnergy++;
-        }
-        
         // 敵との衝突
         this.enemies.forEach(enemy => {
-            if (enemy.hp <= 0) return;
+            if (!enemy || enemy.hp <= 0) return;
             if (Math.hypot(player.x - enemy.x, player.y - enemy.y) < 8 + enemy.size) {
-                if (!player.dashing && player.invincible <= 0) {
-                    this.damagePlayer(player, enemy.isBoss ? 15 : 8); // ボス20→15、通常10→8に軽減
+                if (player.invincible <= 0) {
+                    this.damagePlayer(player, enemy.isBoss ? 15 : 8);
                 }
             }
         });
@@ -801,65 +743,73 @@ class GameRoom {
     }
     
     updateEnemies() {
-        try {
-            // 敵数が多すぎる場合は制限
-            if (this.enemies.length > MAX_ENEMIES) {
-                this.enemies = this.enemies.slice(0, MAX_ENEMIES);
+        // 死んだ敵を先に除去（重要！）
+        this.enemies = this.enemies.filter(e => e && e.hp > 0);
+        
+        // 敵数制限
+        if (this.enemies.length > MAX_ENEMIES) {
+            this.enemies = this.enemies.slice(0, MAX_ENEMIES);
+        }
+        
+        // 敵がいなければ終了
+        if (this.enemies.length === 0) return;
+        
+        // アクティブなプレイヤーを取得
+        const activePlayers = [];
+        this.players.forEach(p => {
+            if (p.alive) activePlayers.push(p);
+        });
+        
+        // 各敵を更新（シンプルなループ）
+        for (let i = 0; i < this.enemies.length; i++) {
+            const enemy = this.enemies[i];
+            if (!enemy) continue;
+            
+            enemy.timer = (enemy.timer || 0) + 1;
+            
+            // 固定状態
+            if (enemy.anchored) {
+                if (enemy.anchorTimer > 0) enemy.anchorTimer--;
+                else enemy.anchored = false;
+                continue;
             }
             
-            // 各敵を更新
-            for (let i = 0; i < this.enemies.length; i++) {
-                const enemy = this.enemies[i];
-                if (!enemy || enemy.hp <= 0) continue;
-                
-                enemy.timer = (enemy.timer || 0) + 1;
-                
-                // ゾンビ/固定/寄生状態は単純処理
-                if (enemy.isZombie || enemy.anchored || enemy.parasitedBy) {
-                    if (enemy.anchored && enemy.anchorTimer > 0) enemy.anchorTimer--;
-                    if (enemy.parasitedBy) enemy.hp -= 2;
-                    continue;
+            // ターゲットを探す
+            let target = null;
+            let minDist = Infinity;
+            for (const p of activePlayers) {
+                const d = Math.hypot(p.x - enemy.x, p.y - enemy.y);
+                if (d < minDist) {
+                    minDist = d;
+                    target = p;
                 }
-                
-                // 最も近いプレイヤーを探す
-                let target = null, minDist = Infinity;
-                this.players.forEach(p => {
-                    if (!p.alive) return;
-                    const d = Math.hypot(p.x - enemy.x, p.y - enemy.y);
-                    if (d < minDist) { minDist = d; target = p; }
-                });
-                
-                if (target) {
-                    // プレイヤーに向かって移動
-                    const angle = Math.atan2(target.y - enemy.y, target.x - enemy.x);
-                    enemy.x += Math.cos(angle) * enemy.speed;
-                    enemy.y += Math.sin(angle) * enemy.speed;
-                    
-                    // ボス攻撃（間隔を長く）
-                    if (enemy.isBoss) {
-                        enemy.attackTimer = (enemy.attackTimer || 0) + 1;
-                        if (enemy.attackTimer > 120) { // 2秒ごと
-                            this.bossAttack(enemy, target);
-                        }
-                    }
-                } else {
-                    // ランダム徘徊
-                    if (!enemy.wanderAngle || enemy.timer % 90 === 0) {
-                        enemy.wanderAngle = Math.random() * Math.PI * 2;
-                    }
-                    enemy.x += Math.cos(enemy.wanderAngle) * enemy.speed * 0.3;
-                    enemy.y += Math.sin(enemy.wanderAngle) * enemy.speed * 0.3;
-                }
-                
-                // 境界チェック
-                enemy.x = Math.max(100, Math.min(WORLD_W - 100, enemy.x));
-                enemy.y = Math.max(100, Math.min(WORLD_H - 100, enemy.y));
             }
             
-            // 死んだ敵を除去
-            this.enemies = this.enemies.filter(e => e && (e.hp > 0 || e.isZombie));
-        } catch (err) {
-            console.error('updateEnemies error:', err.message);
+            // 移動
+            if (target) {
+                const angle = Math.atan2(target.y - enemy.y, target.x - enemy.x);
+                enemy.x += Math.cos(angle) * (enemy.speed || 2);
+                enemy.y += Math.sin(angle) * (enemy.speed || 2);
+            } else {
+                // ランダム徘徊
+                if (!enemy.wanderAngle || enemy.timer % 60 === 0) {
+                    enemy.wanderAngle = Math.random() * Math.PI * 2;
+                }
+                enemy.x += Math.cos(enemy.wanderAngle) * 1;
+                enemy.y += Math.sin(enemy.wanderAngle) * 1;
+            }
+            
+            // 境界制限
+            enemy.x = Math.max(50, Math.min(WORLD_W - 50, enemy.x));
+            enemy.y = Math.max(50, Math.min(WORLD_H - 50, enemy.y));
+            
+            // ボス攻撃
+            if (enemy.isBoss && target) {
+                enemy.attackTimer = (enemy.attackTimer || 0) + 1;
+                if (enemy.attackTimer > 180) { // 3秒ごと
+                    this.bossAttack(enemy, target);
+                }
+            }
         }
     }
     
@@ -1419,21 +1369,22 @@ class GameRoom {
         const player = this.players.get(socketId);
         if (!player || !player.alive) return;
         
-        player.lastInput = input;
+        // 入力を保存（dashingフラグを含む）
+        player.lastInput = {
+            angle: input.angle || 0,
+            moving: input.moving || false,
+            dashing: input.dashing || false, // Bダッシュ：押している間true
+            x: input.x,
+            y: input.y
+        };
         
-        // クライアントからの位置情報を考慮（ある程度の誤差は許容）
+        // クライアントからの位置情報を考慮
         if (input.x !== undefined && input.y !== undefined) {
             const dist = Math.hypot(input.x - player.x, input.y - player.y);
-            if (dist < player.speed * 3) {
+            if (dist < player.speed * 5) { // 許容範囲を広げる
                 player.x = input.x;
                 player.y = input.y;
             }
-        }
-        
-        // ダッシュボタン押下 → ダッシュ準備状態に
-        if (input.dash && !player.dashing && !player.dashReady) {
-            player.dashReady = true;
-            player.dashReadyTimer = 90; // 1.5秒間有効
         }
     }
     
@@ -1460,8 +1411,7 @@ class GameRoom {
             hp: player.hp,
             maxHp: player.maxHp,
             invincible: player.invincible,
-            dashing: player.dashing,
-            dashReady: player.dashReady || false,
+            dashing: player.dashing || false,
             alive: player.alive,
             weaponLevels: player.weaponLevels,
             equipped: player.equipped,
@@ -1968,7 +1918,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0036`);
+    console.log(`PLAZMERS Server Ver.1.0037`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');

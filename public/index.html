@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>PLAZMERS Ver.1.0036 - ONLINE MULTIPLAYER</title>
+    <title>PLAZMERS Ver.1.0037 - ONLINE MULTIPLAYER</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body {
@@ -315,7 +315,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="start-screen">
-        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0036</span></h1>
+        <h1>PLAZMERS <span id="version-number" style="font-size: 12px; color: #888; vertical-align: super;">Ver.1.0037</span></h1>
         <div class="subtitle">◆ INNER SPACE ◆</div>
         <div class="online-badge">🌐 ONLINE CO-OP</div>
         <input type="text" id="player-name" class="name-input" placeholder="YOUR NAME" maxlength="12">
@@ -415,13 +415,9 @@
         <div id="joystick-stick"></div>
     </div>
     <div id="mobile-buttons">
-        <div class="mobile-btn" id="btn-dash">DASH</div>
-        <!-- EIRYKLAV用：武器切替ボタン -->
-        <div class="mobile-btn" id="btn-weapon" style="display:none; border-color:#00CCFF; color:#00CCFF; background:rgba(0,204,255,0.3); line-height:1.2;">🔷<br>PLAZMER</div>
-        <!-- AGOREKIK用：オーバードライブ -->
-        <div class="mobile-btn" id="btn-overdrive" style="display:none; border-color:#00FF66; color:#00FF66; background:rgba(0,255,102,0.3); line-height:1.2;">🐙<br>BURST</div>
-        <!-- AGOREKIK用：触手集中/フォーメーション切替 -->
-        <div class="mobile-btn" id="btn-concentrate" style="display:none; border-color:#88FF88; color:#88FF88; background:rgba(136,255,136,0.3); line-height:1.2;">🔄<br>MODE</div>
+        <div class="mobile-btn" id="btn-dash" style="border-color:#f93; color:#f93;">DASH</div>
+        <!-- 武器切替/フォーメーション切替ボタン（共通スロット） -->
+        <div class="mobile-btn" id="btn-special" style="display:none; border-color:#00CCFF; color:#00CCFF; background:rgba(0,204,255,0.3); line-height:1.2;">🔷<br>PLAZMER</div>
     </div>
     
     <div id="game-over">
@@ -549,7 +545,7 @@ const CHARACTER_DEFS = {
             special: '生体触手フォーメーション'
         }
     }
-    // NAGAL削除（Ver.1.0036）
+    // NAGAL削除（Ver.1.0037）
 };
 
 
@@ -2907,7 +2903,6 @@ function connectToServer() {
             myPlayer.maxHp = me.maxHp;
             myPlayer.invincible = me.invincible;
             myPlayer.dashing = me.dashing;
-            myPlayer.dashReady = me.dashReady; // ダッシュ準備状態
             myPlayer.alive = me.alive;
             myPlayer.weaponLevels = me.weaponLevels;
             myPlayer.thunderEnergy = me.thunderEnergy;
@@ -3632,92 +3627,77 @@ function showMainMenu() {
 function setupCharacterButtons() {
     const char = myPlayer?.character || selectedCharacter || 'EIRYKLAV';
     
-    // 全ボタン非表示
-    document.getElementById('btn-weapon').style.display = 'none';
-    document.getElementById('btn-overdrive').style.display = 'none';
-    document.getElementById('btn-concentrate').style.display = 'none';
-    document.getElementById('btn-thunder').style.display = 'none';
-    document.getElementById('btn-kill').style.display = 'none';
-    
-    // キャラ別ボタン表示
-    if (char === 'EIRYKLAV') {
-        document.getElementById('btn-weapon').style.display = 'flex';
-        setupEiryklavButtons();
-    } else if (char === 'AGOREKIK') {
-        document.getElementById('btn-overdrive').style.display = 'flex';
-        document.getElementById('btn-concentrate').style.display = 'flex';
-        setupAgorekikButtons();
+    // 特殊ボタンを表示・設定
+    const specialBtn = document.getElementById('btn-special');
+    if (specialBtn) {
+        specialBtn.style.display = 'flex';
+        
+        if (char === 'EIRYKLAV') {
+            // 武器切替ボタン
+            specialBtn.innerHTML = '🔷<br>PLAZMER';
+            specialBtn.style.borderColor = '#00CCFF';
+            specialBtn.style.color = '#00CCFF';
+            specialBtn.style.background = 'rgba(0,204,255,0.3)';
+            
+            const toggle = () => {
+                currentWeaponEiryklav = currentWeaponEiryklav === 'PLAZMER' ? 'LASER' : 'PLAZMER';
+                if (currentWeaponEiryklav === 'PLAZMER') {
+                    specialBtn.innerHTML = '🔷<br>PLAZMER';
+                    specialBtn.style.borderColor = '#00CCFF';
+                    specialBtn.style.color = '#00CCFF';
+                    specialBtn.style.background = 'rgba(0,204,255,0.3)';
+                } else {
+                    specialBtn.innerHTML = '⚡<br>LASER';
+                    specialBtn.style.borderColor = '#FF00FF';
+                    specialBtn.style.color = '#FF00FF';
+                    specialBtn.style.background = 'rgba(255,0,255,0.3)';
+                }
+                socket.emit('switchWeapon', {});
+            };
+            specialBtn.onclick = toggle;
+            specialBtn.ontouchend = (e) => { e.preventDefault(); toggle(); };
+            
+        } else if (char === 'AGOREKIK') {
+            // フォーメーション切替ボタン
+            specialBtn.innerHTML = '🛡️<br>DEFENSE';
+            specialBtn.style.borderColor = '#00FF66';
+            specialBtn.style.color = '#00FF66';
+            specialBtn.style.background = 'rgba(0,255,102,0.3)';
+            
+            let formationMode = 'defense';
+            const toggle = () => {
+                formationMode = formationMode === 'defense' ? 'attack' : 'defense';
+                if (formationMode === 'defense') {
+                    specialBtn.innerHTML = '🛡️<br>DEFENSE';
+                    specialBtn.style.borderColor = '#00FF66';
+                    specialBtn.style.color = '#00FF66';
+                    specialBtn.style.background = 'rgba(0,255,102,0.3)';
+                } else {
+                    specialBtn.innerHTML = '⚔️<br>ATTACK';
+                    specialBtn.style.borderColor = '#FF3333';
+                    specialBtn.style.color = '#FF3333';
+                    specialBtn.style.background = 'rgba(255,51,51,0.3)';
+                }
+                socket.emit('toggleFormation', {});
+            };
+            specialBtn.onclick = toggle;
+            specialBtn.ontouchend = (e) => { e.preventDefault(); toggle(); };
+        }
     }
-    // NAGAL削除（Ver.1.0036）
     
     // ジョイスティック表示
     document.getElementById('joystick-zone').style.display = 'block';
     document.getElementById('mobile-buttons').style.display = 'flex';
 }
 
-// EIRYKLAV: 武器切替ボタン
+// EIRYKLAV: 武器状態
 let currentWeaponEiryklav = 'PLAZMER';
-function setupEiryklavButtons() {
-    const btn = document.getElementById('btn-weapon');
-    const toggle = () => {
-        currentWeaponEiryklav = currentWeaponEiryklav === 'PLAZMER' ? 'LASER' : 'PLAZMER';
-        if (currentWeaponEiryklav === 'PLAZMER') {
-            btn.innerHTML = '🔷<br>PLAZMER';
-            btn.style.borderColor = '#00CCFF';
-            btn.style.color = '#00CCFF';
-            btn.style.background = 'rgba(0,204,255,0.3)';
-        } else {
-            btn.innerHTML = '⚡<br>LASER';
-            btn.style.borderColor = '#FF00FF';
-            btn.style.color = '#FF00FF';
-            btn.style.background = 'rgba(255,0,255,0.3)';
-        }
-        socket.emit('switchWeapon', { weapon: currentWeaponEiryklav });
-    };
-    btn.onclick = toggle;
-    btn.ontouchend = (e) => { e.preventDefault(); toggle(); };
-}
 
-// AGOREKIK: 触手バーストボタン & 集中ボタン
-let agorekikBurstActive = false;
-let tentacleConcentrateActive = false;
-function setupAgorekikButtons() {
-    const btn = document.getElementById('btn-overdrive');
-    const toggle = () => {
-        agorekikBurstActive = !agorekikBurstActive;
-        if (agorekikBurstActive) {
-            btn.innerHTML = '🐙<br>BURST!';
-            btn.style.background = 'rgba(255,0,0,0.5)';
-            btn.style.boxShadow = '0 0 20px rgba(255,0,0,0.8)';
-        } else {
-            btn.innerHTML = '🐙<br>BURST';
-            btn.style.background = 'rgba(0,255,102,0.3)';
-            btn.style.boxShadow = 'none';
-        }
-        socket.emit('tentacleBurst', { active: agorekikBurstActive });
-    };
-    btn.onclick = toggle;
-    btn.ontouchend = (e) => { e.preventDefault(); toggle(); };
-    
-    // 触手集中ボタン
-    const concentrateBtn = document.getElementById('btn-concentrate');
-    const concentrate = () => {
-        if (!myPlayer) return;
-        // 現在向いている方向に触手を集中
-        socket.emit('tentacleConcentrate', { angle: myPlayer.angle });
-        concentrateBtn.innerHTML = '🎯<br>FOCUS!';
-        concentrateBtn.style.background = 'rgba(255,255,0,0.5)';
-        showMessage('🎯 TENTACLE FOCUS!');
-        setTimeout(() => {
-            concentrateBtn.innerHTML = '🎯<br>FOCUS';
-            concentrateBtn.style.background = 'rgba(136,255,136,0.3)';
-        }, 1000);
-    };
-    concentrateBtn.onclick = concentrate;
-    concentrateBtn.ontouchend = (e) => { e.preventDefault(); concentrate(); };
-}
+// 旧関数（互換性のため空で残す）
+function setupEiryklavButtons() {}
+function setupAgorekikButtons() {}
 
-// NAGAL関連は削除（Ver.1.0036）
+// NAGAL関連は削除（Ver.1.0037）
 
 function cancelHost() { socket.emit('cancelHost'); location.reload(); }
 function leaveRoom() { location.reload(); }
@@ -3798,7 +3778,9 @@ function updateInput() {
         myPlayer.x = Math.max(60, Math.min(WORLD_W - 60, myPlayer.x));
         myPlayer.y = Math.max(60, Math.min(WORLD_H - 60, myPlayer.y));
     } else if (moving) {
-        const speed = myPlayer.speed || 3.5;
+        // Bダッシュ：押している間は速度2倍
+        const baseSpeed = myPlayer.speed || 4.0;
+        const speed = isDashing ? baseSpeed * 2.0 : baseSpeed;
         const vx = Math.cos(angle) * speed; const vy = Math.sin(angle) * speed;
         if (!checkWall(myPlayer.x + vx, myPlayer.y, walls)) myPlayer.x += vx;
         if (!checkWall(myPlayer.x, myPlayer.y + vy, walls)) myPlayer.y += vy;
@@ -3807,22 +3789,24 @@ function updateInput() {
     }
     myPlayer.angle = angle;
     
+    // ダッシュ状態を同期
+    myPlayer.dashing = isDashing;
+    
     const now = Date.now();
     if (now - lastInputTime >= INPUT_RATE) {
-        socket.emit('input', { angle: angle, moving: moving, dash: input.dash, x: myPlayer.x, y: myPlayer.y });
+        socket.emit('input', { angle: angle, moving: moving, dashing: isDashing, x: myPlayer.x, y: myPlayer.y });
         lastInputTime = now;
     }
     input.dash = false;
 }
 
-// ダッシュ準備開始（ボタンを押したとき）
+// Bダッシュ状態（押している間true）
+let isDashing = false;
+
+// ダッシュ開始（ボタンを押したとき）
 function startContinuousDash() {
     if (!myPlayer || !myPlayer.alive) return;
-    
-    // ダッシュ準備状態をサーバーに送信
-    if (socket) {
-        socket.emit('input', { angle: myPlayer.angle, moving: false, dash: true, x: myPlayer.x, y: myPlayer.y });
-    }
+    isDashing = true;
     
     // DASHボタンを光らせる
     const dashBtn = document.getElementById('btn-dash');
@@ -3832,8 +3816,10 @@ function startContinuousDash() {
     }
 }
 
-// ダッシュ準備解除（ボタンを離したとき）
+// ダッシュ終了（ボタンを離したとき）
 function stopContinuousDash() {
+    isDashing = false;
+    
     // DASHボタンを元に戻す
     const dashBtn = document.getElementById('btn-dash');
     if (dashBtn) {
@@ -3842,61 +3828,15 @@ function stopContinuousDash() {
     }
 }
 
-// 連続ダッシュ更新（使用しない）
+// ダッシュ更新（不要）
 function updateContinuousDash() {
-    // 新仕様では不要
 }
 
-// ダッシュ発動（PC・モバイル共通）
+// トリガー（PC用・右クリック）
 function triggerDash() { 
-    if (!myPlayer || !myPlayer.alive) return;
-    
-    // ダッシュ準備状態をサーバーに送信
-    if (socket) {
-        socket.emit('input', { angle: myPlayer.angle, moving: false, dash: true, x: myPlayer.x, y: myPlayer.y });
-    } 
-    
-    // ダッシュ開始時のバースト粒子
-    if (myPlayer && myPlayer.alive) {
-        const glowColor = myPlayer.glowColor || '#0ff';
-        
-        // 放射状バースト粒子
-        for (let i = 0; i < 20; i++) {
-            const angle = Math.random() * Math.PI * 2;
-            const speed = 4 + Math.random() * 8;
-            dashParticles.push({
-                x: myPlayer.x,
-                y: myPlayer.y,
-                vx: Math.cos(angle) * speed,
-                vy: Math.sin(angle) * speed,
-                size: 2 + Math.random() * 4,
-                life: 20 + Math.random() * 15,
-                maxLife: 35,
-                color: Math.random() > 0.4 ? '#fff' : glowColor,
-                type: 'star'
-            });
-        }
-        
-        // 進行方向への集中粒子
-        for (let i = 0; i < 10; i++) {
-            const spreadAngle = myPlayer.angle + (Math.random() - 0.5) * 0.5;
-            const speed = 8 + Math.random() * 10;
-            dashParticles.push({
-                x: myPlayer.x,
-                y: myPlayer.y,
-                vx: Math.cos(spreadAngle) * speed,
-                vy: Math.sin(spreadAngle) * speed,
-                size: 1 + Math.random() * 2,
-                life: 12 + Math.random() * 8,
-                maxLife: 20,
-                color: '#fff',
-                type: 'star'
-            });
-        }
-        
-        // 画面シェイク（軽め）
-        triggerScreenShake(5);
-    }
+    // PCでは右クリックで一時的にダッシュ
+    isDashing = true;
+    setTimeout(() => { isDashing = false; }, 100);
 }
 
 function cycleFormation() {
@@ -4017,7 +3957,7 @@ function fireWeapons() {
         // AGOREKIK: 触手自動攻撃（BIO PHALANX）
         fireAgorekikTentacles(hits);
     }
-    // NAGAL削除（Ver.1.0036）
+    // NAGAL削除（Ver.1.0037）
 }
 
 // AGOREKIK: 触手攻撃
@@ -4072,7 +4012,7 @@ function fireAgorekikTentacles(hits) {
 // 触手ビームエフェクト配列
 let tentacleBeams = [];
 
-// NAGAL関連削除（Ver.1.0036）
+// NAGAL関連削除（Ver.1.0037）
 
 // INTERCEPT発射（INTERCEPTだけが敵弾を迎撃できる）
 function fireIntercept() {
@@ -6266,24 +6206,27 @@ function draw() {
                 ctx.strokeStyle = fillRatio >= 1 ? '#ff0' : '#880'; ctx.lineWidth = 1; ctx.strokeRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
             }
             
-            // ダッシュ準備中のオーラエフェクト
-            if (myPlayer.dashReady) {
+            // Bダッシュ中のスピードエフェクト
+            if (myPlayer.dashing) {
                 ctx.save();
+                // オレンジのオーラ
                 ctx.beginPath();
-                ctx.arc(sx, sy, 25 + Math.sin(frame * 0.3) * 5, 0, Math.PI * 2);
-                ctx.strokeStyle = `rgba(255, 200, 100, ${0.5 + Math.sin(frame * 0.2) * 0.3})`;
-                ctx.lineWidth = 4;
-                ctx.shadowBlur = 30;
+                ctx.arc(sx, sy, 25 + Math.sin(frame * 0.5) * 3, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(255, 153, 51, 0.6)';
+                ctx.lineWidth = 3;
+                ctx.shadowBlur = 25;
                 ctx.shadowColor = '#f93';
                 ctx.stroke();
                 
-                // 放射状のライン
-                for (let i = 0; i < 8; i++) {
-                    const angle = (Math.PI * 2 / 8) * i + frame * 0.05;
+                // スピードライン（後方に流れる）
+                for (let i = 0; i < 5; i++) {
+                    const offsetAngle = myPlayer.angle + Math.PI + (i - 2) * 0.2;
+                    const startDist = 15;
+                    const endDist = 35 + Math.random() * 15;
                     ctx.beginPath();
-                    ctx.moveTo(sx + Math.cos(angle) * 15, sy + Math.sin(angle) * 15);
-                    ctx.lineTo(sx + Math.cos(angle) * (30 + Math.sin(frame * 0.3 + i) * 5), sy + Math.sin(angle) * (30 + Math.sin(frame * 0.3 + i) * 5));
-                    ctx.strokeStyle = '#fc0';
+                    ctx.moveTo(sx + Math.cos(offsetAngle) * startDist, sy + Math.sin(offsetAngle) * startDist);
+                    ctx.lineTo(sx + Math.cos(offsetAngle) * endDist, sy + Math.sin(offsetAngle) * endDist);
+                    ctx.strokeStyle = `rgba(255, 200, 100, ${0.3 + Math.random() * 0.3})`;
                     ctx.lineWidth = 2;
                     ctx.stroke();
                 }
@@ -6293,21 +6236,13 @@ function draw() {
             if ((myPlayer.invincible || 0) % 4 < 2) {
                 ctx.save(); 
                 ctx.translate(sx, sy);
-                ctx.shadowBlur = myPlayer.dashing ? 60 : (myPlayer.dashReady ? 40 : 15); 
-                ctx.shadowColor = myPlayer.dashing ? '#fff' : (myPlayer.dashReady ? '#fc0' : glowColor);
+                ctx.shadowBlur = myPlayer.dashing ? 40 : 15; 
+                ctx.shadowColor = myPlayer.dashing ? '#f93' : glowColor;
                 
                 // キャラクターごとの描画
                 const charId = myPlayer.character || 'EIRYKLAV';
-                if (myPlayer.dashing) {
-                    // ダッシュ中は白い光
-                    ctx.fillStyle = '#fff';
-                    ctx.beginPath();
-                    ctx.arc(0, 0, 14, 0, Math.PI * 2);
-                    ctx.fill();
-                } else {
-                    ctx.rotate(myPlayer.angle);
-                    drawCharacterShape(ctx, charId, playerColor, glowColor, frame, 1);
-                }
+                ctx.rotate(myPlayer.angle);
+                drawCharacterShape(ctx, charId, playerColor, glowColor, frame, 1);
                 ctx.restore();
             }
             
