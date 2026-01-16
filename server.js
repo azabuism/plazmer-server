@@ -21,7 +21,9 @@ app.use(express.static('public'));
 const WORLD_W = 3000, WORLD_H = 3000;
 const TICK_RATE = 60;
 const TICK_INTERVAL = 1000 / TICK_RATE;
-const MAX_ENEMY_BULLETS = 500; // 敵弾上限
+const MAX_ENEMY_BULLETS = 200; // 敵弾上限（500→200に削減）
+const MAX_ENEMIES = 100;       // 敵数上限
+const MAX_ITEMS = 50;          // アイテム上限
 
 // 武器レベルのデフォルト値（クライアントと同期）
 const DEFAULT_WEAPON_LEVELS = {
@@ -80,6 +82,29 @@ class GameRoom {
         this.lastUpdate = Date.now();
         
         this.generateWalls(0);
+    }
+    
+    // 安全な弾追加（上限チェック付き）
+    addBullet(bullet) {
+        if (this.enemyBullets.length >= MAX_ENEMY_BULLETS) return false;
+        this.enemyBullets.push(bullet);
+        return true;
+    }
+    
+    // 複数弾追加（上限チェック付き）
+    addBullets(bullets) {
+        const remaining = MAX_ENEMY_BULLETS - this.enemyBullets.length;
+        if (remaining <= 0) return 0;
+        const toAdd = bullets.slice(0, remaining);
+        this.enemyBullets.push(...toAdd);
+        return toAdd.length;
+    }
+    
+    // デバッグログ（5秒ごと）
+    logStatus() {
+        if (this.frame % 300 === 0 && this.state === 'playing') {
+            console.log(`[Room ${this.id}] enemies:${this.enemies.length} bullets:${this.enemyBullets.length} items:${this.items.length} players:${this.players.size}`);
+        }
     }
     
     generateWalls(waveNum) {
@@ -189,7 +214,7 @@ class GameRoom {
         const playerIndex = this.players.size;
         const colorData = PLAYER_COLORS[Math.min(playerIndex, PLAYER_COLORS.length - 1)];
         
-        // Ver.1.0031: キャラクターごとの初期設定
+        // Ver.1.0032: キャラクターごとの初期設定
         const charStats = {
             EIRYKLAV: { hp: 200, speed: 3.5, main: 'PLAZMER', sub: 'LASER' },
             AGOREKIK: { hp: 250, speed: 3.0, main: 'BIO_PHALANX', sub: 'TENTACLE' },
@@ -210,7 +235,7 @@ class GameRoom {
             invincible: 60,
             dashing: false,
             dashTimer: 0,
-            // Ver.1.0031: キャラ固定武器
+            // Ver.1.0032: キャラ固定武器
             weaponLevels: { 
                 // EIRYKLAV用
                 PLAZMER: character === 'EIRYKLAV' ? 1 : 0,
@@ -442,6 +467,20 @@ class GameRoom {
         if (this.state === 'waiting') return;
         
         this.frame++;
+        
+        // デバッグログ（5秒ごと）
+        this.logStatus();
+        
+        // 上限チェック（安全装置）
+        if (this.enemies.length > MAX_ENEMIES) {
+            this.enemies = this.enemies.slice(-MAX_ENEMIES);
+        }
+        if (this.enemyBullets.length > MAX_ENEMY_BULLETS) {
+            this.enemyBullets = this.enemyBullets.slice(-MAX_ENEMY_BULLETS);
+        }
+        if (this.items.length > MAX_ITEMS) {
+            this.items = this.items.slice(-MAX_ITEMS);
+        }
         
         // weaponSelect中でも最低限更新するもの
         this.players.forEach(player => {
@@ -767,18 +806,17 @@ class GameRoom {
                         enemy.x += Math.cos(angle) * speed;
                         enemy.y += Math.sin(angle) * speed;
                         
-                        // ゾンビボスの攻撃パターン
-                        if (enemy.timer % 45 === 0) {
-                            // 放射状のゾンビ弾
-                            const bulletCount = 8;
-                            for (let i = 0; i < bulletCount; i++) {
-                                const bulletAngle = (Math.PI * 2 / bulletCount) * i + enemy.timer * 0.05;
-                                this.enemyBullets.push({
+                        // ゾンビボスの攻撃パターン（弾数削減＋間隔延長）
+                        if (enemy.timer % 90 === 0 && this.enemyBullets.length < MAX_ENEMY_BULLETS - 10) {
+                            // 放射状のゾンビ弾（4発に削減）
+                            for (let bi = 0; bi < 4; bi++) {
+                                const bulletAngle = (Math.PI * 2 / 4) * bi + enemy.timer * 0.05;
+                                this.addBullet({
                                     id: 'zb_' + this.enemyIdCounter++,
                                     x: enemy.x, y: enemy.y,
-                                    vx: Math.cos(bulletAngle) * 6, 
-                                    vy: Math.sin(bulletAngle) * 6,
-                                    life: 90, size: 8, color: '#00FF00',
+                                    vx: Math.cos(bulletAngle) * 5, 
+                                    vy: Math.sin(bulletAngle) * 5,
+                                    life: 60, size: 8, color: '#00FF00',
                                     isZombieBullet: true, zombieOwner: enemy.zombieOwner
                                 });
                             }
@@ -809,13 +847,13 @@ class GameRoom {
                             }
                         }
                         
-                        // ゾンビの弾発射
-                        if (enemy.timer % 60 === 0) {
-                            this.enemyBullets.push({
+                        // ゾンビの弾発射（間隔延長＋上限チェック）
+                        if (enemy.timer % 120 === 0 && this.enemyBullets.length < MAX_ENEMY_BULLETS - 5) {
+                            this.addBullet({
                                 id: 'zb_' + this.enemyIdCounter++,
                                 x: enemy.x, y: enemy.y,
-                                vx: Math.cos(angle) * 8, vy: Math.sin(angle) * 8,
-                                life: 60, size: 4, color: '#00FF00',
+                                vx: Math.cos(angle) * 6, vy: Math.sin(angle) * 6,
+                                life: 45, size: 4, color: '#00FF00',
                                 isZombieBullet: true, zombieOwner: enemy.zombieOwner
                             });
                         }
@@ -877,14 +915,14 @@ class GameRoom {
                     else if (!this.checkWall(enemy.x, enemy.y + vy)) enemy.y += vy;
                 }
                 
-                // 射撃する敵
-                if (enemy.shoots && enemy.timer % 90 === 0) {
+                // 射撃する敵（間隔延長＋上限チェック）
+                if (enemy.shoots && enemy.timer % 150 === 0 && this.enemyBullets.length < MAX_ENEMY_BULLETS - 5) {
                     const a = Math.atan2(target.y - enemy.y, target.x - enemy.x);
-                    this.enemyBullets.push({
+                    this.addBullet({
                         id: 'eb_' + this.enemyIdCounter++,
                         x: enemy.x, y: enemy.y,
-                        vx: Math.cos(a) * 5, vy: Math.sin(a) * 5,
-                        life: 120, size: 5, color: enemy.color
+                        vx: Math.cos(a) * 4, vy: Math.sin(a) * 4,
+                        life: 90, size: 5, color: enemy.color
                     });
                 }
                 
@@ -919,222 +957,192 @@ class GameRoom {
     }
     
     bossAttack(boss, target) {
+        // 弾数上限チェック（先に確認）
+        if (this.enemyBullets.length >= MAX_ENEMY_BULLETS - 20) return;
+        
         const angle = Math.atan2(target.y - boss.y, target.x - boss.x);
         
-        // Wave別の攻撃間隔倍率（序盤は緩く）
-        const waveMultiplier = Math.max(1, 2.5 - this.wave * 0.1);
+        // Wave別の攻撃間隔倍率（序盤は緩く、後半も緩和）
+        const waveMultiplier = Math.max(1.5, 3 - this.wave * 0.08);
         
         switch (boss.pattern) {
             case 'radial':
-                // 放射状弾幕（間隔を広げ、弾数を減らす）
-                if (boss.attackTimer % Math.floor(90 * waveMultiplier) === 0) {
-                    const bulletCount = Math.min(12, 8 + Math.floor(this.wave / 3));
+                // 放射状弾幕（大幅緩和）
+                if (boss.attackTimer % Math.floor(120 * waveMultiplier) === 0) {
+                    const bulletCount = Math.min(8, 6 + Math.floor(this.wave / 4));
                     for (let i = 0; i < bulletCount; i++) {
                         const a = (Math.PI * 2 / bulletCount) * i + boss.phase;
-                        this.enemyBullets.push({
+                        this.addBullet({
                             id: 'eb_' + this.enemyIdCounter++,
                             x: boss.x, y: boss.y,
-                            vx: Math.cos(a) * 3, vy: Math.sin(a) * 3, // 速度も低下
-                            life: 150, size: 6, color: boss.color
+                            vx: Math.cos(a) * 3, vy: Math.sin(a) * 3,
+                            life: 120, size: 6, color: boss.color
                         });
                     }
                     boss.phase += 0.2;
                 }
                 break;
             case 'spiral':
-                // 螺旋弾（間隔を大幅に広げる）
-                if (boss.attackTimer % Math.floor(20 * waveMultiplier) === 0) {
+                // 螺旋弾（間隔をさらに広げる）
+                if (boss.attackTimer % Math.floor(30 * waveMultiplier) === 0) {
                     const a = boss.timer * 0.12;
-                    this.enemyBullets.push({
+                    this.addBullet({
                         id: 'eb_' + this.enemyIdCounter++,
                         x: boss.x, y: boss.y,
                         vx: Math.cos(a) * 4, vy: Math.sin(a) * 4,
-                        life: 120, size: 5, color: boss.color
+                        life: 100, size: 5, color: boss.color
                     });
                 }
                 break;
             case 'burst':
-                // バースト弾（間隔を広げ、弾数を減らす）
-                if (boss.attackTimer % Math.floor(60 * waveMultiplier) === 0) {
-                    for (let i = 0; i < 5; i++) {
-                        const a = angle + (Math.random() - 0.5) * 0.6;
+                // バースト弾（弾数を減らす）
+                if (boss.attackTimer % Math.floor(90 * waveMultiplier) === 0) {
+                    for (let i = 0; i < 3; i++) {
+                        const a = angle + (Math.random() - 0.5) * 0.5;
                         const speed = 3 + Math.random() * 2;
-                        this.enemyBullets.push({
+                        this.addBullet({
                             id: 'eb_' + this.enemyIdCounter++,
                             x: boss.x, y: boss.y,
                             vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
-                            life: 60, size: 8, color: '#f80'
+                            life: 50, size: 8, color: '#f80'
                         });
                     }
                 }
                 break;
             case 'swarm':
-                // 群弾（間隔を大幅に広げる）
-                if (boss.attackTimer % Math.floor(15 * waveMultiplier) === 0) {
+                // 群弾（間隔を広げる）
+                if (boss.attackTimer % Math.floor(25 * waveMultiplier) === 0) {
                     const a = angle + (Math.random() - 0.5) * 1.2;
-                    this.enemyBullets.push({
+                    this.addBullet({
                         id: 'eb_' + this.enemyIdCounter++,
                         x: boss.x, y: boss.y,
                         vx: Math.cos(a) * 5, vy: Math.sin(a) * 5,
-                        life: 80, size: 4, color: boss.color
+                        life: 60, size: 4, color: boss.color
                     });
                 }
                 break;
             case 'laser':
-                // レーザービーム攻撃（弾数を大幅削減）
-                if (boss.attackTimer % Math.floor(120 * waveMultiplier) === 0) {
-                    // 4方向レーザー（8→4に削減）
-                    for (let i = 0; i < 4; i++) {
-                        const a = (Math.PI * 2 / 4) * i + boss.phase;
-                        for (let j = 0; j < 10; j++) { // 20→10に削減
-                            this.enemyBullets.push({
+                // レーザービーム攻撃（大幅削減）
+                if (boss.attackTimer % Math.floor(180 * waveMultiplier) === 0) {
+                    // 2方向レーザー（4→2に削減）
+                    for (let i = 0; i < 2; i++) {
+                        const a = (Math.PI) * i + boss.phase;
+                        for (let j = 0; j < 5; j++) { // 10→5に削減
+                            this.addBullet({
                                 id: 'eb_' + this.enemyIdCounter++,
-                                x: boss.x + Math.cos(a) * j * 25,
-                                y: boss.y + Math.sin(a) * j * 25,
+                                x: boss.x + Math.cos(a) * j * 30,
+                                y: boss.y + Math.sin(a) * j * 30,
                                 vx: Math.cos(a) * 6, vy: Math.sin(a) * 6,
-                                life: 40, size: 4, color: '#f00'
+                                life: 30, size: 4, color: '#f00'
                             });
                         }
                     }
-                    boss.phase += 0.3;
+                    boss.phase += 0.4;
                 }
                 break;
             case 'chaos':
-                // カオスパターン（間隔を広げる）
-                if (boss.attackTimer % Math.floor(40 * waveMultiplier) === 0) {
-                    // 螺旋
-                    for (let i = 0; i < 3; i++) {
-                        const a = boss.timer * 0.2 + i * (Math.PI * 2 / 3);
-                        this.enemyBullets.push({
+                // カオスパターン（大幅緩和）
+                if (boss.attackTimer % Math.floor(60 * waveMultiplier) === 0) {
+                    // 螺旋（2発に削減）
+                    for (let i = 0; i < 2; i++) {
+                        const a = boss.timer * 0.2 + i * Math.PI;
+                        this.addBullet({
                             id: 'eb_' + this.enemyIdCounter++,
                             x: boss.x, y: boss.y,
                             vx: Math.cos(a) * 4, vy: Math.sin(a) * 4,
-                            life: 150, size: 6, color: '#ff0'
+                            life: 120, size: 6, color: '#ff0'
                         });
                     }
                 }
-                if (boss.attackTimer % Math.floor(100 * waveMultiplier) === 0) {
-                    // 放射（弾数を削減）
-                    for (let i = 0; i < 16; i++) {
-                        const a = (Math.PI * 2 / 16) * i;
-                        this.enemyBullets.push({
+                if (boss.attackTimer % Math.floor(150 * waveMultiplier) === 0) {
+                    // 放射（8発に削減）
+                    for (let i = 0; i < 8; i++) {
+                        const a = (Math.PI * 2 / 8) * i;
+                        this.addBullet({
                             id: 'eb_' + this.enemyIdCounter++,
                             x: boss.x, y: boss.y,
                             vx: Math.cos(a) * 2.5, vy: Math.sin(a) * 2.5,
-                            life: 200, size: 8, color: '#f80'
+                            life: 150, size: 8, color: '#f80'
                         });
                     }
                 }
                 break;
             case 'nightmare':
-                // ナイトメア：追尾弾＋壁弾幕（緩和）
-                if (boss.attackTimer % Math.floor(60 * waveMultiplier) === 0) {
-                    // プレイヤー追尾弾（数を減らす）
-                    for (let i = 0; i < 3; i++) {
-                        const spreadAngle = angle + (i - 1) * 0.3;
-                        this.enemyBullets.push({
-                            id: 'eb_' + this.enemyIdCounter++,
-                            x: boss.x, y: boss.y,
-                            vx: Math.cos(spreadAngle) * 5, vy: Math.sin(spreadAngle) * 5,
-                            life: 100, size: 10, color: '#f44',
-                            homing: true, target: target
-                        });
-                    }
+                // ナイトメア（大幅緩和）
+                if (boss.attackTimer % Math.floor(90 * waveMultiplier) === 0) {
+                    // プレイヤー追尾弾（1発のみ）
+                    this.addBullet({
+                        id: 'eb_' + this.enemyIdCounter++,
+                        x: boss.x, y: boss.y,
+                        vx: Math.cos(angle) * 4, vy: Math.sin(angle) * 4,
+                        life: 80, size: 10, color: '#f44',
+                        homing: true, target: target
+                    });
                 }
-                if (boss.attackTimer % Math.floor(30 * waveMultiplier) === 0) {
-                    // 回転弾幕（間隔を広げる）
-                    for (let i = 0; i < 4; i++) {
-                        const a = boss.timer * 0.08 + i * (Math.PI / 2);
-                        this.enemyBullets.push({
+                if (boss.attackTimer % Math.floor(50 * waveMultiplier) === 0) {
+                    // 回転弾幕（2発に削減）
+                    for (let i = 0; i < 2; i++) {
+                        const a = boss.timer * 0.08 + i * Math.PI;
+                        this.addBullet({
                             id: 'eb_' + this.enemyIdCounter++,
                             x: boss.x, y: boss.y,
                             vx: Math.cos(a) * 3, vy: Math.sin(a) * 3,
-                            life: 180, size: 5, color: '#a44'
+                            life: 120, size: 5, color: '#a44'
                         });
                     }
                 }
                 break;
             case 'apocalypse':
-                // アポカリプス：全画面攻撃（大幅緩和）
-                if (boss.attackTimer % Math.floor(25 * waveMultiplier) === 0) {
-                    // 螺旋（間隔を広げる）
+                // アポカリプス（大幅緩和）
+                if (boss.attackTimer % Math.floor(45 * waveMultiplier) === 0) {
+                    // 螺旋（1発に削減）
                     const a1 = boss.timer * 0.2;
-                    const a2 = boss.timer * 0.2 + Math.PI;
-                    this.enemyBullets.push({
+                    this.addBullet({
                         id: 'eb_' + this.enemyIdCounter++,
                         x: boss.x, y: boss.y,
                         vx: Math.cos(a1) * 4, vy: Math.sin(a1) * 4,
-                        life: 200, size: 7, color: '#a0f'
-                    });
-                    this.enemyBullets.push({
-                        id: 'eb_' + this.enemyIdCounter++,
-                        x: boss.x, y: boss.y,
-                        vx: Math.cos(a2) * 4, vy: Math.sin(a2) * 4,
-                        life: 200, size: 7, color: '#f0a'
+                        life: 150, size: 7, color: '#a0f'
                     });
                 }
-                if (boss.attackTimer % Math.floor(90 * waveMultiplier) === 0) {
-                    // 爆発放射（弾数を大幅削減）
-                    for (let i = 0; i < 16; i++) {
-                        const a = (Math.PI * 2 / 16) * i + boss.phase;
-                        this.enemyBullets.push({
+                if (boss.attackTimer % Math.floor(150 * waveMultiplier) === 0) {
+                    // 放射（8発に削減）
+                    for (let i = 0; i < 8; i++) {
+                        const a = (Math.PI * 2 / 8) * i + boss.phase;
+                        this.addBullet({
                             id: 'eb_' + this.enemyIdCounter++,
                             x: boss.x, y: boss.y,
                             vx: Math.cos(a) * 3, vy: Math.sin(a) * 3,
-                            life: 250, size: 6, color: '#f0f'
+                            life: 150, size: 6, color: '#f0f'
                         });
-                    }
-                    boss.phase += 0.1;
-                }
-                if (boss.attackTimer % Math.floor(180 * waveMultiplier) === 0) {
-                    // 十字レーザー（弾数を大幅削減）
-                    for (let dir = 0; dir < 4; dir++) {
-                        const baseA = dir * (Math.PI / 2);
-                        for (let j = 0; j < 15; j++) {
-                            this.enemyBullets.push({
-                                id: 'eb_' + this.enemyIdCounter++,
-                                x: boss.x + Math.cos(baseA) * j * 20,
-                                y: boss.y + Math.sin(baseA) * j * 20,
-                                vx: Math.cos(baseA) * 7, vy: Math.sin(baseA) * 7,
-                                life: 30, size: 8, color: '#fff'
-                            });
-                        }
-                    }
-                }
-                break;
-            case 'all':
-                // 全パターン使用（最終ボス・緩和）
-                const phase = Math.floor(boss.attackTimer / 180) % 5; // 120→180に延長
-                if (phase === 0 && boss.attackTimer % Math.floor(30 * waveMultiplier) === 0) {
-                    // 螺旋×2
-                    const a1 = boss.timer * 0.15;
-                    const a2 = boss.timer * 0.15 + Math.PI;
-                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a1) * 4, vy: Math.sin(a1) * 4, life: 150, size: 6, color: '#fff' });
-                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a2) * 4, vy: Math.sin(a2) * 4, life: 150, size: 6, color: '#fff' });
-                }
-                if (phase === 1 && boss.attackTimer % Math.floor(60 * waveMultiplier) === 0) {
-                    for (let i = 0; i < 16; i++) {
-                        const a = (Math.PI * 2 / 16) * i + boss.phase;
-                        this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 3, vy: Math.sin(a) * 3, life: 200, size: 8, color: '#ff0' });
                     }
                     boss.phase += 0.15;
                 }
-                if (phase === 2 && boss.attackTimer % Math.floor(15 * waveMultiplier) === 0) {
-                    const a = angle + (Math.random() - 0.5) * 1.5;
-                    this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5, life: 80, size: 5, color: '#f00' });
+                // 十字レーザーは削除（負荷が高すぎる）
+                break;
+            case 'all':
+                // 全パターン（大幅緩和）
+                const phase = Math.floor(boss.attackTimer / 240) % 4; // フェーズを減らす
+                if (phase === 0 && boss.attackTimer % Math.floor(50 * waveMultiplier) === 0) {
+                    // 螺旋×1
+                    const a1 = boss.timer * 0.15;
+                    this.addBullet({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a1) * 4, vy: Math.sin(a1) * 4, life: 120, size: 6, color: '#fff' });
                 }
-                if (phase === 3 && boss.attackTimer % Math.floor(100 * waveMultiplier) === 0) {
-                    for (let dir = 0; dir < 4; dir++) { // 8→4に削減
-                        const baseA = dir * (Math.PI / 2);
-                        for (let j = 0; j < 10; j++) { // 15→10に削減
-                            this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x + Math.cos(baseA) * j * 30, y: boss.y + Math.sin(baseA) * j * 30, vx: Math.cos(baseA) * 8, vy: Math.sin(baseA) * 8, life: 25, size: 6, color: '#0ff' });
-                        }
+                if (phase === 1 && boss.attackTimer % Math.floor(120 * waveMultiplier) === 0) {
+                    // 放射（8発に削減）
+                    for (let i = 0; i < 8; i++) {
+                        const a = (Math.PI * 2 / 8) * i + boss.phase;
+                        this.addBullet({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 3, vy: Math.sin(a) * 3, life: 150, size: 8, color: '#ff0' });
                     }
+                    boss.phase += 0.2;
                 }
-                if (phase === 4 && boss.attackTimer % Math.floor(30 * waveMultiplier) === 0) {
-                    for (let i = 0; i < 6; i++) { // 8→6に削減
-                        const a = (Math.PI * 2 / 6) * i + boss.timer * 0.1;
-                        this.enemyBullets.push({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 4, vy: Math.sin(a) * 4, life: 120, size: 7, color: '#f0f' });
+                if (phase === 2 && boss.attackTimer % Math.floor(30 * waveMultiplier) === 0) {
+                    const a = angle + (Math.random() - 0.5) * 1.5;
+                    this.addBullet({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5, life: 60, size: 5, color: '#f00' });
+                }
+                if (phase === 3 && boss.attackTimer % Math.floor(60 * waveMultiplier) === 0) {
+                    for (let i = 0; i < 4; i++) {
+                        const a = (Math.PI * 2 / 4) * i + boss.timer * 0.1;
+                        this.addBullet({ id: 'eb_' + this.enemyIdCounter++, x: boss.x, y: boss.y, vx: Math.cos(a) * 4, vy: Math.sin(a) * 4, life: 100, size: 7, color: '#f0f' });
                     }
                 }
                 break;
@@ -1810,6 +1818,24 @@ io.on('connection', (socket) => {
         
         const enemy = currentRoom.enemies.find(e => e.id === player.parasiteTarget);
         if (enemy) {
+            // ゾンビ数制限（最大3体まで）
+            player.zombies = player.zombies || [];
+            const activeZombies = player.zombies.filter(zid => {
+                const z = currentRoom.enemies.find(e => e.id === zid);
+                return z && z.hp > 0 && z.isZombie;
+            });
+            player.zombies = activeZombies.map(z => z);
+            
+            if (activeZombies.length >= 3) {
+                // 最も古いゾンビを消す
+                const oldestId = player.zombies.shift();
+                const oldest = currentRoom.enemies.find(e => e.id === oldestId);
+                if (oldest) {
+                    oldest.hp = 0;
+                    oldest.isZombie = false;
+                }
+            }
+            
             // ボスの場合は特別処理
             if (enemy.isBoss) {
                 // ボスをゾンビ化（味方ボスとして参戦）
@@ -1841,7 +1867,6 @@ io.on('connection', (socket) => {
             
             player.parasiteTarget = null;
             player.parasiteBoss = false;
-            player.zombies = player.zombies || [];
             player.zombies.push(enemy.id);
         }
     });
@@ -2080,7 +2105,7 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
-    console.log(`PLAZMERS Server Ver.1.0031`);
+    console.log(`PLAZMERS Server Ver.1.0032`);
     console.log(`Running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('========================================');
