@@ -51,87 +51,64 @@ function generateOrganicMaze(stageId) {
     const walls = [];
     const cx = WORLD_W / 2, cy = WORLD_H / 2;
     
-    // Organic outer boundary
-    const segments = 32;
+    // 外周境界のみ（有機的な形状）- 壁数を半分に
+    const segments = 16;
     for (let i = 0; i < segments; i++) {
         const angle = (Math.PI * 2 / segments) * i;
-        const radius = 1350 + Math.sin(angle * 4 + stageId * 0.5) * 80;
+        const radius = 1400 + Math.sin(angle * 3 + stageId * 0.3) * 50;
         const x = cx + Math.cos(angle) * radius;
         const y = cy + Math.sin(angle) * radius;
-        walls.push({ x: x - 30, y: y - 30, w: 60, h: 60 });
+        walls.push({ x: x - 25, y: y - 25, w: 50, h: 50 });
     }
     
-    // Stage-specific internal structures
-    if (stageId === 1) { // Blood Vessel - branching tubes
-        walls.push({ x: 600, y: 800, w: 50, h: 600 }, { x: 600, y: 800, w: 500, h: 50 });
-        walls.push({ x: 2350, y: 800, w: 50, h: 600 }, { x: 1850, y: 800, w: 550, h: 50 });
-        walls.push({ x: 1100, y: 1400, w: 800, h: 60 });
-        walls.push({ x: 600, y: 1800, w: 50, h: 500 }, { x: 2350, y: 1800, w: 50, h: 500 });
-        walls.push({ x: 1400, y: 600, w: 200, h: 50 }, { x: 1400, y: 2350, w: 200, h: 50 });
-    } else if (stageId === 2) { // Neural - synaptic grid
+    // ステージごとの内部構造（大幅削減・有機的）
+    if (stageId === 1) { // Blood Vessel - シンプルな血管分岐
+        walls.push({ x: 800, y: 1200, w: 40, h: 400 });
+        walls.push({ x: 2160, y: 1400, w: 40, h: 400 });
+    } else if (stageId === 2) { // Neural - 神経シナプス（少量）
+        walls.push({ x: 900, y: 900, w: 30, h: 300 });
+        walls.push({ x: 2070, y: 1800, w: 30, h: 300 });
+    } else if (stageId === 3) { // Cell Membrane - 細胞膜の泡（3つだけ）
+        [[1000, 1000], [2000, 1500], [1200, 2000]].forEach(([px, py]) => {
+            walls.push({ x: px, y: py, w: 60, h: 60 });
+        });
+    } else if (stageId === 4) { // Lymph - リンパ節（4角のみ）
+        walls.push({ x: 700, y: 700, w: 80, h: 80 });
+        walls.push({ x: 2220, y: 700, w: 80, h: 80 });
+        walls.push({ x: 700, y: 2220, w: 80, h: 80 });
+        walls.push({ x: 2220, y: 2220, w: 80, h: 80 });
+    } else if (stageId === 5) { // Heart - 心臓の鼓動（中央に少し）
+        walls.push({ x: cx - 200, y: cy - 30, w: 120, h: 60 });
+        walls.push({ x: cx + 80, y: cy - 30, w: 120, h: 60 });
+    } else if (stageId === 6) { // Brain - 脳のしわ（2本だけ）
+        walls.push({ x: 900, y: 800, w: 40, h: 350 });
+        walls.push({ x: 2060, y: 1850, w: 40, h: 350 });
+    } else if (stageId === 7) { // Bone Marrow - 骨髄（散在5個）
         for (let i = 0; i < 5; i++) {
-            walls.push({ x: 500 + i * 450, y: 700, w: 30, h: 500 });
-            walls.push({ x: 500 + i * 450, y: 1800, w: 30, h: 500 });
+            const angle = (Math.PI * 2 / 5) * i;
+            const r = 600;
+            walls.push({ x: cx + Math.cos(angle) * r - 30, y: cy + Math.sin(angle) * r - 30, w: 60, h: 60 });
         }
-        walls.push({ x: 700, y: 1200, w: 600, h: 30 }, { x: 1700, y: 1200, w: 600, h: 30 });
-        walls.push({ x: 700, y: 1770, w: 600, h: 30 }, { x: 1700, y: 1770, w: 600, h: 30 });
-    } else if (stageId === 3) { // Cell Membrane - bubbles
-        [[900, 900], [2100, 900], [1500, 1500], [900, 2100], [2100, 2100]].forEach(([px, py]) => {
-            for (let a = 0; a < 5; a++) {
-                const ang = (Math.PI * 2 / 5) * a;
-                walls.push({ x: px + Math.cos(ang) * 180 - 25, y: py + Math.sin(ang) * 180 - 25, w: 50, h: 80 });
-            }
-        });
-    } else if (stageId === 4) { // Lymph - defensive
-        [[600, 600], [2200, 600], [600, 2200], [2200, 2200]].forEach(([px, py]) => {
-            walls.push({ x: px, y: py, w: 250, h: 50 }, { x: px, y: py, w: 50, h: 250 });
-        });
-        walls.push({ x: 1300, y: 1100, w: 400, h: 50 }, { x: 1300, y: 1850, w: 400, h: 50 });
-        walls.push({ x: 1100, y: 1300, w: 50, h: 400 }, { x: 1850, y: 1300, w: 50, h: 400 });
-    } else if (stageId === 5) { // Heart - concentric pulsing
-        [350, 550, 750].forEach((r, ri) => {
-            for (let a = 0; a < 6; a++) {
-                if ((a + ri) % 2 === 0) continue;
-                const ang = (Math.PI * 2 / 6) * a;
-                walls.push({ x: cx + Math.cos(ang) * r - 30, y: cy + Math.sin(ang) * r - 30, w: 60, h: 120 });
-            }
-        });
-    } else if (stageId === 6) { // Brain - complex folds
-        for (let i = 0; i < 8; i++) {
-            const px = 500 + (i % 4) * 580;
-            const py = 650 + Math.floor(i / 4) * 950;
-            walls.push({ x: px, y: py, w: 40, h: 280 });
-            walls.push({ x: px + (i % 2 === 0 ? 0 : 180), y: py + 280, w: 220, h: 40 });
-        }
-    } else if (stageId === 7) { // Bone Marrow - scattered
-        for (let i = 0; i < 18; i++) {
-            const px = 450 + Math.random() * 2100;
-            const py = 450 + Math.random() * 2100;
-            walls.push({ x: px, y: py, w: 40 + Math.random() * 60, h: 40 + Math.random() * 60 });
-        }
-    } else if (stageId === 8) { // Alveoli - honeycomb
-        for (let row = 0; row < 4; row++) {
-            for (let col = 0; col < 5; col++) {
-                const px = 550 + col * 480 + (row % 2) * 240;
-                const py = 550 + row * 520;
-                walls.push({ x: px, y: py, w: 90, h: 40 });
-                walls.push({ x: px - 35, y: py + 40, w: 35, h: 110 });
-                walls.push({ x: px + 90, y: py + 40, w: 35, h: 110 });
-            }
-        }
-    } else if (stageId === 9) { // Data Stream - digital
-        for (let i = 0; i < 7; i++) { walls.push({ x: 350 + i * 380, y: 350, w: 20, h: 2300 }); }
-        for (let i = 0; i < 7; i++) { walls.push({ x: 350, y: 350 + i * 380, w: 2300, h: 20 }); }
-    } else if (stageId === 10) { // Virus Core - chaos spiral
-        for (let r = 250; r < 1100; r += 200) {
-            for (let a = 0; a < 10; a++) {
-                const ang = (Math.PI * 2 / 10) * a + r * 0.008;
-                walls.push({ x: cx + Math.cos(ang) * r - 25, y: cy + Math.sin(ang) * r - 25, w: 50, h: 80 + Math.random() * 40 });
-            }
+    } else if (stageId === 8) { // Alveoli - 肺胞（少量）
+        walls.push({ x: 800, y: 1100, w: 50, h: 80 });
+        walls.push({ x: 2150, y: 1100, w: 50, h: 80 });
+        walls.push({ x: 800, y: 1820, w: 50, h: 80 });
+        walls.push({ x: 2150, y: 1820, w: 50, h: 80 });
+    } else if (stageId === 9) { // Data Stream - 電子の海（超シンプル）
+        // 中央に十字のみ
+        walls.push({ x: cx - 15, y: cy - 300, w: 30, h: 200 });
+        walls.push({ x: cx - 15, y: cy + 100, w: 30, h: 200 });
+    } else if (stageId === 10) { // Virus Core - ウイルス核（最小限）
+        for (let i = 0; i < 4; i++) {
+            const angle = (Math.PI * 2 / 4) * i + Math.PI / 4;
+            const r = 500;
+            walls.push({ x: cx + Math.cos(angle) * r - 30, y: cy + Math.sin(angle) * r - 30, w: 60, h: 60 });
         }
     }
     return walls;
 }
+
+const PLAYER_COLORS = ['#ffffff', '#ffff00', '#00aaff', '#ff66aa']; // P1白, P2黄, P3青, P4ピンク
 
 const rooms = new Map();
 
@@ -141,6 +118,7 @@ class GameRoom {
         this.items = []; this.stage = 1; this.score = 0; this.state = 'waiting';
         this.frame = 0; this.idCounter = 0; this.boss = null; this.killCount = 0;
         this.walls = generateOrganicMaze(1); this.killsNeeded = 15; this.stageTransition = false;
+        this.playerIndex = 0;
     }
 
     getStage() { return STAGES[this.stage - 1]; }
@@ -148,7 +126,9 @@ class GameRoom {
     addPlayer(socket, name, isHost = false) {
         let sx, sy;
         for (let i = 0; i < 50; i++) { sx = WORLD_W / 2 + (Math.random() - 0.5) * 300; sy = WORLD_H / 2 + (Math.random() - 0.5) * 300; if (!this.checkWallCollision(sx, sy, 20)) break; }
-        const player = { id: socket.id, name, x: sx, y: sy, angle: -Math.PI / 2, hp: 100, maxHp: 100, alive: true, score: 0, isHost, invincible: 180, dashing: false, respawnTimer: 0, weapons: { gatling: 1, phalanx: 0, missile: 0, laser: 0, dash: 1 }, autoFire: { gatling: true, phalanx: true, missile: true, laser: true }, phalanxMode: 'atk', phalanxUnits: [], input: { dx: 0, dy: 0, dashing: false } };
+        const colorIdx = this.playerIndex % 4;
+        this.playerIndex++;
+        const player = { id: socket.id, name, x: sx, y: sy, angle: -Math.PI / 2, hp: 100, maxHp: 100, alive: true, score: 0, isHost, invincible: 180, dashing: false, respawnTimer: 0, weapons: { gatling: 1, phalanx: 0, missile: 0, laser: 0, dash: 1 }, autoFire: { gatling: true, phalanx: true, missile: true, laser: true }, phalanxMode: 'atk', phalanxUnits: [], input: { dx: 0, dy: 0, dashing: false }, colorIdx: colorIdx, color: PLAYER_COLORS[colorIdx] };
         this.players.set(socket.id, player); return player;
     }
 
@@ -162,7 +142,9 @@ class GameRoom {
 
     nextStage() { if (this.stage >= 10) { io.to(this.id).emit('gameComplete', { score: this.score }); this.state = 'complete'; return; } this.stageTransition = true; this.stage++; this.killCount = 0; this.killsNeeded = 12 + this.stage * 4; this.enemies = []; this.enemyBullets = []; this.items = []; this.boss = null; this.walls = generateOrganicMaze(this.stage); this.players.forEach(p => { p.x = WORLD_W / 2 + (Math.random() - 0.5) * 200; p.y = WORLD_H / 2 + (Math.random() - 0.5) * 200; p.hp = Math.min(p.maxHp, p.hp + 50); p.invincible = 180; }); io.to(this.id).emit('stageStart', { stage: this.getStage(), stageNum: this.stage, walls: this.walls }); setTimeout(() => { this.stageTransition = false; }, 2000); }
 
-    update() { if (this.state !== 'playing' || this.stageTransition) return; this.frame++; this.players.forEach(p => { if (p.alive) { if (p.invincible > 0) p.invincible--; const speed = p.input.dashing ? 5 + (p.weapons.dash || 1) * 0.8 : 5; let nx = p.x + p.input.dx * speed, ny = p.y + p.input.dy * speed; const res = this.resolveWallCollision(nx, ny, 15); p.x = Math.max(50, Math.min(WORLD_W - 50, res.x)); p.y = Math.max(50, Math.min(WORLD_H - 50, res.y)); p.dashing = p.input.dashing; if (p.input.dx !== 0 || p.input.dy !== 0) p.angle = Math.atan2(p.input.dy, p.input.dx); this.updatePhalanx(p); } else { p.respawnTimer++; if (p.respawnTimer >= RESPAWN_TIME) this.respawnPlayer(p); } }); if (!this.boss && this.frame % Math.max(30, 60 - this.stage * 4) === 0) this.spawnEnemy(); this.updateEnemies(); if (this.boss) this.updateBoss(); this.updateBullets(); this.updateItems(); if (!this.boss && this.killCount >= this.killsNeeded) this.spawnBoss(); if (this.frame % 2 === 0) this.broadcast(); }
+    update() { if (this.state !== 'playing' || this.stageTransition) return; this.frame++; this.players.forEach(p => { if (p.alive) { if (p.invincible > 0) p.invincible--; const speed = p.input.dashing ? 8 + (p.weapons.dash || 1) * 1.2 : 5; let nx = p.x + p.input.dx * speed, ny = p.y + p.input.dy * speed; if (p.input.dashing) { p.x = Math.max(50, Math.min(WORLD_W - 50, nx)); p.y = Math.max(50, Math.min(WORLD_H - 50, ny)); this.dashAttack(p); } else { const res = this.resolveWallCollision(nx, ny, 15); p.x = Math.max(50, Math.min(WORLD_W - 50, res.x)); p.y = Math.max(50, Math.min(WORLD_H - 50, res.y)); } p.dashing = p.input.dashing; if (p.input.dx !== 0 || p.input.dy !== 0) p.angle = Math.atan2(p.input.dy, p.input.dx); this.updatePhalanx(p); } else { p.respawnTimer++; if (p.respawnTimer >= RESPAWN_TIME) this.respawnPlayer(p); } }); if (!this.boss && this.frame % Math.max(30, 60 - this.stage * 4) === 0) this.spawnEnemy(); this.updateEnemies(); if (this.boss) this.updateBoss(); this.updateBullets(); this.updateItems(); if (!this.boss && this.killCount >= this.killsNeeded) this.spawnBoss(); if (this.frame % 2 === 0) this.broadcast(); }
+
+    dashAttack(p) { const dashDmg = 10 + (p.weapons.dash || 1) * 3; this.enemies.forEach(e => { if (Math.hypot(p.x - e.x, p.y - e.y) < 25 + e.size) { e.hp -= dashDmg; if (e.hp <= 0) { p.score += e.score || 10; this.score += e.score || 10; this.killCount++; this.dropItem(e.x, e.y); } io.to(this.id).emit('dashHit', { x: e.x, y: e.y }); } }); if (this.boss && Math.hypot(p.x - this.boss.x, p.y - this.boss.y) < 25 + this.boss.size) { this.boss.hp -= dashDmg; io.to(this.id).emit('dashHit', { x: this.boss.x, y: this.boss.y }); } }
 
     respawnPlayer(p) { let sx, sy; for (let i = 0; i < 50; i++) { sx = WORLD_W / 2 + (Math.random() - 0.5) * 300; sy = WORLD_H / 2 + (Math.random() - 0.5) * 300; if (!this.checkWallCollision(sx, sy, 20)) break; } p.alive = true; p.hp = p.maxHp; p.x = sx; p.y = sy; p.invincible = 180; p.respawnTimer = 0; io.to(p.id).emit('respawned'); }
 
@@ -188,12 +170,12 @@ class GameRoom {
 
     handleMissileExplosion(data) { this.enemyBullets = this.enemyBullets.filter(b => Math.hypot(b.x - data.x, b.y - data.y) > data.radius); }
 
-    broadcast() { const st = this.getStage(); const state = { players: [], enemies: this.enemies.map(e => ({ id: e.id, x: e.x, y: e.y, hp: e.hp, maxHp: e.maxHp, size: e.size, color: e.color })), boss: this.boss ? { id: this.boss.id, x: this.boss.x, y: this.boss.y, hp: this.boss.hp, maxHp: this.boss.maxHp, size: this.boss.size, color: this.boss.color, name: this.boss.name, nameJP: this.boss.nameJP } : null, bullets: this.enemyBullets.map(b => ({ x: b.x, y: b.y, boss: b.boss })), items: this.items, stage: this.stage, score: this.score, stageInfo: st, killCount: this.killCount, killsNeeded: this.killsNeeded, walls: this.walls }; this.players.forEach(p => { state.players.push({ id: p.id, name: p.name, x: p.x, y: p.y, angle: p.angle, hp: p.hp, maxHp: p.maxHp, alive: p.alive, dashing: p.dashing, invincible: p.invincible, weapons: p.weapons, autoFire: p.autoFire, phalanxMode: p.phalanxMode, phalanxUnits: p.phalanxUnits, score: p.score, respawnTimer: p.respawnTimer }); }); io.to(this.id).emit('state', state); }
+    broadcast() { const st = this.getStage(); const state = { players: [], enemies: this.enemies.map(e => ({ id: e.id, x: e.x, y: e.y, hp: e.hp, maxHp: e.maxHp, size: e.size, color: e.color })), boss: this.boss ? { id: this.boss.id, x: this.boss.x, y: this.boss.y, hp: this.boss.hp, maxHp: this.boss.maxHp, size: this.boss.size, color: this.boss.color, name: this.boss.name, nameJP: this.boss.nameJP } : null, bullets: this.enemyBullets.map(b => ({ x: b.x, y: b.y, boss: b.boss })), items: this.items, stage: this.stage, score: this.score, stageInfo: st, killCount: this.killCount, killsNeeded: this.killsNeeded, walls: this.walls }; this.players.forEach(p => { state.players.push({ id: p.id, name: p.name, x: p.x, y: p.y, angle: p.angle, hp: p.hp, maxHp: p.maxHp, alive: p.alive, dashing: p.dashing, invincible: p.invincible, weapons: p.weapons, autoFire: p.autoFire, phalanxMode: p.phalanxMode, phalanxUnits: p.phalanxUnits, score: p.score, respawnTimer: p.respawnTimer, color: p.color, colorIdx: p.colorIdx }); }); io.to(this.id).emit('state', state); }
 
     stop() { if (this.loopInterval) { clearInterval(this.loopInterval); this.loopInterval = null; } }
 }
 
-function generateRoomCode() { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let code = ''; for (let i = 0; i < 4; i++) code += c[Math.floor(Math.random() * c.length)]; return code; }
+function generateRoomCode() { return String(Math.floor(1000 + Math.random() * 9000)); }
 
 io.on('connection', (socket) => {
     let currentRoom = null;
@@ -209,4 +191,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('PLAZMERS Ver.1.009 - INNER SPACE Server on port ' + PORT));
+server.listen(PORT, () => console.log('PLAZMERS Ver.1.010 - INNER SPACE Server on port ' + PORT));
