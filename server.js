@@ -148,7 +148,58 @@ class GameRoom {
 
     respawnPlayer(p) { let sx, sy; for (let i = 0; i < 50; i++) { sx = WORLD_W / 2 + (Math.random() - 0.5) * 300; sy = WORLD_H / 2 + (Math.random() - 0.5) * 300; if (!this.checkWallCollision(sx, sy, 20)) break; } p.alive = true; p.hp = p.maxHp; p.x = sx; p.y = sy; p.invincible = 180; p.respawnTimer = 0; io.to(p.id).emit('respawned'); }
 
-    updatePhalanx(p) { const lv = p.weapons.phalanx; if (lv <= 0) { p.phalanxUnits = []; return; } while (p.phalanxUnits.length < lv) p.phalanxUnits.push({ angle: Math.random() * Math.PI * 2, dist: 50 + Math.random() * 30 }); while (p.phalanxUnits.length > lv) p.phalanxUnits.pop(); p.phalanxUnits.forEach(f => f.angle += 0.04); if (p.autoFire.phalanx && this.frame % 12 === 0) { if (p.phalanxMode === 'atk') { p.phalanxUnits.forEach(f => { const fx = p.x + Math.cos(f.angle) * f.dist, fy = p.y + Math.sin(f.angle) * f.dist; let target = null, minD = 350; this.enemies.forEach(e => { const d = Math.hypot(e.x - fx, e.y - fy); if (d < minD) { minD = d; target = e; } }); if (this.boss) { const d = Math.hypot(this.boss.x - fx, this.boss.y - fy); if (d < minD) target = this.boss; } if (target) { target.hp -= 3 + lv; io.to(this.id).emit('phalanxShot', { x: fx, y: fy, tx: target.x, ty: target.y, mode: 'atk' }); } }); } else { p.phalanxUnits.forEach(f => { const fx = p.x + Math.cos(f.angle) * f.dist, fy = p.y + Math.sin(f.angle) * f.dist; let destroyed = 0; this.enemyBullets = this.enemyBullets.filter(b => { if (Math.hypot(b.x - fx, b.y - fy) < 40) { destroyed++; return false; } return true; }); if (destroyed > 0) io.to(this.id).emit('phalanxShot', { x: fx, y: fy, tx: fx, ty: fy, mode: 'def', count: destroyed }); }); } } }
+    updatePhalanx(p) { const lv = p.weapons.phalanx; if (lv <= 0) { p.phalanxUnits = []; return; } 
+        // ユニット数の調整
+        while (p.phalanxUnits.length < lv) p.phalanxUnits.push({ angle: Math.random() * Math.PI * 2, dist: 50 + Math.random() * 30, state: 'orbit', targetX: 0, targetY: 0, attackTimer: 0 }); 
+        while (p.phalanxUnits.length > lv) p.phalanxUnits.pop();
+        
+        if (p.phalanxMode === 'atk') {
+            // ATKモード：敵に向かって一列→分散攻撃
+            let target = null, minD = 400;
+            this.enemies.forEach(e => { const d = Math.hypot(e.x - p.x, e.y - p.y); if (d < minD) { minD = d; target = e; } });
+            if (this.boss) { const d = Math.hypot(this.boss.x - p.x, this.boss.y - p.y); if (d < minD) { minD = d; target = this.boss; } }
+            
+            p.phalanxUnits.forEach((f, i) => {
+                if (target && minD < 350) {
+                    f.state = 'attack';
+                    const formAngle = Math.atan2(target.y - p.y, target.x - p.x);
+                    const spreadAngle = formAngle + (i - (p.phalanxUnits.length - 1) / 2) * 0.3;
+                    const targetDist = Math.min(minD - 30, 120 + Math.sin(this.frame * 0.1 + i) * 40);
+                    f.targetX = p.x + Math.cos(spreadAngle) * targetDist;
+                    f.targetY = p.y + Math.sin(spreadAngle) * targetDist;
+                    f.angle = Math.atan2(f.targetY - p.y, f.targetX - p.x);
+                    f.dist += (targetDist - f.dist) * 0.15;
+                } else {
+                    f.state = 'orbit';
+                    f.angle += 0.05;
+                    f.dist += (60 - f.dist) * 0.1;
+                }
+            });
+            
+            // 攻撃判定
+            if (this.frame % 10 === 0) {
+                p.phalanxUnits.forEach(f => {
+                    if (f.state !== 'attack') return;
+                    const fx = p.x + Math.cos(f.angle) * f.dist, fy = p.y + Math.sin(f.angle) * f.dist;
+                    let hit = null, hitD = 60;
+                    this.enemies.forEach(e => { const d = Math.hypot(e.x - fx, e.y - fy); if (d < hitD) { hitD = d; hit = e; } });
+                    if (this.boss) { const d = Math.hypot(this.boss.x - fx, this.boss.y - fy); if (d < hitD) { hitD = d; hit = this.boss; } }
+                    if (hit) { hit.hp -= 4 + lv; io.to(this.id).emit('phalanxShot', { x: fx, y: fy, tx: hit.x, ty: hit.y, mode: 'atk' }); }
+                });
+            }
+        } else {
+            // DEFモード：周回防御
+            p.phalanxUnits.forEach(f => { f.angle += 0.04; f.dist += (55 - f.dist) * 0.1; f.state = 'orbit'; });
+            if (this.frame % 8 === 0) {
+                p.phalanxUnits.forEach(f => {
+                    const fx = p.x + Math.cos(f.angle) * f.dist, fy = p.y + Math.sin(f.angle) * f.dist;
+                    let destroyed = 0;
+                    this.enemyBullets = this.enemyBullets.filter(b => { if (Math.hypot(b.x - fx, b.y - fy) < 45) { destroyed++; return false; } return true; });
+                    if (destroyed > 0) io.to(this.id).emit('phalanxShot', { x: fx, y: fy, tx: fx, ty: fy, mode: 'def', count: destroyed });
+                });
+            }
+        }
+    }
 
     spawnEnemy() { if (this.enemies.length >= MAX_ENEMIES) return; const types = Object.keys(ENEMY_TYPES); const weights = [40 - this.stage * 3, 30, 15 + this.stage, 10 + this.stage, 5 + this.stage * 2]; let roll = Math.random() * 100, idx = 0; for (let i = 0; i < weights.length; i++) { roll -= Math.max(5, weights[i]); if (roll <= 0) { idx = i; break; } } const t = ENEMY_TYPES[types[idx]]; let ex, ey; for (let i = 0; i < 50; i++) { const side = Math.floor(Math.random() * 4), m = 250; if (side === 0) { ex = m + Math.random() * (WORLD_W - m * 2); ey = m; } else if (side === 1) { ex = m + Math.random() * (WORLD_W - m * 2); ey = WORLD_H - m; } else if (side === 2) { ex = m; ey = m + Math.random() * (WORLD_H - m * 2); } else { ex = WORLD_W - m; ey = m + Math.random() * (WORLD_H - m * 2); } if (!this.checkWallCollision(ex, ey, t.size)) break; } const st = this.getStage(); this.enemies.push({ id: 'e_' + this.idCounter++, x: ex, y: ey, hp: Math.floor(t.hp * (1 + this.stage * 0.1)), maxHp: Math.floor(t.hp * (1 + this.stage * 0.1)), speed: t.speed, size: t.size, color: st.color, score: t.score, shootTimer: Math.random() * 60 }); }
 
@@ -191,4 +242,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('PLAZMERS Ver.1.010 - INNER SPACE Server on port ' + PORT));
+server.listen(PORT, () => console.log('PLAZMERS Ver.1.011 - INNER SPACE Server on port ' + PORT));

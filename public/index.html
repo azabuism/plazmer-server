@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>PLAZMERS Ver.1.010 - INNER SPACE</title>
+<title>PLAZMERS Ver.1.011 - INNER SPACE</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 body{background:#000;overflow:hidden;font-family:'Courier New',monospace;touch-action:none}
@@ -56,7 +56,7 @@ body{background:#000;overflow:hidden;font-family:'Courier New',monospace;touch-a
 <div id="minimap"><canvas id="minimap-canvas" width="166" height="166"></canvas></div>
 <div id="menu">
 <h1>PLAZMERS</h1>
-<div class="subtitle">◆ INNER SPACE ◆ Ver.1.010</div>
+<div class="subtitle">◆ INNER SPACE ◆ Ver.1.011</div>
 <div class="story">西暦20XX年、謎のウイルスが地球を侵食。<br>SPT細胞を注入された適合者たちは<br>「内なる宇宙」で戦う存在となった。</div>
 <input type="text" id="player-name" placeholder="名前を入力" maxlength="12">
 <button class="menu-btn" id="btn-host">ルームを作成</button>
@@ -103,6 +103,10 @@ let displayX=0,displayY=0,displayAngle=0;
 let input={dx:0,dy:0,dashing:false},keys={},mouseDown=false,isMobile='ontouchstart'in window;
 let stickActive=false,stickBaseX=0,stickBaseY=0,stickTouchId=null;
 const STICK_RADIUS=60;
+// GotG風宇宙背景用
+let bgStars=[],bgNebulae=[];
+for(let i=0;i<200;i++)bgStars.push({x:Math.random()*4000-500,y:Math.random()*4000-500,size:0.5+Math.random()*2,speed:0.3+Math.random()*0.7,twinkle:Math.random()*Math.PI*2});
+for(let i=0;i<8;i++)bgNebulae.push({x:Math.random()*3500,y:Math.random()*3500,radius:200+Math.random()*400,color:['#4a0080','#800040','#004080','#800060','#300080','#600040'][Math.floor(Math.random()*6)],alpha:0.15+Math.random()*0.1});
 
 function resize(){canvas.width=window.innerWidth;canvas.height=window.innerHeight}
 window.addEventListener('resize',resize);resize();
@@ -159,17 +163,15 @@ function updateCamera(){const me=gameState.players.find(p=>p.id===myId);if(!me)r
 
 function updateWeapons(){const me=gameState.players.find(p=>p.id===myId);if(!me||!me.alive)return;const hits=[];
 if(me.autoFire.gatling&&frame%Math.max(2,6-me.weapons.gatling)===0){const spread=0.15,cnt=Math.min(3,1+Math.floor(me.weapons.gatling/4));for(let i=0;i<cnt;i++){const a=displayAngle+(Math.random()-0.5)*spread;bullets.push({x:displayX,y:displayY,vx:Math.cos(a)*15,vy:Math.sin(a)*15,life:40,damage:1+me.weapons.gatling*0.3,size:3,color:currentStage?.color||'#f06'})}}
-if(me.autoFire.missile&&me.weapons.missile>0&&frame%Math.max(15,40-me.weapons.missile*3)===0){const cnt=Math.min(4,1+Math.floor(me.weapons.missile/3));for(let i=0;i<cnt;i++){const backAngle=displayAngle+Math.PI+(Math.random()-0.5)*0.8;missiles.push({x:displayX,y:displayY,vx:Math.cos(backAngle)*6,vy:Math.sin(backAngle)*6,life:200,damage:8+me.weapons.missile*2,trail:[],phase:'back',phaseTimer:20+Math.random()*15,wobble:Math.random()*Math.PI*2})}}
+if(me.autoFire.missile&&me.weapons.missile>0&&frame%Math.max(30,60-me.weapons.missile*4)===0){const cnt=Math.min(10,2+me.weapons.missile);for(let i=0;i<cnt;i++){const side=i%2===0?1:-1;const idx=Math.floor(i/2);missiles.push({x:displayX-Math.cos(displayAngle)*30,y:displayY-Math.sin(displayAngle)*30,vx:0,vy:0,life:300,damage:5+me.weapons.missile,trail:[],phase:'spawn',phaseTimer:10+idx*3,formPos:{side,idx},baseSpeed:10+Math.random()*4,wobbleAmt:0.03+Math.random()*0.04,wobble:Math.random()*Math.PI*2,originX:displayX,originY:displayY,originAngle:displayAngle})}}
 if(me.autoFire.laser&&me.weapons.laser>0&&frame%Math.max(8,20-me.weapons.laser*2)===0){const len=300+me.weapons.laser*40,w=6+me.weapons.laser;lasers.push({x:displayX,y:displayY,angle:displayAngle,length:len,width:w,life:6,damage:5+me.weapons.laser*2})}
 bullets=bullets.filter(b=>{b.x+=b.vx;b.y+=b.vy;b.life--;if(b.life<=0)return false;for(const w of walls){if(b.x>w.x&&b.x<w.x+w.w&&b.y>w.y&&b.y<w.y+w.h){createSparks(b.x,b.y,5);return false}}gameState.enemies.forEach(e=>{if(Math.hypot(b.x-e.x,b.y-e.y)<e.size+5){hits.push({id:e.id,damage:b.damage});createSparks(b.x,b.y,8);b.life=0}});if(gameState.boss&&Math.hypot(b.x-gameState.boss.x,b.y-gameState.boss.y)<gameState.boss.size+5){hits.push({id:gameState.boss.id,damage:b.damage});createSparks(b.x,b.y,10);b.life=0}return b.life>0});
-missiles=missiles.filter(m=>{m.trail.push({x:m.x,y:m.y});if(m.trail.length>15)m.trail.shift();
-// フェーズ管理：後方射出→方向転換→敵追尾
-if(m.phase==='back'){m.phaseTimer--;if(m.phaseTimer<=0)m.phase='seek'}
-// ロケット花火風のランダム揺れ
-m.wobble+=0.3;const wobbleAmt=m.phase==='back'?0.15:0.08;const wobbleForce=Math.sin(m.wobble)*wobbleAmt;
-let target=null,minD=500;gameState.enemies.forEach(e=>{const d=Math.hypot(e.x-m.x,e.y-m.y);if(d<minD){minD=d;target=e}});if(gameState.boss){const d=Math.hypot(gameState.boss.x-m.x,gameState.boss.y-m.y);if(d<minD)target=gameState.boss}
-if(m.phase==='seek'&&target){const ta=Math.atan2(target.y-m.y,target.x-m.x);let da=ta-Math.atan2(m.vy,m.vx);while(da>Math.PI)da-=Math.PI*2;while(da<-Math.PI)da+=Math.PI*2;const turn=Math.min(Math.abs(da),0.15)*Math.sign(da)+wobbleForce;const a=Math.atan2(m.vy,m.vx)+turn;const speed=Math.hypot(m.vx,m.vy)*1.03;m.vx=Math.cos(a)*Math.min(speed,14);m.vy=Math.sin(a)*Math.min(speed,14)}else{const a=Math.atan2(m.vy,m.vx)+wobbleForce;const speed=Math.hypot(m.vx,m.vy);m.vx=Math.cos(a)*speed;m.vy=Math.sin(a)*speed}
-m.x+=m.vx;m.y+=m.vy;m.life--;for(const w of walls){if(m.x>w.x&&m.x<w.x+w.w&&m.y>w.y&&m.y<w.y+w.h){createExplosion(m.x,m.y,40);socket.emit('missileExplosion',{x:m.x,y:m.y,radius:40});return false}}let hit=false;gameState.enemies.forEach(e=>{if(Math.hypot(m.x-e.x,m.y-e.y)<e.size+15){hits.push({id:e.id,damage:m.damage});createExplosion(m.x,m.y,50+m.damage);socket.emit('missileExplosion',{x:m.x,y:m.y,radius:50});hit=true}});if(gameState.boss&&Math.hypot(m.x-gameState.boss.x,m.y-gameState.boss.y)<gameState.boss.size+15){hits.push({id:gameState.boss.id,damage:m.damage});createExplosion(m.x,m.y,60);socket.emit('missileExplosion',{x:m.x,y:m.y,radius:60});hit=true}return!hit&&m.life>0});
+missiles=missiles.filter(m=>{m.trail.push({x:m.x,y:m.y});if(m.trail.length>12)m.trail.shift();
+// フェーズ管理：spawn(出現)→form(展開)→attack(発射)
+if(m.phase==='spawn'){m.phaseTimer--;const backDist=40+m.formPos.idx*15;const backX=m.originX-Math.cos(m.originAngle)*backDist;const backY=m.originY-Math.sin(m.originAngle)*backDist;m.x+=(backX-m.x)*0.3;m.y+=(backY-m.y)*0.3;if(m.phaseTimer<=0){m.phase='form';m.phaseTimer=15+m.formPos.idx*2}}
+else if(m.phase==='form'){m.phaseTimer--;const sideAngle=m.originAngle+Math.PI/2*m.formPos.side;const sideDist=25+m.formPos.idx*18;const formX=m.originX+Math.cos(sideAngle)*sideDist-Math.cos(m.originAngle)*20;const formY=m.originY+Math.sin(sideAngle)*sideDist-Math.sin(m.originAngle)*20;m.x+=(formX-m.x)*0.25;m.y+=(formY-m.y)*0.25;if(m.phaseTimer<=0){m.phase='attack';m.vx=Math.cos(m.originAngle)*m.baseSpeed;m.vy=Math.sin(m.originAngle)*m.baseSpeed}}
+else if(m.phase==='attack'){m.wobble+=0.4;const wobbleForce=Math.sin(m.wobble)*m.wobbleAmt;const a=Math.atan2(m.vy,m.vx)+wobbleForce;const speed=Math.hypot(m.vx,m.vy)*1.01;m.vx=Math.cos(a)*Math.min(speed,16);m.vy=Math.sin(a)*Math.min(speed,16);m.x+=m.vx;m.y+=m.vy}
+m.life--;for(const w of walls){if(m.x>w.x&&m.x<w.x+w.w&&m.y>w.y&&m.y<w.y+w.h){createExplosion(m.x,m.y,35);socket.emit('missileExplosion',{x:m.x,y:m.y,radius:35});return false}}let hit=false;gameState.enemies.forEach(e=>{if(Math.hypot(m.x-e.x,m.y-e.y)<e.size+10){hits.push({id:e.id,damage:m.damage});createExplosion(m.x,m.y,40);socket.emit('missileExplosion',{x:m.x,y:m.y,radius:40});hit=true}});if(gameState.boss&&Math.hypot(m.x-gameState.boss.x,m.y-gameState.boss.y)<gameState.boss.size+10){hits.push({id:gameState.boss.id,damage:m.damage});createExplosion(m.x,m.y,50);socket.emit('missileExplosion',{x:m.x,y:m.y,radius:50});hit=true}return!hit&&m.life>0});
 lasers=lasers.filter(l=>{const ex=l.x+Math.cos(l.angle)*l.length,ey=l.y+Math.sin(l.angle)*l.length;gameState.enemies.forEach(e=>{if(pointToLine(e.x,e.y,l.x,l.y,ex,ey)<e.size+l.width/2){hits.push({id:e.id,damage:l.damage});createSparks(e.x,e.y,12)}});if(gameState.boss&&pointToLine(gameState.boss.x,gameState.boss.y,l.x,l.y,ex,ey)<gameState.boss.size+l.width/2){hits.push({id:gameState.boss.id,damage:l.damage});createSparks(gameState.boss.x,gameState.boss.y,15)}l.life--;return l.life>0});
 dashTrails=dashTrails.filter(t=>{t.life--;return t.life>0});effects=effects.filter(e=>{e.life--;return e.life>0});if(hits.length>0)socket.emit('attack',{targets:hits})}
 function pointToLine(px,py,x1,y1,x2,y2){const A=px-x1,B=py-y1,C=x2-x1,D=y2-y1;const dot=A*C+B*D,len=C*C+D*D;let t=len!==0?Math.max(0,Math.min(1,dot/len)):0;return Math.hypot(px-(x1+t*C),py-(y1+t*D))}
@@ -178,27 +180,47 @@ function createExplosion(x,y,r){const col=currentStage?.color||'#f06';for(let i=
 function updateParticles(){particles=particles.filter(p=>{p.x+=p.vx;p.y+=p.vy;p.vx*=0.94;p.vy*=0.94;p.life--;return p.life>0})}
 function updateScreenShake(){if(screenShake.intensity>0){screenShake.x=(Math.random()-0.5)*screenShake.intensity*2;screenShake.y=(Math.random()-0.5)*screenShake.intensity*2;screenShake.intensity*=0.9;if(screenShake.intensity<0.5)screenShake.intensity=0}else{screenShake.x=0;screenShake.y=0}}
 
-function draw(){const bg=currentStage?.bgColor||'#050510';ctx.fillStyle=bg;ctx.fillRect(0,0,canvas.width,canvas.height);if(!gameState)return;const sx=screenShake.x,sy=screenShake.y;
-drawOrganicBackground(sx,sy);drawWalls(sx,sy);drawDashTrails(sx,sy);
+function draw(){ctx.fillStyle='#000';ctx.fillRect(0,0,canvas.width,canvas.height);if(!gameState)return;const sx=screenShake.x,sy=screenShake.y;
+drawSpaceBackground(sx,sy);drawWalls(sx,sy);drawDashTrails(sx,sy);
 gameState.items.forEach(item=>{const ix=item.x-camera.x+sx,iy=item.y-camera.y+sy;if(ix<-50||ix>canvas.width+50||iy<-50||iy>canvas.height+50)return;const colors={HP:'#f00',GATLING:'#f60',PHALANX:'#0f0',MISSILE:'#f80',LASER:'#f0f',DASH:'#ff0'};ctx.fillStyle=colors[item.type]||'#fff';ctx.shadowBlur=25;ctx.shadowColor=ctx.fillStyle;ctx.beginPath();ctx.arc(ix,iy,10+Math.sin(frame*0.12)*3,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;ctx.fillStyle='#000';ctx.font='bold 9px sans-serif';ctx.textAlign='center';ctx.fillText(item.type[0],ix,iy+3)});
 gameState.enemies.forEach(e=>{const ex=e.x-camera.x+sx,ey=e.y-camera.y+sy;if(ex<-80||ex>canvas.width+80||ey<-80||ey>canvas.height+80)return;ctx.fillStyle=e.color;ctx.globalAlpha=0.2+Math.sin(frame*0.1)*0.1;ctx.beginPath();ctx.arc(ex,ey,e.size*1.4,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;ctx.shadowBlur=15;ctx.shadowColor=e.color;ctx.beginPath();ctx.arc(ex,ey,e.size,0,Math.PI*2);ctx.fill();ctx.fillStyle='rgba(0,0,0,0.4)';ctx.shadowBlur=0;ctx.beginPath();ctx.arc(ex,ey,e.size*0.5,0,Math.PI*2);ctx.fill();const hpR=e.hp/e.maxHp;ctx.fillStyle='#300';ctx.fillRect(ex-e.size,ey-e.size-10,e.size*2,4);ctx.fillStyle=hpR>0.5?'#0f0':hpR>0.25?'#ff0':'#f00';ctx.fillRect(ex-e.size,ey-e.size-10,e.size*2*hpR,4)});
 if(gameState.boss){const b=gameState.boss,bx=b.x-camera.x+sx,by=b.y-camera.y+sy;for(let i=3;i>0;i--){ctx.fillStyle=b.color;ctx.globalAlpha=0.1+Math.sin(frame*0.08+i)*0.05;ctx.beginPath();ctx.arc(bx,by,b.size*(1.2+i*0.15),0,Math.PI*2);ctx.fill()}ctx.globalAlpha=1;ctx.shadowBlur=50;ctx.shadowColor=b.color;ctx.beginPath();ctx.arc(bx,by,b.size,0,Math.PI*2);ctx.fill();ctx.fillStyle='#000';ctx.shadowBlur=0;ctx.beginPath();ctx.arc(bx,by,b.size*0.45,0,Math.PI*2);ctx.fill();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(bx,by,b.size*0.15,0,Math.PI*2);ctx.fill()}
 gameState.bullets.forEach(b=>{const bx=b.x-camera.x+sx,by=b.y-camera.y+sy;if(bx<-20||bx>canvas.width+20||by<-20||by>canvas.height+20)return;ctx.fillStyle=b.boss?'#f0f':'#f00';ctx.shadowBlur=15;ctx.shadowColor=ctx.fillStyle;ctx.beginPath();ctx.arc(bx,by,b.boss?7:5,0,Math.PI*2);ctx.fill()});ctx.shadowBlur=0;
 bullets.forEach(b=>{const bx=b.x-camera.x+sx,by=b.y-camera.y+sy;ctx.fillStyle=b.color;ctx.shadowBlur=10;ctx.shadowColor=b.color;ctx.beginPath();ctx.arc(bx,by,b.size,0,Math.PI*2);ctx.fill()});ctx.shadowBlur=0;
-missiles.forEach(m=>{if(m.trail.length>1){ctx.strokeStyle='rgba(255,150,0,0.5)';ctx.lineWidth=3;ctx.beginPath();m.trail.forEach((t,i)=>{const tx=t.x-camera.x+sx,ty=t.y-camera.y+sy;if(i===0)ctx.moveTo(tx,ty);else ctx.lineTo(tx,ty)});ctx.stroke()}const mx=m.x-camera.x+sx,my=m.y-camera.y+sy;ctx.save();ctx.translate(mx,my);ctx.rotate(Math.atan2(m.vy,m.vx));
-// バックファイア（噴射）
-const fireLen=15+Math.random()*10;const fireG=ctx.createLinearGradient(-6,0,-6-fireLen,0);fireG.addColorStop(0,'rgba(255,200,50,1)');fireG.addColorStop(0.3,'rgba(255,100,0,0.9)');fireG.addColorStop(0.7,'rgba(255,50,0,0.5)');fireG.addColorStop(1,'rgba(255,0,0,0)');ctx.fillStyle=fireG;ctx.beginPath();ctx.moveTo(-6,0);ctx.lineTo(-6-fireLen,-4-Math.random()*2);ctx.lineTo(-6-fireLen,4+Math.random()*2);ctx.closePath();ctx.fill();
-// ファイアコア（白い芯）
-ctx.fillStyle='rgba(255,255,200,0.8)';ctx.beginPath();ctx.moveTo(-6,0);ctx.lineTo(-6-fireLen*0.5,-2);ctx.lineTo(-6-fireLen*0.5,2);ctx.closePath();ctx.fill();
-// ミサイル本体
-ctx.fillStyle='#f80';ctx.shadowBlur=15;ctx.shadowColor='#f80';ctx.beginPath();ctx.moveTo(10,0);ctx.lineTo(-6,-5);ctx.lineTo(-6,5);ctx.closePath();ctx.fill();ctx.restore()});
+missiles.forEach(m=>{const mx=m.x-camera.x+sx,my=m.y-camera.y+sy;if(mx<-50||mx>canvas.width+50||my<-50||my>canvas.height+50)return;
+const angle=m.phase==='attack'?Math.atan2(m.vy,m.vx):m.originAngle;
+ctx.save();ctx.translate(mx,my);ctx.rotate(angle);
+// バックファイア（噴射炎）- 本体より大きく派手に
+if(m.phase==='attack'){const fireLen=20+Math.random()*15;const fireW=6+Math.random()*4;ctx.shadowBlur=25;ctx.shadowColor='#f80';
+const fireG=ctx.createLinearGradient(-3,0,-3-fireLen,0);fireG.addColorStop(0,'rgba(255,255,255,1)');fireG.addColorStop(0.2,'rgba(255,200,50,1)');fireG.addColorStop(0.5,'rgba(255,100,0,0.8)');fireG.addColorStop(0.8,'rgba(255,50,0,0.4)');fireG.addColorStop(1,'rgba(200,0,0,0)');
+ctx.fillStyle=fireG;ctx.beginPath();ctx.moveTo(-3,0);ctx.lineTo(-3-fireLen,-fireW);ctx.lineTo(-3-fireLen,fireW);ctx.closePath();ctx.fill();
+// 追加の炎パーティクル
+ctx.fillStyle='rgba(255,150,50,0.6)';for(let i=0;i<3;i++){const px=-8-Math.random()*fireLen*0.7;const py=(Math.random()-0.5)*fireW*1.5;ctx.beginPath();ctx.arc(px,py,1+Math.random()*2,0,Math.PI*2);ctx.fill()}}
+ctx.shadowBlur=0;
+// ミサイル本体（極小の長方形・白）
+ctx.fillStyle='#fff';ctx.shadowBlur=8;ctx.shadowColor='#fff';ctx.fillRect(-3,-2,8,4);
+// 先端のハイライト
+ctx.fillStyle='rgba(200,220,255,0.8)';ctx.fillRect(3,-1.5,2,3);
+ctx.shadowBlur=0;ctx.restore()});
 lasers.forEach(l=>{const lx=l.x-camera.x+sx,ly=l.y-camera.y+sy;ctx.save();ctx.translate(lx,ly);ctx.rotate(l.angle);ctx.shadowBlur=30;ctx.shadowColor='#f0f';const g=ctx.createLinearGradient(0,0,l.length,0);g.addColorStop(0,'rgba(255,100,255,1)');g.addColorStop(0.5,'rgba(255,50,255,0.7)');g.addColorStop(1,'rgba(255,0,255,0)');ctx.fillStyle=g;ctx.fillRect(0,-l.width/2,l.length,l.width);ctx.restore()});ctx.shadowBlur=0;
 effects.forEach(e=>{const ex=e.x-camera.x+sx,ey=e.y-camera.y+sy;if(e.type==='explosion'){const pr=1-e.life/e.maxLife,r=e.radius*pr;ctx.strokeStyle='rgba(255,150,0,'+(1-pr)+')';ctx.lineWidth=4;ctx.beginPath();ctx.arc(ex,ey,r,0,Math.PI*2);ctx.stroke()}else if(e.type==='beam'){const tx=e.tx-camera.x+sx,ty=e.ty-camera.y+sy;const beamCol=e.color||'#f80';ctx.strokeStyle=beamCol;ctx.globalAlpha=e.life/8;ctx.lineWidth=4;ctx.shadowBlur=15;ctx.shadowColor=beamCol;ctx.beginPath();ctx.moveTo(ex,ey);ctx.lineTo(tx,ty);ctx.stroke();ctx.shadowBlur=0;ctx.globalAlpha=1}else if(e.type==='shield'){const pr=e.life/12;ctx.strokeStyle='rgba(100,200,255,'+pr+')';ctx.fillStyle='rgba(100,200,255,'+(pr*0.3)+')';ctx.shadowBlur=20;ctx.shadowColor='#0af';ctx.lineWidth=3;ctx.beginPath();ctx.arc(ex,ey,30*(1-pr*0.3),0,Math.PI*2);ctx.fill();ctx.stroke();ctx.shadowBlur=0}});
 particles.forEach(p=>{const px=p.x-camera.x+sx,py=p.y-camera.y+sy;const a=p.life/p.maxLife;ctx.fillStyle=p.color;ctx.globalAlpha=a;ctx.shadowBlur=8;ctx.shadowColor=p.color;ctx.beginPath();ctx.arc(px,py,p.size*a,0,Math.PI*2);ctx.fill()});ctx.globalAlpha=1;ctx.shadowBlur=0;
 gameState.players.forEach(p=>{if(!p.alive)return;let px,py,pa;if(p.id===myId){px=displayX-camera.x+sx;py=displayY-camera.y+sy;pa=displayAngle}else{px=p.x-camera.x+sx;py=p.y-camera.y+sy;pa=p.angle}if(p.invincible>0&&Math.floor(p.invincible/4)%2===0)return;ctx.save();ctx.translate(px,py);ctx.rotate(pa);drawNagal(ctx,p.id===myId,p.dashing,p.color||'#fff');ctx.restore();if(p.phalanxUnits){const pxCol=p.phalanxMode==='atk'?'#f80':'#0af';p.phalanxUnits.forEach(f=>{const fx=px+Math.cos(f.angle)*f.dist,fy=py+Math.sin(f.angle)*f.dist;ctx.fillStyle=pxCol;ctx.shadowBlur=15;ctx.shadowColor=pxCol;ctx.beginPath();ctx.arc(fx,fy,6,0,Math.PI*2);ctx.fill();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(fx,fy,2.5,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0})}ctx.fillStyle=p.color||'#fff';ctx.font='11px sans-serif';ctx.textAlign='center';ctx.shadowBlur=3;ctx.shadowColor='#000';ctx.fillText(p.name,px,py-28);ctx.shadowBlur=0});
 drawOffscreenIndicators(sx,sy)}
 
-function drawOrganicBackground(sx,sy){const col=currentStage?.color||'#f06';ctx.strokeStyle=col;ctx.globalAlpha=0.03;ctx.lineWidth=1;for(let i=0;i<8;i++){const cx=WORLD_W/2-camera.x+sx,cy=WORLD_H/2-camera.y+sy;const r=300+i*200+Math.sin(frame*0.01+i)*20;ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.stroke()}ctx.globalAlpha=0.02;for(let i=0;i<20;i++){const x=(i*200-camera.x%200)+sx-100;for(let j=0;j<15;j++){const y=(j*200-camera.y%200)+sy-100;ctx.beginPath();ctx.arc(x+Math.sin(frame*0.02+i+j)*10,y+Math.cos(frame*0.02+i-j)*10,3,0,Math.PI*2);ctx.fill()}}ctx.globalAlpha=1}
+function drawSpaceBackground(sx,sy){
+// グラデーション背景（紫・濃紺・ピンク）
+const bgG=ctx.createRadialGradient(canvas.width/2,canvas.height/2,0,canvas.width/2,canvas.height/2,canvas.width);
+bgG.addColorStop(0,'#0a0515');bgG.addColorStop(0.3,'#050510');bgG.addColorStop(0.6,'#0a0020');bgG.addColorStop(1,'#000008');
+ctx.fillStyle=bgG;ctx.fillRect(0,0,canvas.width,canvas.height);
+// 星雲（大きな色のもや）
+bgNebulae.forEach(n=>{const nx=n.x-camera.x*0.3+sx,ny=n.y-camera.y*0.3+sy;if(nx<-n.radius||nx>canvas.width+n.radius||ny<-n.radius||ny>canvas.height+n.radius)return;const ng=ctx.createRadialGradient(nx,ny,0,nx,ny,n.radius);ng.addColorStop(0,n.color);ng.addColorStop(0.5,n.color+'80');ng.addColorStop(1,'transparent');ctx.globalAlpha=n.alpha+Math.sin(frame*0.005+n.x)*0.03;ctx.fillStyle=ng;ctx.fillRect(nx-n.radius,ny-n.radius,n.radius*2,n.radius*2)});
+ctx.globalAlpha=1;
+// 流れる星々（疾走感）
+bgStars.forEach(s=>{s.x-=s.speed*(1+Math.abs(input.dx)*2);s.y-=s.speed*0.3*(1+Math.abs(input.dy)*2);if(s.x<-100)s.x+=4500;if(s.y<-100)s.y+=4500;if(s.x>4400)s.x-=4500;if(s.y>4400)s.y-=4500;const starX=s.x-camera.x*0.5+sx,starY=s.y-camera.y*0.5+sy;if(starX<-10||starX>canvas.width+10||starY<-10||starY>canvas.height+10)return;const twinkle=0.5+Math.sin(frame*0.1+s.twinkle)*0.5;ctx.globalAlpha=twinkle;ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(starX,starY,s.size,0,Math.PI*2);ctx.fill();
+// 速い星は軌跡を描く
+if(s.speed>0.8){ctx.strokeStyle='rgba(255,255,255,0.3)';ctx.lineWidth=s.size*0.5;ctx.beginPath();ctx.moveTo(starX,starY);ctx.lineTo(starX+s.speed*15,starY+s.speed*5);ctx.stroke()}});
+ctx.globalAlpha=1}
 
 function drawWalls(sx,sy){const col=currentStage?.wallColor||'#660033';const glow=currentStage?.color||'#f06';walls.forEach(w=>{const wx=w.x-camera.x+sx,wy=w.y-camera.y+sy;if(wx+w.w<-50||wx>canvas.width+50||wy+w.h<-50||wy>canvas.height+50)return;const g=ctx.createLinearGradient(wx,wy,wx+w.w,wy+w.h);g.addColorStop(0,col);g.addColorStop(0.5,glow);g.addColorStop(1,col);ctx.fillStyle=g;ctx.globalAlpha=0.8;ctx.fillRect(wx,wy,w.w,w.h);ctx.globalAlpha=1;ctx.strokeStyle=glow;ctx.lineWidth=2;ctx.shadowBlur=15;ctx.shadowColor=glow;ctx.strokeRect(wx,wy,w.w,w.h);ctx.shadowBlur=0})}
 
