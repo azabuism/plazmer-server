@@ -221,6 +221,8 @@ class GameRoom {
 
     handleMissileExplosion(data) { this.enemyBullets = this.enemyBullets.filter(b => Math.hypot(b.x - data.x, b.y - data.y) > data.radius); }
 
+    handleDestroyBullet(data) { this.enemyBullets = this.enemyBullets.filter(b => Math.hypot(b.x - data.x, b.y - data.y) > 15); }
+
     broadcast() { const st = this.getStage(); const state = { players: [], enemies: this.enemies.map(e => ({ id: e.id, x: e.x, y: e.y, hp: e.hp, maxHp: e.maxHp, size: e.size, color: e.color })), boss: this.boss ? { id: this.boss.id, x: this.boss.x, y: this.boss.y, hp: this.boss.hp, maxHp: this.boss.maxHp, size: this.boss.size, color: this.boss.color, name: this.boss.name, nameJP: this.boss.nameJP } : null, bullets: this.enemyBullets.map(b => ({ x: b.x, y: b.y, boss: b.boss })), items: this.items, stage: this.stage, score: this.score, stageInfo: st, killCount: this.killCount, killsNeeded: this.killsNeeded, walls: this.walls }; this.players.forEach(p => { state.players.push({ id: p.id, name: p.name, x: p.x, y: p.y, angle: p.angle, hp: p.hp, maxHp: p.maxHp, alive: p.alive, dashing: p.dashing, invincible: p.invincible, weapons: p.weapons, autoFire: p.autoFire, phalanxMode: p.phalanxMode, phalanxUnits: p.phalanxUnits, score: p.score, respawnTimer: p.respawnTimer, color: p.color, colorIdx: p.colorIdx }); }); io.to(this.id).emit('state', state); }
 
     stop() { if (this.loopInterval) { clearInterval(this.loopInterval); this.loopInterval = null; } }
@@ -238,8 +240,9 @@ io.on('connection', (socket) => {
     socket.on('togglePhalanxMode', () => { if (!currentRoom) return; const p = currentRoom.players.get(socket.id); if (p) p.phalanxMode = p.phalanxMode === 'atk' ? 'def' : 'atk'; });
     socket.on('attack', (data) => { if (currentRoom) currentRoom.handleAttack(socket.id, data); });
     socket.on('missileExplosion', (data) => { if (currentRoom) currentRoom.handleMissileExplosion(data); });
+    socket.on('destroyBullet', (data) => { if (currentRoom) currentRoom.handleDestroyBullet(data); });
     socket.on('disconnect', () => { if (currentRoom) { currentRoom.players.delete(socket.id); if (currentRoom.players.size === 0) { currentRoom.stop(); rooms.delete(currentRoom.id); } else io.to(currentRoom.id).emit('playerLeft', { playerId: socket.id }); } });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('PLAZMERS Ver.1.011 - INNER SPACE Server on port ' + PORT));
+server.listen(PORT, () => console.log('PLAZMERS Ver.1.012 - INNER SPACE Server on port ' + PORT));
