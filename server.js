@@ -13,14 +13,13 @@ const io = new Server(server, {
 
 app.use(express.static('public'));
 
-// ========== 定数 ==========
 const WORLD_W = 2000, WORLD_H = 2000;
-const TICK_RATE = 30;
+const TICK_RATE = 60; // 60FPSに戻す（滑らかさのため）
 const MAX_ENEMIES = 50;
 const MAX_ENEMY_BULLETS = 100;
 const MAX_ITEMS = 30;
+const RESPAWN_TIME = 300; // 5秒（60fps * 5）
 
-// 敵タイプ
 const ENEMY_TYPES = {
     small:  { hp: 3,  speed: 2,   size: 8,  color: '#0f0', score: 10 },
     medium: { hp: 8,  speed: 1.5, size: 14, color: '#ff0', score: 30 },
@@ -28,7 +27,6 @@ const ENEMY_TYPES = {
     tank:   { hp: 40, speed: 0.8, size: 30, color: '#f00', score: 100 }
 };
 
-// ボスタイプ
 const BOSS_TYPES = [
     { name: 'BOSS-α', hp: 150,  size: 45, color: '#0ff', speed: 1.5 },
     { name: 'BOSS-β', hp: 300,  size: 55, color: '#f0f', speed: 1.8 },
@@ -69,6 +67,7 @@ class GameRoom {
             isHost: isHost,
             invincible: 180,
             dashing: false,
+            respawnTimer: 0,
             weapons: { gatling: 1, fannel: 0, missile: 0, laser: 0, dash: 1 },
             autoFire: { gatling: false, fannel: false, missile: false, laser: false },
             fannels: [],
@@ -116,25 +115,32 @@ class GameRoom {
         this.frame++;
         
         this.players.forEach(p => {
-            if (!p.alive) return;
-            if (p.invincible > 0) p.invincible--;
-            
-            const dashLevel = p.weapons.dash || 1;
-            const baseSpeed = 4;
-            const dashSpeed = baseSpeed + dashLevel * 0.5;
-            const speed = p.input.dashing ? dashSpeed : baseSpeed;
-            
-            p.x += p.input.dx * speed;
-            p.y += p.input.dy * speed;
-            p.x = Math.max(30, Math.min(WORLD_W - 30, p.x));
-            p.y = Math.max(30, Math.min(WORLD_H - 30, p.y));
-            p.dashing = p.input.dashing;
-            
-            if (p.input.dx !== 0 || p.input.dy !== 0) {
-                p.angle = Math.atan2(p.input.dy, p.input.dx);
+            if (p.alive) {
+                if (p.invincible > 0) p.invincible--;
+                
+                const dashLevel = p.weapons.dash || 1;
+                const baseSpeed = 5;
+                const dashSpeed = baseSpeed + dashLevel * 0.6;
+                const speed = p.input.dashing ? dashSpeed : baseSpeed;
+                
+                p.x += p.input.dx * speed;
+                p.y += p.input.dy * speed;
+                p.x = Math.max(30, Math.min(WORLD_W - 30, p.x));
+                p.y = Math.max(30, Math.min(WORLD_H - 30, p.y));
+                p.dashing = p.input.dashing;
+                
+                if (p.input.dx !== 0 || p.input.dy !== 0) {
+                    p.angle = Math.atan2(p.input.dy, p.input.dx);
+                }
+                
+                this.updateFannels(p);
+            } else {
+                // リスポーン処理
+                p.respawnTimer++;
+                if (p.respawnTimer >= RESPAWN_TIME) {
+                    this.respawnPlayer(p);
+                }
             }
-            
-            this.updateFannels(p);
         });
         
         if (!this.boss && this.frame % 45 === 0) this.spawnEnemy();
@@ -143,13 +149,23 @@ class GameRoom {
         this.updateBullets();
         this.updateItems();
         
-        // WAVEクリア
         const killsNeeded = 15 + this.wave * 3;
         if (!this.boss && this.killCount >= killsNeeded) {
             this.startWave();
         }
         
         if (this.frame % 2 === 0) this.broadcast();
+    }
+    
+    respawnPlayer(p) {
+        p.alive = true;
+        p.hp = p.maxHp;
+        p.x = WORLD_W / 2 + (Math.random() - 0.5) * 200;
+        p.y = WORLD_H / 2 + (Math.random() - 0.5) * 200;
+        p.invincible = 180; // 3秒無敵
+        p.respawnTimer = 0;
+        // 武器レベルは維持（リセットしない）
+        io.to(p.id).emit('respawned');
     }
     
     updateFannels(player) {
@@ -217,9 +233,9 @@ class GameRoom {
             
             this.players.forEach(p => {
                 if (!p.alive || p.invincible > 0) return;
-                if (Math.hypot(p.x - e.x, p.y - e.y) < 20 + e.size) {
+                if (Math.hypot(p.x - e.x, p.y - e.y) < 15 + e.size) {
                     p.hp -= 10; p.invincible = 60;
-                    if (p.hp <= 0) { p.alive = false; io.to(p.id).emit('died'); }
+                    if (p.hp <= 0) { p.alive = false; p.respawnTimer = 0; io.to(p.id).emit('died'); }
                 }
             });
         });
@@ -255,9 +271,9 @@ class GameRoom {
         
         this.players.forEach(p => {
             if (!p.alive || p.invincible > 0) return;
-            if (Math.hypot(p.x - this.boss.x, p.y - this.boss.y) < 30 + this.boss.size) {
+            if (Math.hypot(p.x - this.boss.x, p.y - this.boss.y) < 20 + this.boss.size) {
                 p.hp -= 20; p.invincible = 90;
-                if (p.hp <= 0) { p.alive = false; io.to(p.id).emit('died'); }
+                if (p.hp <= 0) { p.alive = false; p.respawnTimer = 0; io.to(p.id).emit('died'); }
             }
         });
     }
@@ -269,9 +285,9 @@ class GameRoom {
             let hit = false;
             this.players.forEach(p => {
                 if (!p.alive || p.invincible > 0) return;
-                if (Math.hypot(p.x - b.x, p.y - b.y) < 15) {
+                if (Math.hypot(p.x - b.x, p.y - b.y) < 12) {
                     p.hp -= 8; p.invincible = 30; hit = true;
-                    if (p.hp <= 0) { p.alive = false; io.to(p.id).emit('died'); }
+                    if (p.hp <= 0) { p.alive = false; p.respawnTimer = 0; io.to(p.id).emit('died'); }
                 }
             });
             return !hit;
@@ -354,7 +370,8 @@ class GameRoom {
             state.players.push({
                 id: p.id, name: p.name, x: p.x, y: p.y, angle: p.angle,
                 hp: p.hp, maxHp: p.maxHp, alive: p.alive, dashing: p.dashing, invincible: p.invincible,
-                weapons: p.weapons, autoFire: p.autoFire, fannels: p.fannels, score: p.score
+                weapons: p.weapons, autoFire: p.autoFire, fannels: p.fannels, score: p.score,
+                respawnTimer: p.respawnTimer
             });
         });
         io.to(this.id).emit('state', state);
@@ -383,7 +400,6 @@ io.on('connection', (socket) => {
         socket.join(roomId);
         const player = room.addPlayer(socket, name, true);
         socket.emit('hosted', { roomId, playerId: socket.id, player });
-        console.log('Room ' + roomId + ' created by ' + name);
     });
     
     socket.on('joinRoom', (data) => {
@@ -397,7 +413,6 @@ io.on('connection', (socket) => {
         const player = room.addPlayer(socket, name, false);
         socket.emit('joined', { roomId, playerId: socket.id, player, players: Array.from(room.players.values()) });
         socket.to(roomId).emit('playerJoined', { player });
-        console.log(name + ' joined room ' + roomId);
     });
     
     socket.on('startGame', () => {
@@ -427,10 +442,9 @@ io.on('connection', (socket) => {
     socket.on('missileExplosion', (data) => { if (currentRoom) currentRoom.handleMissileExplosion(data); });
     
     socket.on('disconnect', () => {
-        console.log('Disconnected:', socket.id);
         if (currentRoom) {
             currentRoom.players.delete(socket.id);
-            if (currentRoom.players.size === 0) { currentRoom.stop(); rooms.delete(currentRoom.id); console.log('Room ' + currentRoom.id + ' closed'); }
+            if (currentRoom.players.size === 0) { currentRoom.stop(); rooms.delete(currentRoom.id); }
             else io.to(currentRoom.id).emit('playerLeft', { playerId: socket.id });
         }
     });
