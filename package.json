@@ -1,14 +1,13 @@
 {
-  "name": "plazmer-multiplayer",
-  "version": "1.0.0",
-  "description": "PLAZMERS - Online Multiplayer Shooter",
+  "name": "plazmers-inner-space",
+  "version": "1.0.13",
+  "description": "PLAZMERS - Multiplayer Space Shooter",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "socket.io": "^4.6.1",
-    "uuid": "^9.0.0"
+    "socket.io": "^4.6.1"
   }
 }
