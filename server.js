@@ -99,21 +99,25 @@ class GameRoom {
     start() { this.state = 'playing'; this.stage = 1; this.score = 0; this.killCount = 0; this.enemies = []; this.enemyBullets = []; this.items = []; this.boss = null; this.walls = generateOrganicMaze(1); this.killsNeeded = 6; io.to(this.id).emit('stageStart', { stage: this.getStage(), stageNum: this.stage, walls: this.walls, totalStages: 6 }); if (!this.loopInterval) this.loopInterval = setInterval(() => this.update(), 1000 / TICK_RATE); }
 
     spawnBoss() { 
+        if (this.warningActive || this.boss) return; // 二重発動防止
         const def = BOSS_DEFS[this.stage - 1]; if (!def) return; 
         const st = this.getStage(); const hpMult = 1 + (this.players.size - 1) * 0.3;
         if (def.warning) {
             this.warningActive = true;
             io.to(this.id).emit('bossWarning', { name: def.name, nameJP: def.nameJP, stage: this.stage, isFinalBoss: def.isFinalBoss || false });
-            setTimeout(() => { this.warningActive = false; this.actuallySpawnBoss(def, st, hpMult); }, 3500);
+            setTimeout(() => { if (this.state === 'playing') { this.warningActive = false; this.actuallySpawnBoss(def, st, hpMult); } }, 3500);
         } else { this.actuallySpawnBoss(def, st, hpMult); }
     }
     
     actuallySpawnBoss(def, st, hpMult) { 
+        this.warningActive = false; // 確実にリセット
+        if (this.boss) return; // 既にボスがいる場合は生成しない
         this.boss = { id: 'boss_' + this.idCounter++, x: WORLD_W / 2, y: WORLD_H / 2 - 350, hp: Math.floor(def.hp * hpMult), maxHp: Math.floor(def.hp * hpMult), size: def.size, color: st.color, name: def.name, nameJP: def.nameJP, pattern: def.pattern, timer: 0, isFinalBoss: def.isFinalBoss || false }; 
         io.to(this.id).emit('bossSpawn', { name: def.name, nameJP: def.nameJP, stage: this.stage, isFinalBoss: def.isFinalBoss || false, size: def.size }); 
     }
 
     nextStage() { 
+        this.warningActive = false; // 確実にリセット
         if (this.stage >= 6) { io.to(this.id).emit('gameComplete', { score: this.score }); this.state = 'complete'; return; } 
         this.stageTransition = true; this.stage++; this.killCount = 0; 
         this.killsNeeded = 6 + this.stage * 3;
@@ -151,17 +155,40 @@ class GameRoom {
 
     updatePhalanx(p) { 
         const lv = p.weapons.phalanx; if (lv <= 0) { p.phalanxUnits = []; return; } 
-        while (p.phalanxUnits.length < lv) p.phalanxUnits.push({ angle: Math.random() * Math.PI * 2, dist: 50 + Math.random() * 30, state: 'orbit' }); 
+        while (p.phalanxUnits.length < lv) p.phalanxUnits.push({ angle: Math.random() * Math.PI * 2, dist: 50 + Math.random() * 30, state: 'orbit', tx: 0, ty: 0 }); 
         while (p.phalanxUnits.length > lv) p.phalanxUnits.pop();
         if (p.phalanxMode === 'atk') {
-            let target = null, minD = 400;
+            // 最も近い敵を全ユニット共通のターゲットに
+            let target = null, minD = 500;
             this.enemies.forEach(e => { const d = Math.hypot(e.x - p.x, e.y - p.y); if (d < minD) { minD = d; target = e; } });
             if (this.boss) { const d = Math.hypot(this.boss.x - p.x, this.boss.y - p.y); if (d < minD) { minD = d; target = this.boss; } }
+            
             p.phalanxUnits.forEach((f, i) => {
-                if (target && minD < 350) { f.state = 'attack'; const formAngle = Math.atan2(target.y - p.y, target.x - p.x); const spreadAngle = formAngle + (i - (p.phalanxUnits.length - 1) / 2) * 0.3; const targetDist = Math.min(minD - 30, 120 + Math.sin(this.frame * 0.1 + i) * 40); f.angle = spreadAngle; f.dist += (targetDist - f.dist) * 0.15; }
-                else { f.state = 'orbit'; f.angle += 0.05; f.dist += (60 - f.dist) * 0.1; }
+                if (target) {
+                    f.state = 'attack';
+                    f.tx = target.x; f.ty = target.y;
+                    // 直線的に敵に向かって突撃
+                    const toTargetAngle = Math.atan2(target.y - p.y, target.x - p.x);
+                    const targetDist = Math.min(minD - 10, minD * 0.9);
+                    f.angle += (toTargetAngle - f.angle) * 0.2; // 角度を素早く合わせる
+                    f.dist += (targetDist - f.dist) * 0.25; // 高速接近
+                } else {
+                    f.state = 'orbit'; f.angle += 0.05; f.dist += (60 - f.dist) * 0.1;
+                }
             });
-            if (this.frame % 10 === 0) { p.phalanxUnits.forEach(f => { if (f.state !== 'attack') return; const fx = p.x + Math.cos(f.angle) * f.dist, fy = p.y + Math.sin(f.angle) * f.dist; let hit = null, hitD = 60; this.enemies.forEach(e => { const d = Math.hypot(e.x - fx, e.y - fy); if (d < hitD) { hitD = d; hit = e; } }); if (this.boss) { const d = Math.hypot(this.boss.x - fx, this.boss.y - fy); if (d < hitD) { hitD = d; hit = this.boss; } } if (hit) { hit.hp -= 4 + lv; io.to(this.id).emit('phalanxShot', { x: fx, y: fy, tx: hit.x, ty: hit.y, mode: 'atk' }); } }); }
+            // 全ユニットから一斉レーザー発射
+            if (target && this.frame % 6 === 0) {
+                const dmgPerUnit = 3 + lv * 2;
+                let totalDmg = 0;
+                p.phalanxUnits.forEach(f => {
+                    if (f.state !== 'attack') return;
+                    const fx = p.x + Math.cos(f.angle) * f.dist, fy = p.y + Math.sin(f.angle) * f.dist;
+                    const distToTarget = Math.hypot(target.x - fx, target.y - fy);
+                    if (distToTarget < 80) { totalDmg += dmgPerUnit; }
+                    io.to(this.id).emit('phalanxShot', { x: fx, y: fy, tx: target.x, ty: target.y, mode: 'atk' });
+                });
+                if (totalDmg > 0) target.hp -= totalDmg;
+            }
         } else {
             p.phalanxUnits.forEach(f => { f.angle += 0.04; f.dist += (55 - f.dist) * 0.1; f.state = 'orbit'; });
             if (this.frame % 8 === 0) { p.phalanxUnits.forEach(f => { const fx = p.x + Math.cos(f.angle) * f.dist, fy = p.y + Math.sin(f.angle) * f.dist; let destroyed = 0; this.enemyBullets = this.enemyBullets.filter(b => { if (Math.hypot(b.x - fx, b.y - fy) < 45) { destroyed++; return false; } return true; }); if (destroyed > 0) io.to(this.id).emit('phalanxShot', { x: fx, y: fy, tx: fx, ty: fy, mode: 'def', count: destroyed }); }); }
@@ -178,7 +205,7 @@ class GameRoom {
 
     updateBullets() { this.enemyBullets = this.enemyBullets.filter(b => { b.x += b.vx; b.y += b.vy; b.life--; if (b.life <= 0 || b.x < 0 || b.x > WORLD_W || b.y < 0 || b.y > WORLD_H) return false; for (const w of this.walls) { if (b.x > w.x && b.x < w.x + w.w && b.y > w.y && b.y < w.y + w.h) return false; } this.players.forEach(p => { if (!p.alive || p.invincible > 0) return; if (Math.hypot(p.x - b.x, p.y - b.y) < 18) { p.hp -= b.boss ? 15 : 10; p.invincible = 30; if (p.hp <= 0) { p.alive = false; p.respawnTimer = 0; io.to(p.id).emit('died'); } b.life = 0; } }); return b.life > 0; }); }
 
-    dropItem(x, y, guaranteed = false) { if (this.items.length >= MAX_ITEMS) return; if (!guaranteed && Math.random() > 0.35) return; const types = ['HP', 'GATLING', 'PHALANX', 'MISSILE', 'LASER', 'DASH']; const weights = [15, 20, 15, 20, 15, 15]; let roll = Math.random() * 100, idx = 0; for (let i = 0; i < weights.length; i++) { roll -= weights[i]; if (roll <= 0) { idx = i; break; } } this.items.push({ id: 'i_' + this.idCounter++, x, y, type: types[idx], life: 600 }); }
+    dropItem(x, y, guaranteed = false) { if (this.items.length >= MAX_ITEMS) return; if (!guaranteed && Math.random() > 0.70) return; const types = ['HP', 'GATLING', 'PHALANX', 'MISSILE', 'LASER', 'DASH']; const weights = [12, 20, 18, 20, 15, 15]; let roll = Math.random() * 100, idx = 0; for (let i = 0; i < weights.length; i++) { roll -= weights[i]; if (roll <= 0) { idx = i; break; } } this.items.push({ id: 'i_' + this.idCounter++, x, y, type: types[idx], life: 600 }); }
 
     updateItems() { this.items = this.items.filter(item => { item.life--; if (item.life <= 0) return false; this.players.forEach(p => { if (!p.alive) return; if (Math.hypot(p.x - item.x, p.y - item.y) < 35) { if (item.type === 'HP') { p.hp = Math.min(p.maxHp, p.hp + 30); } else { const w = item.type.toLowerCase(); if (p.weapons[w] !== undefined && p.weapons[w] < 10) p.weapons[w]++; } io.to(p.id).emit('itemCollected', { type: item.type }); item.life = 0; } }); return item.life > 0; }); }
 
