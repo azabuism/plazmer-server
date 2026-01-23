@@ -9,7 +9,7 @@ const io = new Server(server, { cors: { origin: "*" }, transports: ['websocket',
 app.use(express.static('public'));
 
 const WORLD_W = 3000, WORLD_H = 3000, TICK_RATE = 60;
-const MAX_ENEMIES = 6, MAX_ENEMY_BULLETS = 25, MAX_ITEMS = 15, RESPAWN_TIME = 300;
+const MAX_ENEMIES = 4, MAX_ENEMY_BULLETS = 20, MAX_ITEMS = 12, RESPAWN_TIME = 300;
 
 // ========== 6 STAGES - INNER SPACE ==========
 const STAGES = [
@@ -21,22 +21,22 @@ const STAGES = [
     { id: 6, name: 'VIRUS CORE', nameJP: 'ウイルス核', color: '#ff00ff', wallColor: '#550055', bgColor: '#0a050a', desc: '最終決戦' }
 ];
 
-// ========== STAGE BOSSES - Stage 3+ has WARNING ==========
+// ========== STAGE BOSSES - Stage 3+ has WARNING (強化版) ==========
 const BOSS_DEFS = [
-    { name: 'HEMOGLOBIN', nameJP: 'ヘモグロビン', hp: 200, size: 50, pattern: 'spiral', warning: false },
-    { name: 'SYNAPSE', nameJP: 'シナプス', hp: 350, size: 55, pattern: 'electric', warning: false },
-    { name: 'MEMBRANE BEAST', nameJP: '膜獣', hp: 550, size: 65, pattern: 'split', warning: true },
-    { name: 'ANTIBODY', nameJP: '抗体', hp: 800, size: 75, pattern: 'shield', warning: true },
-    { name: 'CARDIAC', nameJP: 'カーディアック', hp: 1100, size: 90, pattern: 'pulse', warning: true },
-    { name: 'VIRUS EMPEROR', nameJP: 'ウイルス皇帝', hp: 2500, size: 160, pattern: 'chaos', warning: true, isFinalBoss: true }
+    { name: 'HEMOGLOBIN', nameJP: 'ヘモグロビン', hp: 350, size: 60, pattern: 'spiral', warning: false },
+    { name: 'SYNAPSE', nameJP: 'シナプス', hp: 600, size: 70, pattern: 'electric', warning: false },
+    { name: 'MEMBRANE BEAST', nameJP: '膜獣', hp: 900, size: 80, pattern: 'split', warning: true },
+    { name: 'ANTIBODY', nameJP: '抗体', hp: 1300, size: 95, pattern: 'shield', warning: true },
+    { name: 'CARDIAC', nameJP: 'カーディアック', hp: 1800, size: 110, pattern: 'pulse', warning: true },
+    { name: 'VIRUS EMPEROR', nameJP: 'ウイルス皇帝', hp: 4000, size: 180, pattern: 'chaos', warning: true, isFinalBoss: true }
 ];
 
 const ENEMY_TYPES = {
-    small: { hp: 5, speed: 2.5, size: 12, score: 10 },
-    medium: { hp: 15, speed: 2, size: 18, score: 30 },
-    large: { hp: 35, speed: 1.5, size: 26, score: 50 },
-    tank: { hp: 60, speed: 1, size: 34, score: 100 },
-    elite: { hp: 100, speed: 2.2, size: 30, score: 200 }
+    small: { hp: 8, speed: 2.5, size: 14, score: 15 },
+    medium: { hp: 20, speed: 2, size: 20, score: 40 },
+    large: { hp: 45, speed: 1.5, size: 28, score: 70 },
+    tank: { hp: 80, speed: 1, size: 36, score: 120 },
+    elite: { hp: 120, speed: 2, size: 32, score: 250 }
 };
 
 function generateOrganicMaze(stageId) {
@@ -110,7 +110,7 @@ class GameRoom {
         this.warningActive = false; // 確実にリセット
         if (this.stage >= 6) { io.to(this.id).emit('gameComplete', { score: this.score }); this.state = 'complete'; return; } 
         this.stageTransition = true; this.stage++; this.killCount = 0; 
-        this.killsNeeded = 6 + this.stage * 3;
+        this.killsNeeded = 4 + this.stage * 2; // Stage2=8, Stage3=10, Stage4=12, Stage5=14, Stage6=16
         this.enemies = []; this.enemyBullets = []; this.items = []; this.boss = null; 
         this.walls = generateOrganicMaze(this.stage); 
         this.players.forEach(p => { p.x = WORLD_W / 2 + (Math.random() - 0.5) * 200; p.y = WORLD_H / 2 + (Math.random() - 0.5) * 200; p.hp = Math.min(p.maxHp, p.hp + 50); p.invincible = 180; }); 
@@ -255,4 +255,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('PLAZMERS Ver.1.016b - INNER SPACE Server on port ' + PORT));
+server.listen(PORT, () => console.log('PLAZMERS Ver.1.017 - INNER SPACE Server on port ' + PORT));
