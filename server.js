@@ -9,7 +9,7 @@ const io = new Server(server, { cors: { origin: "*" }, transports: ['websocket',
 app.use(express.static('public'));
 
 const WORLD_W = 3000, WORLD_H = 3000, TICK_RATE = 60;
-const MAX_ENEMIES = 60, MAX_ENEMY_BULLETS = 200, MAX_ITEMS = 50, RESPAWN_TIME = 300;
+const MAX_ENEMIES = 6, MAX_ENEMY_BULLETS = 25, MAX_ITEMS = 15, RESPAWN_TIME = 300;
 
 // ========== 6 STAGES - INNER SPACE ==========
 const STAGES = [
@@ -135,12 +135,12 @@ class GameRoom {
                 this.updatePhalanx(p); 
             } else { p.respawnTimer++; if (p.respawnTimer >= RESPAWN_TIME) this.respawnPlayer(p); } 
         }); 
-        // ステージ1はスポーン遅く、敵も少ない
-        const spawnRate = this.stage === 1 ? 150 : Math.max(35, 65 - this.stage * 5);
-        if (!this.boss && this.frame % spawnRate === 0) this.spawnEnemy(); 
+        // 敵スポーン（制限厳格化）
+        const spawnRate = this.stage === 1 ? 180 : Math.max(60, 90 - this.stage * 5);
+        if (!this.boss && this.enemies.length < MAX_ENEMIES && this.frame % spawnRate === 0) this.spawnEnemy(); 
         this.updateEnemies(); if (this.boss) this.updateBoss(); this.updateBullets(); this.updateItems(); 
         if (!this.boss && this.killCount >= this.killsNeeded) this.spawnBoss(); 
-        if (this.frame % 2 === 0) this.broadcast(); 
+        if (this.frame % 3 === 0) this.broadcast(); 
     }
 
     dashAttack(p) { const dashDmg = 10 + (p.weapons.dash || 1) * 3; this.enemies.forEach(e => { if (Math.hypot(p.x - e.x, p.y - e.y) < 25 + e.size) { e.hp -= dashDmg; if (e.hp <= 0) { p.score += e.score || 10; this.score += e.score || 10; this.killCount++; this.dropItem(e.x, e.y); } io.to(this.id).emit('dashHit', { x: e.x, y: e.y }); } }); if (this.boss && Math.hypot(p.x - this.boss.x, p.y - this.boss.y) < 25 + this.boss.size) { this.boss.hp -= dashDmg; io.to(this.id).emit('dashHit', { x: this.boss.x, y: this.boss.y }); } }
@@ -190,7 +190,7 @@ class GameRoom {
 
     spawnEnemy() { if (this.enemies.length >= MAX_ENEMIES) return; const types = Object.keys(ENEMY_TYPES); const weights = [40 - this.stage * 3, 30, 15 + this.stage, 10 + this.stage, 5 + this.stage * 2]; let roll = Math.random() * 100, idx = 0; for (let i = 0; i < weights.length; i++) { roll -= Math.max(5, weights[i]); if (roll <= 0) { idx = i; break; } } const t = ENEMY_TYPES[types[idx]]; let ex, ey; for (let i = 0; i < 50; i++) { const side = Math.floor(Math.random() * 4), m = 250; if (side === 0) { ex = m + Math.random() * (WORLD_W - m * 2); ey = m; } else if (side === 1) { ex = m + Math.random() * (WORLD_W - m * 2); ey = WORLD_H - m; } else if (side === 2) { ex = m; ey = m + Math.random() * (WORLD_H - m * 2); } else { ex = WORLD_W - m; ey = m + Math.random() * (WORLD_H - m * 2); } if (!this.checkWallCollision(ex, ey, t.size)) break; } const st = this.getStage(); this.enemies.push({ id: 'e_' + this.idCounter++, x: ex, y: ey, hp: Math.floor(t.hp * (1 + this.stage * 0.1)), maxHp: Math.floor(t.hp * (1 + this.stage * 0.1)), speed: t.speed, size: t.size, color: st.color, score: t.score, shootTimer: Math.random() * 60 }); }
 
-    updateEnemies() { this.enemies = this.enemies.filter(e => { if (e.hp <= 0) return false; let tx = WORLD_W / 2, ty = WORLD_H / 2, minD = Infinity; this.players.forEach(p => { if (p.alive) { const d = Math.hypot(p.x - e.x, p.y - e.y); if (d < minD) { minD = d; tx = p.x; ty = p.y; } } }); const a = Math.atan2(ty - e.y, tx - e.x); const res = this.resolveWallCollision(e.x + Math.cos(a) * e.speed, e.y + Math.sin(a) * e.speed, e.size); e.x = res.x; e.y = res.y; e.shootTimer--; if (e.shootTimer <= 0 && this.enemyBullets.length < MAX_ENEMY_BULLETS && minD < 400) { this.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 4, vy: Math.sin(a) * 4, life: 150 }); e.shootTimer = 90 + Math.random() * 60; } this.players.forEach(p => { if (!p.alive || p.invincible > 0) return; if (Math.hypot(p.x - e.x, p.y - e.y) < 15 + e.size) { p.hp -= 15; p.invincible = 60; if (p.hp <= 0) { p.alive = false; p.respawnTimer = 0; io.to(p.id).emit('died'); } } }); return true; }); }
+    updateEnemies() { this.enemies = this.enemies.filter(e => { if (e.hp <= 0) return false; let tx = WORLD_W / 2, ty = WORLD_H / 2, minD = Infinity; this.players.forEach(p => { if (p.alive) { const d = Math.hypot(p.x - e.x, p.y - e.y); if (d < minD) { minD = d; tx = p.x; ty = p.y; } } }); const a = Math.atan2(ty - e.y, tx - e.x); const res = this.resolveWallCollision(e.x + Math.cos(a) * e.speed, e.y + Math.sin(a) * e.speed, e.size); e.x = res.x; e.y = res.y; e.shootTimer--; if (e.shootTimer <= 0 && this.enemyBullets.length < MAX_ENEMY_BULLETS - 3 && minD < 350) { this.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 4, vy: Math.sin(a) * 4, life: 120 }); e.shootTimer = 120 + Math.random() * 80; } this.players.forEach(p => { if (!p.alive || p.invincible > 0) return; if (Math.hypot(p.x - e.x, p.y - e.y) < 15 + e.size) { p.hp -= 15; p.invincible = 60; if (p.hp <= 0) { p.alive = false; p.respawnTimer = 0; io.to(p.id).emit('died'); } } }); return true; }); }
 
     updateBoss() { if (!this.boss) return; if (this.boss.hp <= 0) { 
         this.score += 1000 * this.stage; 
@@ -208,7 +208,17 @@ class GameRoom {
         return; 
     } this.boss.timer++; let tx = WORLD_W / 2, ty = WORLD_H / 2; this.players.forEach(p => { if (p.alive) { tx = p.x; ty = p.y; } }); const a = Math.atan2(ty - this.boss.y, tx - this.boss.x); const speed = this.boss.isFinalBoss ? 1 : 1.5 + this.stage * 0.15; const res = this.resolveWallCollision(this.boss.x + Math.cos(a) * speed * 0.6, this.boss.y + Math.sin(a) * speed * 0.6, this.boss.size); this.boss.x = Math.max(200, Math.min(WORLD_W - 200, res.x)); this.boss.y = Math.max(200, Math.min(WORLD_H - 200, res.y)); const fireRate = Math.max(15, 45 - this.stage * 4); if (this.boss.timer % fireRate === 0 && this.enemyBullets.length < MAX_ENEMY_BULLETS) { this.fireBossPattern(a); } this.players.forEach(p => { if (!p.alive || p.invincible > 0) return; if (Math.hypot(p.x - this.boss.x, p.y - this.boss.y) < 20 + this.boss.size) { p.hp -= 25; p.invincible = 90; if (p.hp <= 0) { p.alive = false; p.respawnTimer = 0; io.to(p.id).emit('died'); } } }); }
 
-    fireBossPattern(targetAngle) { const b = this.boss, cnt = 8 + this.stage; if (b.pattern === 'spiral') { for (let i = 0; i < cnt; i++) { const ba = (Math.PI * 2 / cnt) * i + b.timer * 0.05; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 4, vy: Math.sin(ba) * 4, life: 200, boss: true }); } } else if (b.pattern === 'electric') { for (let i = -2; i <= 2; i++) { const ba = targetAngle + i * 0.2; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 6, vy: Math.sin(ba) * 6, life: 150, boss: true }); } } else if (b.pattern === 'split') { for (let i = 0; i < 12; i++) { const ba = (Math.PI * 2 / 12) * i; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 5, vy: Math.sin(ba) * 5, life: 140, boss: true }); } } else if (b.pattern === 'shield') { for (let i = 0; i < 16; i++) { const ba = (Math.PI * 2 / 16) * i + b.timer * 0.02; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 4, vy: Math.sin(ba) * 4, life: 160, boss: true }); } } else if (b.pattern === 'pulse') { for (let i = 0; i < 20; i++) { const ba = (Math.PI * 2 / 20) * i + b.timer * 0.03; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 5, vy: Math.sin(ba) * 5, life: 180, boss: true }); } } else if (b.pattern === 'chaos') { for (let i = 0; i < cnt * 3; i++) { const ba = (Math.PI * 2 / (cnt * 3)) * i + b.timer * 0.08; const spd = 3 + Math.sin(i + b.timer * 0.1) * 2; this.enemyBullets.push({ x: b.x + (Math.random() - 0.5) * 50, y: b.y + (Math.random() - 0.5) * 50, vx: Math.cos(ba) * spd, vy: Math.sin(ba) * spd, life: 250, boss: true }); } } else { for (let i = 0; i < cnt; i++) { const ba = (Math.PI * 2 / cnt) * i; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 3.5, vy: Math.sin(ba) * 3.5, life: 180, boss: true }); } } }
+    fireBossPattern(targetAngle) { 
+        if (this.enemyBullets.length >= MAX_ENEMY_BULLETS - 5) return; // 弾数制限
+        const b = this.boss, cnt = Math.min(6, 4 + Math.floor(this.stage / 2)); 
+        if (b.pattern === 'spiral') { for (let i = 0; i < cnt; i++) { const ba = (Math.PI * 2 / cnt) * i + b.timer * 0.05; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 4, vy: Math.sin(ba) * 4, life: 150, boss: true }); } } 
+        else if (b.pattern === 'electric') { for (let i = -1; i <= 1; i++) { const ba = targetAngle + i * 0.3; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 6, vy: Math.sin(ba) * 6, life: 120, boss: true }); } } 
+        else if (b.pattern === 'split') { for (let i = 0; i < 8; i++) { const ba = (Math.PI * 2 / 8) * i; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 5, vy: Math.sin(ba) * 5, life: 120, boss: true }); } } 
+        else if (b.pattern === 'shield') { for (let i = 0; i < 8; i++) { const ba = (Math.PI * 2 / 8) * i + b.timer * 0.02; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 4, vy: Math.sin(ba) * 4, life: 130, boss: true }); } } 
+        else if (b.pattern === 'pulse') { for (let i = 0; i < 10; i++) { const ba = (Math.PI * 2 / 10) * i + b.timer * 0.03; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 5, vy: Math.sin(ba) * 5, life: 140, boss: true }); } } 
+        else if (b.pattern === 'chaos') { for (let i = 0; i < 12; i++) { const ba = (Math.PI * 2 / 12) * i + b.timer * 0.06; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 4, vy: Math.sin(ba) * 4, life: 150, boss: true }); } } 
+        else { for (let i = 0; i < cnt; i++) { const ba = (Math.PI * 2 / cnt) * i; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 3.5, vy: Math.sin(ba) * 3.5, life: 140, boss: true }); } } 
+    }
 
     updateBullets() { this.enemyBullets = this.enemyBullets.filter(b => { b.x += b.vx; b.y += b.vy; b.life--; if (b.life <= 0 || b.x < 0 || b.x > WORLD_W || b.y < 0 || b.y > WORLD_H) return false; for (const w of this.walls) { if (b.x > w.x && b.x < w.x + w.w && b.y > w.y && b.y < w.y + w.h) return false; } this.players.forEach(p => { if (!p.alive || p.invincible > 0) return; if (Math.hypot(p.x - b.x, p.y - b.y) < 18) { p.hp -= b.boss ? 15 : 10; p.invincible = 30; if (p.hp <= 0) { p.alive = false; p.respawnTimer = 0; io.to(p.id).emit('died'); } b.life = 0; } }); return b.life > 0; }); }
 
@@ -245,4 +255,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('PLAZMERS Ver.1.014 - INNER SPACE Server on port ' + PORT));
+server.listen(PORT, () => console.log('PLAZMERS Ver.1.016b - INNER SPACE Server on port ' + PORT));
