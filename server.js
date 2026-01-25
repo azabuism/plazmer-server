@@ -4,255 +4,665 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" }, transports: ['websocket', 'polling'], pingTimeout: 60000, pingInterval: 25000 });
+const io = new Server(server, { cors: { origin: "*" } });
 
 app.use(express.static('public'));
 
-const WORLD_W = 3000, WORLD_H = 3000, TICK_RATE = 60;
-const MAX_ENEMIES = 4, MAX_ENEMY_BULLETS = 20, MAX_ITEMS = 12, RESPAWN_TIME = 300;
+const GAME_W = 400, GAME_H = 600;
+const TICK_RATE = 60;
 
-// ========== 6 STAGES - INNER SPACE ==========
-const STAGES = [
-    { id: 1, name: 'BLOOD VESSEL', nameJP: '血管', color: '#ff3030', wallColor: '#8b0000', bgColor: '#1a0505', desc: 'チュートリアル' },
-    { id: 2, name: 'NEURAL NETWORK', nameJP: '神経回路', color: '#00ccff', wallColor: '#004466', bgColor: '#050510', desc: '電気信号の迷宮' },
-    { id: 3, name: 'CELL MEMBRANE', nameJP: '細胞膜', color: '#ff66ff', wallColor: '#660066', bgColor: '#100510', desc: '境界の揺らぎ' },
-    { id: 4, name: 'LYMPH NODE', nameJP: 'リンパ節', color: '#66ff66', wallColor: '#006600', bgColor: '#051005', desc: '免疫の砦' },
-    { id: 5, name: 'HEART CORE', nameJP: '心臓核', color: '#ff0066', wallColor: '#990033', bgColor: '#150008', desc: '脈動する中枢' },
-    { id: 6, name: 'VIRUS CORE', nameJP: 'ウイルス核', color: '#ff00ff', wallColor: '#550055', bgColor: '#0a050a', desc: '最終決戦' }
-];
-
-// ========== STAGE BOSSES - Stage 3+ has WARNING (強化版) ==========
-const BOSS_DEFS = [
-    { name: 'HEMOGLOBIN', nameJP: 'ヘモグロビン', hp: 350, size: 60, pattern: 'spiral', warning: false },
-    { name: 'SYNAPSE', nameJP: 'シナプス', hp: 600, size: 70, pattern: 'electric', warning: false },
-    { name: 'MEMBRANE BEAST', nameJP: '膜獣', hp: 900, size: 80, pattern: 'split', warning: true },
-    { name: 'ANTIBODY', nameJP: '抗体', hp: 1300, size: 95, pattern: 'shield', warning: true },
-    { name: 'CARDIAC', nameJP: 'カーディアック', hp: 1800, size: 110, pattern: 'pulse', warning: true },
-    { name: 'VIRUS EMPEROR', nameJP: 'ウイルス皇帝', hp: 4000, size: 180, pattern: 'chaos', warning: true, isFinalBoss: true }
-];
-
-const ENEMY_TYPES = {
-    small: { hp: 8, speed: 2.5, size: 14, score: 15 },
-    medium: { hp: 20, speed: 2, size: 20, score: 40 },
-    large: { hp: 45, speed: 1.5, size: 28, score: 70 },
-    tank: { hp: 80, speed: 1, size: 36, score: 120 },
-    elite: { hp: 120, speed: 2, size: 32, score: 250 }
+// インベーダーユニット定義
+const UNITS = {
+    normal:   { name: 'ノーマル', hp: 10, speed: 1, cost: 10, color: '#0f0', score: 10 },
+    tank:     { name: 'タンク', hp: 40, speed: 0.6, cost: 25, color: '#088', score: 30 },
+    fast:     { name: 'スピード', hp: 8, speed: 2, cost: 15, color: '#ff0', score: 15 },
+    shooter:  { name: 'シューター', hp: 15, speed: 0.8, cost: 30, color: '#f80', score: 25, canShoot: true },
+    shield:   { name: 'シールド', hp: 20, speed: 0.7, cost: 35, color: '#08f', score: 35, hasShield: true },
+    split:    { name: 'スプリット', hp: 12, speed: 1, cost: 30, color: '#f0f', score: 20, splits: true },
+    kamikaze: { name: 'カミカゼ', hp: 5, speed: 3, cost: 20, color: '#f00', score: 20, kamikaze: true },
+    healer:   { name: 'ヒーラー', hp: 15, speed: 0.8, cost: 40, color: '#0ff', score: 40, heals: true },
+    bomb:     { name: 'ボム', hp: 10, speed: 1, cost: 25, color: '#f60', score: 25, explodes: true }
 };
 
-function generateOrganicMaze(stageId) {
-    const walls = [];
-    const cx = WORLD_W / 2, cy = WORLD_H / 2;
-    
-    // マップ外周の壁（四辺）
-    const wallThick = 40;
-    walls.push({ x: 0, y: 0, w: WORLD_W, h: wallThick }); // 上
-    walls.push({ x: 0, y: WORLD_H - wallThick, w: WORLD_W, h: wallThick }); // 下
-    walls.push({ x: 0, y: 0, w: wallThick, h: WORLD_H }); // 左
-    walls.push({ x: WORLD_W - wallThick, y: 0, w: wallThick, h: WORLD_H }); // 右
-    
-    // ステージごとの内部構造
-    if (stageId === 1) { /* チュートリアル - 壁なし */ }
-    else if (stageId === 2) { walls.push({ x: 900, y: 900, w: 30, h: 300 }, { x: 2070, y: 1800, w: 30, h: 300 }); }
-    else if (stageId === 3) { [[1000, 1000], [2000, 1500], [1200, 2000]].forEach(([px, py]) => walls.push({ x: px, y: py, w: 60, h: 60 })); }
-    else if (stageId === 4) { [[700, 700], [2220, 700], [700, 2220], [2220, 2220]].forEach(([px, py]) => walls.push({ x: px, y: py, w: 80, h: 80 })); }
-    else if (stageId === 5) { walls.push({ x: cx - 200, y: cy - 30, w: 120, h: 60 }, { x: cx + 80, y: cy - 30, w: 120, h: 60 }); }
-    else if (stageId === 6) { for (let i = 0; i < 4; i++) { const a = (Math.PI * 2 / 4) * i + Math.PI / 4, r = 700; walls.push({ x: cx + Math.cos(a) * r - 30, y: cy + Math.sin(a) * r - 30, w: 60, h: 60 }); } }
-    return walls;
-}
-
-const PLAYER_COLORS = ['#ffffff', '#ffff00', '#00aaff', '#ff66aa'];
+// ルーム管理
 const rooms = new Map();
 
 class GameRoom {
-    constructor(id) {
-        this.id = id; this.players = new Map(); this.enemies = []; this.enemyBullets = [];
-        this.items = []; this.stage = 1; this.score = 0; this.state = 'waiting';
-        this.frame = 0; this.idCounter = 0; this.boss = null; this.killCount = 0;
-        this.walls = generateOrganicMaze(1); this.killsNeeded = 6; this.stageTransition = false;
-        this.playerIndex = 0; this.warningActive = false;
+    constructor(id, mode, cpuLevel, timeLimit) {
+        this.id = id;
+        this.mode = mode; // 'pvp', 'cpu-fighter', 'cpu-invader'
+        this.cpuLevel = cpuLevel || 2;
+        this.timeLimit = timeLimit; // 0 = 無制限
+        this.fighter = null;
+        this.invader = null;
+        this.state = 'waiting';
+        this.gameState = null;
+        this.loopInterval = null;
     }
 
-    getStage() { return STAGES[Math.min(this.stage - 1, STAGES.length - 1)]; }
-
-    addPlayer(socket, name, isHost) {
-        let sx, sy;
-        for (let i = 0; i < 50; i++) { sx = WORLD_W / 2 + (Math.random() - 0.5) * 300; sy = WORLD_H / 2 + (Math.random() - 0.5) * 300; if (!this.checkWallCollision(sx, sy, 20)) break; }
-        const colorIdx = this.playerIndex % 4;
-        this.playerIndex++;
-        const player = { id: socket.id, name, x: sx, y: sy, angle: -Math.PI / 2, hp: 100, maxHp: 100, alive: true, score: 0, isHost, invincible: 180, dashing: false, respawnTimer: 0, weapons: { gatling: 1, phalanx: 0, missile: 0, laser: 0, dash: 1 }, autoFire: { gatling: true, phalanx: true, missile: true, laser: true }, phalanxMode: 'atk', phalanxUnits: [], input: { dx: 0, dy: 0, dashing: false }, colorIdx, color: PLAYER_COLORS[colorIdx] };
-        this.players.set(socket.id, player); return player;
+    initGame() {
+        this.gameState = {
+            // ファイター
+            fighter: {
+                x: GAME_W / 2,
+                y: GAME_H - 60,
+                lives: 3,
+                weapons: { gatling: 1, missile: 0, laser: 0, phalanx: 0 },
+                phalanxTrail: [],
+                invincible: 0,
+                alive: true
+            },
+            // ボスUFO
+            boss: {
+                x: GAME_W / 2,
+                y: 50,
+                hp: 500,
+                maxHp: 500,
+                dir: 1
+            },
+            // インベーダー
+            invaders: [],
+            invaderBullets: [],
+            // ファイター弾
+            fighterBullets: [],
+            missiles: [],
+            lasers: [],
+            // アイテム
+            items: [],
+            // インベーダー側リソース
+            resource: 50,
+            resourceMax: 200,
+            resourceRate: 1 + this.cpuLevel * 0.3,
+            // ゲーム状態
+            score: 0,
+            time: 0,
+            winner: null
+        };
+        this.state = 'playing';
+        this.startLoop();
     }
 
-    checkWallCollision(x, y, r) { for (const w of this.walls) { const cx = Math.max(w.x, Math.min(x, w.x + w.w)); const cy = Math.max(w.y, Math.min(y, w.y + w.h)); if ((x - cx) ** 2 + (y - cy) ** 2 < r ** 2) return true; } return false; }
-    resolveWallCollision(x, y, r) { let nx = x, ny = y; for (const w of this.walls) { const cx = Math.max(w.x, Math.min(nx, w.x + w.w)); const cy = Math.max(w.y, Math.min(ny, w.y + w.h)); const dx = nx - cx, dy = ny - cy, d = Math.sqrt(dx * dx + dy * dy); if (d < r && d > 0) { nx += (dx / d) * (r - d) * 1.1; ny += (dy / d) * (r - d) * 1.1; } } return { x: nx, y: ny }; }
-
-    start() { this.state = 'playing'; this.stage = 1; this.score = 0; this.killCount = 0; this.enemies = []; this.enemyBullets = []; this.items = []; this.boss = null; this.walls = generateOrganicMaze(1); this.killsNeeded = 4; io.to(this.id).emit('stageStart', { stage: this.getStage(), stageNum: this.stage, walls: this.walls, totalStages: 6 }); if (!this.loopInterval) this.loopInterval = setInterval(() => this.update(), 1000 / TICK_RATE); }
-
-    spawnBoss() { 
-        if (this.warningActive || this.boss) return; // 二重発動防止
-        const def = BOSS_DEFS[this.stage - 1]; if (!def) return; 
-        const st = this.getStage(); const hpMult = 1 + (this.players.size - 1) * 0.3;
-        if (def.warning) {
-            this.warningActive = true;
-            io.to(this.id).emit('bossWarning', { name: def.name, nameJP: def.nameJP, stage: this.stage, isFinalBoss: def.isFinalBoss || false });
-            setTimeout(() => { if (this.state === 'playing') { this.warningActive = false; this.actuallySpawnBoss(def, st, hpMult); } }, 3500);
-        } else { this.actuallySpawnBoss(def, st, hpMult); }
-    }
-    
-    actuallySpawnBoss(def, st, hpMult) { 
-        this.warningActive = false; // 確実にリセット
-        if (this.boss) return; // 既にボスがいる場合は生成しない
-        this.boss = { id: 'boss_' + this.idCounter++, x: WORLD_W / 2, y: WORLD_H / 2 - 350, hp: Math.floor(def.hp * hpMult), maxHp: Math.floor(def.hp * hpMult), size: def.size, color: st.color, name: def.name, nameJP: def.nameJP, pattern: def.pattern, timer: 0, isFinalBoss: def.isFinalBoss || false }; 
-        io.to(this.id).emit('bossSpawn', { name: def.name, nameJP: def.nameJP, stage: this.stage, isFinalBoss: def.isFinalBoss || false, size: def.size }); 
+    startLoop() {
+        if (this.loopInterval) clearInterval(this.loopInterval);
+        this.loopInterval = setInterval(() => this.update(), 1000 / TICK_RATE);
     }
 
-    nextStage() { 
-        this.warningActive = false; // 確実にリセット
-        if (this.stage >= 6) { io.to(this.id).emit('gameComplete', { score: this.score }); this.state = 'complete'; return; } 
-        this.stageTransition = true; this.stage++; this.killCount = 0; 
-        this.killsNeeded = 4 + this.stage * 2; // Stage2=8, Stage3=10, Stage4=12, Stage5=14, Stage6=16
-        this.enemies = []; this.enemyBullets = []; this.items = []; this.boss = null; 
-        this.walls = generateOrganicMaze(this.stage); 
-        this.players.forEach(p => { p.x = WORLD_W / 2 + (Math.random() - 0.5) * 200; p.y = WORLD_H / 2 + (Math.random() - 0.5) * 200; p.hp = Math.min(p.maxHp, p.hp + 50); p.invincible = 180; }); 
-        io.to(this.id).emit('stageStart', { stage: this.getStage(), stageNum: this.stage, walls: this.walls, totalStages: 6 }); 
-        setTimeout(() => { this.stageTransition = false; }, 2000); 
+    stopLoop() {
+        if (this.loopInterval) {
+            clearInterval(this.loopInterval);
+            this.loopInterval = null;
+        }
     }
 
-    update() { 
-        if (this.state !== 'playing' || this.stageTransition || this.warningActive) return; 
-        this.frame++; 
-        this.players.forEach(p => { 
-            if (p.alive) { 
-                if (p.invincible > 0) p.invincible--; 
-                // DASHレベルで通常スピードも上がる
-                const baseSpeed = 5 + (p.weapons.dash || 1) * 0.4;
-                const speed = p.input.dashing ? baseSpeed * 1.8 : baseSpeed; 
-                let nx = p.x + p.input.dx * speed, ny = p.y + p.input.dy * speed; 
-                if (p.input.dashing) { p.x = Math.max(60, Math.min(WORLD_W - 60, nx)); p.y = Math.max(60, Math.min(WORLD_H - 60, ny)); this.dashAttack(p); } 
-                else { const res = this.resolveWallCollision(nx, ny, 15); p.x = Math.max(60, Math.min(WORLD_W - 60, res.x)); p.y = Math.max(60, Math.min(WORLD_H - 60, res.y)); } 
-                p.dashing = p.input.dashing; 
-                if (p.input.dx !== 0 || p.input.dy !== 0) p.angle = Math.atan2(p.input.dy, p.input.dx); 
-                this.updatePhalanx(p); 
-            } else { p.respawnTimer++; if (p.respawnTimer >= RESPAWN_TIME) this.respawnPlayer(p); } 
-        }); 
-        // 敵スポーン（制限厳格化）
-        const spawnRate = this.stage === 1 ? 180 : Math.max(60, 90 - this.stage * 5);
-        if (!this.boss && this.enemies.length < MAX_ENEMIES && this.frame % spawnRate === 0) this.spawnEnemy(); 
-        this.updateEnemies(); if (this.boss) this.updateBoss(); this.updateBullets(); this.updateItems(); 
-        if (!this.boss && this.killCount >= this.killsNeeded) this.spawnBoss(); 
-        if (this.frame % 3 === 0) this.broadcast(); 
+    update() {
+        if (this.state !== 'playing') return;
+        const gs = this.gameState;
+        gs.time++;
+
+        // リソース回復
+        gs.resource = Math.min(gs.resourceMax, gs.resource + gs.resourceRate / TICK_RATE);
+
+        // ボスUFO移動
+        gs.boss.x += gs.boss.dir * 1.5;
+        if (gs.boss.x < 50) { gs.boss.x = 50; gs.boss.dir = 1; }
+        if (gs.boss.x > GAME_W - 50) { gs.boss.x = GAME_W - 50; gs.boss.dir = -1; }
+
+        // ボス攻撃（定期的）
+        if (gs.time % 90 === 0 && gs.fighter.alive) {
+            const angle = Math.atan2(gs.fighter.y - gs.boss.y, gs.fighter.x - gs.boss.x);
+            for (let i = -1; i <= 1; i++) {
+                gs.invaderBullets.push({
+                    x: gs.boss.x, y: gs.boss.y + 30,
+                    vx: Math.cos(angle + i * 0.2) * 4,
+                    vy: Math.sin(angle + i * 0.2) * 4,
+                    boss: true
+                });
+            }
+        }
+
+        // 無敵時間
+        if (gs.fighter.invincible > 0) gs.fighter.invincible--;
+
+        // インベーダー更新
+        this.updateInvaders();
+        this.updateBullets();
+        this.updateItems();
+
+        // CPU処理
+        if (this.mode === 'cpu-invader') this.cpuInvaderAI();
+        if (this.mode === 'cpu-fighter') this.cpuFighterAI();
+
+        // 勝利判定
+        if (gs.boss.hp <= 0) {
+            gs.winner = 'fighter';
+            this.state = 'ended';
+            this.broadcast('gameEnd', { winner: 'fighter', score: gs.score });
+            this.stopLoop();
+        }
+        if (!gs.fighter.alive && gs.fighter.lives <= 0) {
+            gs.winner = 'invader';
+            this.state = 'ended';
+            this.broadcast('gameEnd', { winner: 'invader', score: gs.score });
+            this.stopLoop();
+        }
+
+        // 制限時間
+        if (this.timeLimit > 0 && gs.time >= this.timeLimit * TICK_RATE) {
+            gs.winner = gs.boss.hp < gs.boss.maxHp * 0.5 ? 'fighter' : 'invader';
+            this.state = 'ended';
+            this.broadcast('gameEnd', { winner: gs.winner, score: gs.score, timeout: true });
+            this.stopLoop();
+        }
+
+        // 状態送信
+        if (gs.time % 2 === 0) this.broadcast('state', this.getState());
     }
 
-    dashAttack(p) { const dashDmg = 10 + (p.weapons.dash || 1) * 3; this.enemies.forEach(e => { if (Math.hypot(p.x - e.x, p.y - e.y) < 25 + e.size) { e.hp -= dashDmg; if (e.hp <= 0) { p.score += e.score || 10; this.score += e.score || 10; this.killCount++; this.dropItem(e.x, e.y); } io.to(this.id).emit('dashHit', { x: e.x, y: e.y }); } }); if (this.boss && Math.hypot(p.x - this.boss.x, p.y - this.boss.y) < 25 + this.boss.size) { this.boss.hp -= dashDmg; io.to(this.id).emit('dashHit', { x: this.boss.x, y: this.boss.y }); } }
-    respawnPlayer(p) { let sx, sy; for (let i = 0; i < 50; i++) { sx = WORLD_W / 2 + (Math.random() - 0.5) * 300; sy = WORLD_H / 2 + (Math.random() - 0.5) * 300; if (!this.checkWallCollision(sx, sy, 20)) break; } p.alive = true; p.hp = p.maxHp; p.x = sx; p.y = sy; p.invincible = 180; p.respawnTimer = 0; io.to(p.id).emit('respawned'); }
+    updateInvaders() {
+        const gs = this.gameState;
+        gs.invaders = gs.invaders.filter(inv => {
+            if (inv.hp <= 0) {
+                gs.score += UNITS[inv.type].score;
+                // アイテムドロップ（30%）
+                if (Math.random() < 0.3) {
+                    const types = ['gatling', 'missile', 'laser', 'phalanx', 'life'];
+                    gs.items.push({ x: inv.x, y: inv.y, type: types[Math.floor(Math.random() * types.length)], life: 300 });
+                }
+                // 分裂
+                if (inv.splits && !inv.isSplit) {
+                    for (let i = 0; i < 2; i++) {
+                        gs.invaders.push({
+                            ...inv, x: inv.x + (i === 0 ? -15 : 15), hp: 6,
+                            isSplit: true, id: Date.now() + Math.random()
+                        });
+                    }
+                }
+                // 爆発
+                if (inv.explodes) {
+                    for (let i = 0; i < 8; i++) {
+                        const a = (Math.PI * 2 / 8) * i;
+                        gs.invaderBullets.push({ x: inv.x, y: inv.y, vx: Math.cos(a) * 3, vy: Math.sin(a) * 3 });
+                    }
+                }
+                return false;
+            }
 
-    updatePhalanx(p) { 
-        const lv = p.weapons.phalanx; if (lv <= 0) { p.phalanxUnits = []; return; } 
-        while (p.phalanxUnits.length < lv) p.phalanxUnits.push({ angle: Math.random() * Math.PI * 2, dist: 50 + Math.random() * 30, state: 'orbit', tx: 0, ty: 0 }); 
-        while (p.phalanxUnits.length > lv) p.phalanxUnits.pop();
-        if (p.phalanxMode === 'atk') {
-            // 最も近い敵を全ユニット共通のターゲットに
-            let target = null, minD = 500;
-            this.enemies.forEach(e => { const d = Math.hypot(e.x - p.x, e.y - p.y); if (d < minD) { minD = d; target = e; } });
-            if (this.boss) { const d = Math.hypot(this.boss.x - p.x, this.boss.y - p.y); if (d < minD) { minD = d; target = this.boss; } }
-            
-            p.phalanxUnits.forEach((f, i) => {
-                if (target) {
-                    f.state = 'attack';
-                    f.tx = target.x; f.ty = target.y;
-                    // 直線的に敵に向かって突撃
-                    const toTargetAngle = Math.atan2(target.y - p.y, target.x - p.x);
-                    const targetDist = Math.min(minD - 10, minD * 0.9);
-                    f.angle += (toTargetAngle - f.angle) * 0.2; // 角度を素早く合わせる
-                    f.dist += (targetDist - f.dist) * 0.25; // 高速接近
+            // フェーズ処理
+            if (inv.phase === 'enter') {
+                inv.enterTimer--;
+                inv.x += inv.enterVx;
+                inv.y += inv.enterVy;
+                if (inv.enterTimer <= 0) {
+                    inv.phase = 'position';
+                    inv.targetX = inv.gridX;
+                    inv.targetY = inv.gridY;
+                }
+            } else if (inv.phase === 'position') {
+                const dx = inv.targetX - inv.x, dy = inv.targetY - inv.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist > 2) {
+                    inv.x += (dx / dist) * inv.speed * 2;
+                    inv.y += (dy / dist) * inv.speed * 2;
                 } else {
-                    f.state = 'orbit'; f.angle += 0.05; f.dist += (60 - f.dist) * 0.1;
+                    inv.x = inv.targetX;
+                    inv.y = inv.targetY;
+                    inv.phase = 'idle';
+                }
+            } else if (inv.phase === 'idle') {
+                // 攻撃行動
+                if (inv.canShoot && Math.random() < 0.01) {
+                    gs.invaderBullets.push({ x: inv.x, y: inv.y, vx: 0, vy: 3 });
+                }
+                if (inv.kamikaze && gs.fighter.alive) {
+                    inv.phase = 'attack';
+                }
+                if (inv.heals && gs.time % 60 === 0) {
+                    gs.invaders.forEach(other => {
+                        if (other !== inv && Math.hypot(other.x - inv.x, other.y - inv.y) < 50) {
+                            other.hp = Math.min(UNITS[other.type].hp, other.hp + 2);
+                        }
+                    });
+                }
+            } else if (inv.phase === 'attack') {
+                // カミカゼ突撃
+                const dx = gs.fighter.x - inv.x, dy = gs.fighter.y - inv.y;
+                const dist = Math.hypot(dx, dy);
+                inv.x += (dx / dist) * inv.speed * 3;
+                inv.y += (dy / dist) * inv.speed * 3;
+            }
+
+            // シールド効果（前方の敵を守る）
+            if (inv.hasShield) {
+                inv.shieldActive = gs.invaders.some(other => 
+                    other !== inv && other.y > inv.y && Math.abs(other.x - inv.x) < 30
+                );
+            }
+
+            return true;
+        });
+    }
+
+    updateBullets() {
+        const gs = this.gameState;
+        
+        // ファイター弾
+        gs.fighterBullets = gs.fighterBullets.filter(b => {
+            b.x += b.vx; b.y += b.vy;
+            if (b.y < 0 || b.y > GAME_H) return false;
+
+            // ボスとの当たり判定
+            if (Math.hypot(b.x - gs.boss.x, b.y - gs.boss.y) < 40) {
+                gs.boss.hp -= b.damage || 1;
+                return false;
+            }
+
+            // インベーダーとの当たり判定
+            for (const inv of gs.invaders) {
+                if (inv.shieldActive && b.y < inv.y) continue; // シールドで守られている
+                if (Math.hypot(b.x - inv.x, b.y - inv.y) < 15) {
+                    inv.hp -= b.damage || 1;
+                    return false;
+                }
+            }
+            return true;
+        });
+
+        // ミサイル
+        gs.missiles = gs.missiles.filter(m => {
+            // ターゲット探索
+            let target = null, minDist = 200;
+            for (const inv of gs.invaders) {
+                const d = Math.hypot(inv.x - m.x, inv.y - m.y);
+                if (d < minDist) { minDist = d; target = inv; }
+            }
+            if (!target && Math.hypot(gs.boss.x - m.x, gs.boss.y - m.y) < 200) {
+                target = gs.boss;
+            }
+
+            if (target) {
+                const a = Math.atan2(target.y - m.y, target.x - m.x);
+                m.vx += Math.cos(a) * 0.3;
+                m.vy += Math.sin(a) * 0.3;
+                const spd = Math.hypot(m.vx, m.vy);
+                if (spd > 6) { m.vx = m.vx / spd * 6; m.vy = m.vy / spd * 6; }
+            }
+            m.x += m.vx; m.y += m.vy;
+            m.life--;
+            if (m.life <= 0 || m.y < 0) return false;
+
+            // 当たり判定
+            if (Math.hypot(m.x - gs.boss.x, m.y - gs.boss.y) < 45) {
+                gs.boss.hp -= 10;
+                return false;
+            }
+            for (const inv of gs.invaders) {
+                if (Math.hypot(m.x - inv.x, m.y - inv.y) < 20) {
+                    inv.hp -= 10;
+                    return false;
+                }
+            }
+            return true;
+        });
+
+        // レーザー
+        gs.lasers = gs.lasers.filter(l => {
+            l.life--;
+            // 貫通ダメージ
+            if (l.life % 3 === 0) {
+                for (const inv of gs.invaders) {
+                    if (Math.abs(inv.x - l.x) < l.width / 2 && inv.y < l.y) {
+                        inv.hp -= 3;
+                    }
+                }
+                if (Math.abs(gs.boss.x - l.x) < l.width / 2 + 30) {
+                    gs.boss.hp -= 5;
+                }
+            }
+            return l.life > 0;
+        });
+
+        // インベーダー弾
+        gs.invaderBullets = gs.invaderBullets.filter(b => {
+            b.x += b.vx; b.y += b.vy;
+            if (b.y > GAME_H || b.y < 0 || b.x < 0 || b.x > GAME_W) return false;
+
+            // ファイターとの当たり判定
+            if (gs.fighter.alive && gs.fighter.invincible <= 0) {
+                if (Math.hypot(b.x - gs.fighter.x, b.y - gs.fighter.y) < 12) {
+                    this.hitFighter();
+                    return false;
+                }
+            }
+            return true;
+        });
+    }
+
+    hitFighter() {
+        const gs = this.gameState;
+        gs.fighter.lives--;
+        if (gs.fighter.lives > 0) {
+            gs.fighter.invincible = 180;
+            gs.fighter.x = GAME_W / 2;
+            gs.fighter.y = GAME_H - 60;
+            this.broadcast('fighterHit', { lives: gs.fighter.lives });
+        } else {
+            gs.fighter.alive = false;
+        }
+    }
+
+    updateItems() {
+        const gs = this.gameState;
+        gs.items = gs.items.filter(item => {
+            item.life--;
+            item.y += 0.5;
+            if (item.life <= 0 || item.y > GAME_H) return false;
+
+            if (gs.fighter.alive && Math.hypot(item.x - gs.fighter.x, item.y - gs.fighter.y) < 20) {
+                if (item.type === 'life') {
+                    gs.fighter.lives = Math.min(5, gs.fighter.lives + 1);
+                } else {
+                    gs.fighter.weapons[item.type] = Math.min(5, (gs.fighter.weapons[item.type] || 0) + 1);
+                }
+                this.broadcast('itemGet', { type: item.type });
+                return false;
+            }
+            return true;
+        });
+    }
+
+    spawnInvaders(type, count = 5) {
+        const gs = this.gameState;
+        const unit = UNITS[type];
+        if (!unit) return false;
+        if (gs.resource < unit.cost * count) return false;
+        gs.resource -= unit.cost * count;
+
+        // 空きグリッド位置を探す
+        const gridRows = 5, gridCols = 8;
+        const cellW = GAME_W / gridCols, cellH = 40;
+        const occupied = new Set();
+        gs.invaders.forEach(inv => {
+            if (inv.phase === 'idle' || inv.phase === 'position') {
+                const gx = Math.round(inv.gridX / cellW);
+                const gy = Math.round((inv.gridY - 80) / cellH);
+                occupied.add(`${gx},${gy}`);
+            }
+        });
+
+        const freeSpots = [];
+        for (let row = 0; row < gridRows; row++) {
+            for (let col = 0; col < gridCols; col++) {
+                if (!occupied.has(`${col},${row}`)) {
+                    freeSpots.push({ col, row });
+                }
+            }
+        }
+
+        if (freeSpots.length < count) count = freeSpots.length;
+        if (count === 0) return false;
+
+        // ランダムに配置場所を選ぶ
+        const spots = [];
+        for (let i = 0; i < count && freeSpots.length > 0; i++) {
+            const idx = Math.floor(Math.random() * freeSpots.length);
+            spots.push(freeSpots.splice(idx, 1)[0]);
+        }
+
+        // 画面外から登場
+        const enterX = Math.random() < 0.5 ? -30 : GAME_W + 30;
+        const enterY = 100;
+
+        spots.forEach((spot, i) => {
+            const gridX = (spot.col + 0.5) * cellW;
+            const gridY = 80 + spot.row * cellH;
+            gs.invaders.push({
+                id: Date.now() + Math.random(),
+                type: type,
+                x: enterX,
+                y: enterY + i * 20,
+                hp: unit.hp,
+                speed: unit.speed,
+                phase: 'enter',
+                enterTimer: 60 + i * 10,
+                enterVx: (GAME_W / 2 - enterX) / 60,
+                enterVy: 1,
+                gridX: gridX,
+                gridY: gridY,
+                canShoot: unit.canShoot,
+                hasShield: unit.hasShield,
+                splits: unit.splits,
+                kamikaze: unit.kamikaze,
+                heals: unit.heals,
+                explodes: unit.explodes
+            });
+        });
+        return true;
+    }
+
+    cpuInvaderAI() {
+        const gs = this.gameState;
+        const level = this.cpuLevel;
+        
+        // レベルに応じた出撃頻度
+        const spawnChance = 0.005 + level * 0.003;
+        if (Math.random() < spawnChance && gs.resource >= 50) {
+            const types = Object.keys(UNITS);
+            const weights = [30, 15, 20, 15 + level * 2, 10, 10, 15, 5 + level, 10];
+            let roll = Math.random() * weights.reduce((a, b) => a + b);
+            let typeIdx = 0;
+            for (let i = 0; i < weights.length; i++) {
+                roll -= weights[i];
+                if (roll <= 0) { typeIdx = i; break; }
+            }
+            this.spawnInvaders(types[typeIdx], Math.min(5, 2 + level));
+        }
+    }
+
+    cpuFighterAI() {
+        const gs = this.gameState;
+        if (!gs.fighter.alive) return;
+        const level = this.cpuLevel;
+
+        // 最も近い脅威を見つける
+        let nearestThreat = null, nearestDist = Infinity;
+        
+        gs.invaderBullets.forEach(b => {
+            const d = Math.hypot(b.x - gs.fighter.x, b.y - gs.fighter.y);
+            if (d < nearestDist && b.y > gs.fighter.y - 100) {
+                nearestDist = d;
+                nearestThreat = { x: b.x, y: b.y, type: 'bullet' };
+            }
+        });
+
+        gs.invaders.forEach(inv => {
+            if (inv.kamikaze || inv.y > gs.fighter.y - 150) {
+                const d = Math.hypot(inv.x - gs.fighter.x, inv.y - gs.fighter.y);
+                if (d < nearestDist) {
+                    nearestDist = d;
+                    nearestThreat = { x: inv.x, y: inv.y, type: 'invader' };
+                }
+            }
+        });
+
+        // 移動
+        let targetX = gs.fighter.x, targetY = gs.fighter.y;
+        
+        if (nearestThreat && nearestDist < 100 + level * 20) {
+            // 回避
+            targetX = gs.fighter.x + (gs.fighter.x > nearestThreat.x ? 50 : -50);
+        } else {
+            // 攻撃位置へ
+            let bestTarget = gs.boss;
+            gs.invaders.forEach(inv => {
+                if (inv.phase === 'idle' && inv.y < bestTarget.y + 50) {
+                    bestTarget = inv;
                 }
             });
-            // 全ユニットから一斉レーザー発射
-            if (target && this.frame % 6 === 0) {
-                const dmgPerUnit = 3 + lv * 2;
-                let totalDmg = 0;
-                p.phalanxUnits.forEach(f => {
-                    if (f.state !== 'attack') return;
-                    const fx = p.x + Math.cos(f.angle) * f.dist, fy = p.y + Math.sin(f.angle) * f.dist;
-                    const distToTarget = Math.hypot(target.x - fx, target.y - fy);
-                    if (distToTarget < 80) { totalDmg += dmgPerUnit; }
-                    io.to(this.id).emit('phalanxShot', { x: fx, y: fy, tx: target.x, ty: target.y, mode: 'atk' });
+            targetX = bestTarget.x;
+            targetY = GAME_H - 60 - level * 10;
+        }
+
+        // 移動実行
+        const dx = targetX - gs.fighter.x, dy = targetY - gs.fighter.y;
+        const moveSpeed = 3 + level * 0.5;
+        if (Math.abs(dx) > 5) gs.fighter.x += Math.sign(dx) * Math.min(moveSpeed, Math.abs(dx));
+        if (Math.abs(dy) > 5) gs.fighter.y += Math.sign(dy) * Math.min(moveSpeed, Math.abs(dy));
+
+        // 攻撃
+        if (gs.time % Math.max(3, 8 - level) === 0) {
+            this.fighterShoot();
+        }
+    }
+
+    fighterShoot() {
+        const gs = this.gameState;
+        if (!gs.fighter.alive) return;
+        const f = gs.fighter;
+
+        // ガトリング
+        const gLv = f.weapons.gatling;
+        if (gLv > 0) {
+            const spread = gLv >= 3 ? [-0.15, 0, 0.15] : gLv >= 2 ? [-0.08, 0.08] : [0];
+            spread.forEach(a => {
+                gs.fighterBullets.push({
+                    x: f.x, y: f.y - 15,
+                    vx: Math.sin(a) * 8, vy: -8,
+                    damage: 1 + gLv * 0.3
                 });
-                if (totalDmg > 0) target.hp -= totalDmg;
-            }
-        } else {
-            p.phalanxUnits.forEach(f => { f.angle += 0.04; f.dist += (55 - f.dist) * 0.1; f.state = 'orbit'; });
-            if (this.frame % 8 === 0) { p.phalanxUnits.forEach(f => { const fx = p.x + Math.cos(f.angle) * f.dist, fy = p.y + Math.sin(f.angle) * f.dist; let destroyed = 0; this.enemyBullets = this.enemyBullets.filter(b => { if (Math.hypot(b.x - fx, b.y - fy) < 45) { destroyed++; return false; } return true; }); if (destroyed > 0) io.to(this.id).emit('phalanxShot', { x: fx, y: fy, tx: fx, ty: fy, mode: 'def', count: destroyed }); }); }
+            });
+        }
+
+        // ミサイル
+        if (f.weapons.missile > 0 && gs.time % 30 === 0) {
+            gs.missiles.push({ x: f.x - 10, y: f.y, vx: -1, vy: -4, life: 180 });
+            gs.missiles.push({ x: f.x + 10, y: f.y, vx: 1, vy: -4, life: 180 });
+        }
+
+        // レーザー
+        if (f.weapons.laser > 0 && gs.time % 60 === 0) {
+            gs.lasers.push({ x: f.x, y: f.y, width: 10 + f.weapons.laser * 5, life: 20 });
         }
     }
 
-    spawnEnemy() { if (this.enemies.length >= MAX_ENEMIES) return; const types = Object.keys(ENEMY_TYPES); const weights = [40 - this.stage * 3, 30, 15 + this.stage, 10 + this.stage, 5 + this.stage * 2]; let roll = Math.random() * 100, idx = 0; for (let i = 0; i < weights.length; i++) { roll -= Math.max(5, weights[i]); if (roll <= 0) { idx = i; break; } } const t = ENEMY_TYPES[types[idx]]; let ex, ey; for (let i = 0; i < 50; i++) { const side = Math.floor(Math.random() * 4), m = 250; if (side === 0) { ex = m + Math.random() * (WORLD_W - m * 2); ey = m; } else if (side === 1) { ex = m + Math.random() * (WORLD_W - m * 2); ey = WORLD_H - m; } else if (side === 2) { ex = m; ey = m + Math.random() * (WORLD_H - m * 2); } else { ex = WORLD_W - m; ey = m + Math.random() * (WORLD_H - m * 2); } if (!this.checkWallCollision(ex, ey, t.size)) break; } const st = this.getStage(); this.enemies.push({ id: 'e_' + this.idCounter++, x: ex, y: ey, hp: Math.floor(t.hp * (1 + this.stage * 0.1)), maxHp: Math.floor(t.hp * (1 + this.stage * 0.1)), speed: t.speed, size: t.size, color: st.color, score: t.score, shootTimer: Math.random() * 60 }); }
+    moveFighter(dx, dy) {
+        const gs = this.gameState;
+        if (!gs.fighter.alive) return;
+        const speed = 5;
+        gs.fighter.x = Math.max(20, Math.min(GAME_W - 20, gs.fighter.x + dx * speed));
+        gs.fighter.y = Math.max(GAME_H / 2, Math.min(GAME_H - 20, gs.fighter.y + dy * speed));
 
-    updateEnemies() { this.enemies = this.enemies.filter(e => { if (e.hp <= 0) return false; let tx = WORLD_W / 2, ty = WORLD_H / 2, minD = Infinity; this.players.forEach(p => { if (p.alive) { const d = Math.hypot(p.x - e.x, p.y - e.y); if (d < minD) { minD = d; tx = p.x; ty = p.y; } } }); const a = Math.atan2(ty - e.y, tx - e.x); const res = this.resolveWallCollision(e.x + Math.cos(a) * e.speed, e.y + Math.sin(a) * e.speed, e.size); e.x = res.x; e.y = res.y; e.shootTimer--; if (e.shootTimer <= 0 && this.enemyBullets.length < MAX_ENEMY_BULLETS - 3 && minD < 350) { this.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 4, vy: Math.sin(a) * 4, life: 120 }); e.shootTimer = 120 + Math.random() * 80; } this.players.forEach(p => { if (!p.alive || p.invincible > 0) return; if (Math.hypot(p.x - e.x, p.y - e.y) < 15 + e.size) { p.hp -= 15; p.invincible = 60; if (p.hp <= 0) { p.alive = false; p.respawnTimer = 0; io.to(p.id).emit('died'); } } }); return true; }); }
-
-    updateBoss() { if (!this.boss) return; if (this.boss.hp <= 0) { 
-        this.score += 1000 * this.stage; 
-        for (let i = 0; i < 5; i++) this.dropItem(this.boss.x + (Math.random() - 0.5) * 100, this.boss.y + (Math.random() - 0.5) * 100, true); 
-        const isFinal = this.boss.isFinalBoss;
-        io.to(this.id).emit('bossDefeated', { stage: this.stage, name: this.boss.name, isFinalBoss: isFinal }); 
-        this.boss = null; 
-        if (isFinal) {
-            // ラスボス撃破 → エンディング
-            setTimeout(() => { io.to(this.id).emit('ending', { score: this.score }); }, 2000);
-            setTimeout(() => { io.to(this.id).emit('gameComplete', { score: this.score }); this.state = 'complete'; }, 10000);
-        } else {
-            setTimeout(() => { if (this.state === 'playing') this.nextStage(); }, 3000); 
-        }
-        return; 
-    } this.boss.timer++; let tx = WORLD_W / 2, ty = WORLD_H / 2; this.players.forEach(p => { if (p.alive) { tx = p.x; ty = p.y; } }); const a = Math.atan2(ty - this.boss.y, tx - this.boss.x); const speed = this.boss.isFinalBoss ? 1 : 1.5 + this.stage * 0.15; const res = this.resolveWallCollision(this.boss.x + Math.cos(a) * speed * 0.6, this.boss.y + Math.sin(a) * speed * 0.6, this.boss.size); this.boss.x = Math.max(200, Math.min(WORLD_W - 200, res.x)); this.boss.y = Math.max(200, Math.min(WORLD_H - 200, res.y)); const fireRate = Math.max(15, 45 - this.stage * 4); if (this.boss.timer % fireRate === 0 && this.enemyBullets.length < MAX_ENEMY_BULLETS) { this.fireBossPattern(a); } this.players.forEach(p => { if (!p.alive || p.invincible > 0) return; if (Math.hypot(p.x - this.boss.x, p.y - this.boss.y) < 20 + this.boss.size) { p.hp -= 25; p.invincible = 90; if (p.hp <= 0) { p.alive = false; p.respawnTimer = 0; io.to(p.id).emit('died'); } } }); }
-
-    fireBossPattern(targetAngle) { 
-        if (this.enemyBullets.length >= MAX_ENEMY_BULLETS - 5) return; // 弾数制限
-        const b = this.boss, cnt = Math.min(6, 4 + Math.floor(this.stage / 2)); 
-        if (b.pattern === 'spiral') { for (let i = 0; i < cnt; i++) { const ba = (Math.PI * 2 / cnt) * i + b.timer * 0.05; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 4, vy: Math.sin(ba) * 4, life: 150, boss: true }); } } 
-        else if (b.pattern === 'electric') { for (let i = -1; i <= 1; i++) { const ba = targetAngle + i * 0.3; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 6, vy: Math.sin(ba) * 6, life: 120, boss: true }); } } 
-        else if (b.pattern === 'split') { for (let i = 0; i < 8; i++) { const ba = (Math.PI * 2 / 8) * i; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 5, vy: Math.sin(ba) * 5, life: 120, boss: true }); } } 
-        else if (b.pattern === 'shield') { for (let i = 0; i < 8; i++) { const ba = (Math.PI * 2 / 8) * i + b.timer * 0.02; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 4, vy: Math.sin(ba) * 4, life: 130, boss: true }); } } 
-        else if (b.pattern === 'pulse') { for (let i = 0; i < 10; i++) { const ba = (Math.PI * 2 / 10) * i + b.timer * 0.03; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 5, vy: Math.sin(ba) * 5, life: 140, boss: true }); } } 
-        else if (b.pattern === 'chaos') { for (let i = 0; i < 12; i++) { const ba = (Math.PI * 2 / 12) * i + b.timer * 0.06; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 4, vy: Math.sin(ba) * 4, life: 150, boss: true }); } } 
-        else { for (let i = 0; i < cnt; i++) { const ba = (Math.PI * 2 / cnt) * i; this.enemyBullets.push({ x: b.x, y: b.y, vx: Math.cos(ba) * 3.5, vy: Math.sin(ba) * 3.5, life: 140, boss: true }); } } 
+        // ファランクス軌跡
+        gs.fighter.phalanxTrail.unshift({ x: gs.fighter.x, y: gs.fighter.y });
+        if (gs.fighter.phalanxTrail.length > 30) gs.fighter.phalanxTrail.pop();
     }
 
-    updateBullets() { this.enemyBullets = this.enemyBullets.filter(b => { b.x += b.vx; b.y += b.vy; b.life--; if (b.life <= 0 || b.x < 0 || b.x > WORLD_W || b.y < 0 || b.y > WORLD_H) return false; for (const w of this.walls) { if (b.x > w.x && b.x < w.x + w.w && b.y > w.y && b.y < w.y + w.h) return false; } this.players.forEach(p => { if (!p.alive || p.invincible > 0) return; if (Math.hypot(p.x - b.x, p.y - b.y) < 18) { p.hp -= b.boss ? 15 : 10; p.invincible = 30; if (p.hp <= 0) { p.alive = false; p.respawnTimer = 0; io.to(p.id).emit('died'); } b.life = 0; } }); return b.life > 0; }); }
+    getState() {
+        return this.gameState;
+    }
 
-    dropItem(x, y, guaranteed = false) { if (this.items.length >= MAX_ITEMS) return; if (!guaranteed && Math.random() > 0.70) return; const types = ['HP', 'GATLING', 'PHALANX', 'MISSILE', 'LASER', 'DASH']; const weights = [12, 20, 18, 20, 15, 15]; let roll = Math.random() * 100, idx = 0; for (let i = 0; i < weights.length; i++) { roll -= weights[i]; if (roll <= 0) { idx = i; break; } } this.items.push({ id: 'i_' + this.idCounter++, x, y, type: types[idx], life: 600 }); }
-
-    updateItems() { this.items = this.items.filter(item => { item.life--; if (item.life <= 0) return false; this.players.forEach(p => { if (!p.alive) return; if (Math.hypot(p.x - item.x, p.y - item.y) < 35) { if (item.type === 'HP') { p.hp = Math.min(p.maxHp, p.hp + 30); } else { const w = item.type.toLowerCase(); if (p.weapons[w] !== undefined && p.weapons[w] < 10) p.weapons[w]++; } io.to(p.id).emit('itemCollected', { type: item.type }); item.life = 0; } }); return item.life > 0; }); }
-
-    handleAttack(playerId, data) { const p = this.players.get(playerId); if (!p || !p.alive || !data.targets) return; data.targets.forEach(t => { let target = t.id === this.boss?.id ? this.boss : this.enemies.find(e => e.id === t.id); if (!target || target.hp <= 0) return; target.hp -= t.damage || 1; if (target.hp <= 0 && target !== this.boss) { p.score += target.score || 10; this.score += target.score || 10; this.killCount++; this.dropItem(target.x, target.y); } }); }
-    handleMissileExplosion(data) { this.enemyBullets = this.enemyBullets.filter(b => Math.hypot(b.x - data.x, b.y - data.y) > data.radius); }
-    handleDestroyBullet(data) { this.enemyBullets = this.enemyBullets.filter(b => Math.hypot(b.x - data.x, b.y - data.y) > 15); }
-    handlePlayerBullets(playerId, data) { const p = this.players.get(playerId); if (!p) return; p.bulletData = data.bullets || []; p.missileData = data.missiles || []; p.laserData = data.laser || null; }
-
-    broadcast() { const st = this.getStage(); const playerBullets = []; const playerMissiles = []; const playerLasers = []; this.players.forEach(p => { if (p.bulletData) p.bulletData.forEach(b => playerBullets.push({ ...b, color: p.color })); if (p.missileData) p.missileData.forEach(m => playerMissiles.push({ ...m, color: p.color })); if (p.laserData) playerLasers.push({ ...p.laserData, color: p.color }); }); const state = { players: [], enemies: this.enemies.map(e => ({ id: e.id, x: e.x, y: e.y, hp: e.hp, maxHp: e.maxHp, size: e.size, color: e.color })), boss: this.boss ? { id: this.boss.id, x: this.boss.x, y: this.boss.y, hp: this.boss.hp, maxHp: this.boss.maxHp, size: this.boss.size, color: this.boss.color, name: this.boss.name, nameJP: this.boss.nameJP, isFinalBoss: this.boss.isFinalBoss } : null, bullets: this.enemyBullets.map(b => ({ x: b.x, y: b.y, boss: b.boss })), playerBullets, playerMissiles, playerLasers, items: this.items, stage: this.stage, score: this.score, stageInfo: st, killCount: this.killCount, killsNeeded: this.killsNeeded, walls: this.walls }; this.players.forEach(p => { state.players.push({ id: p.id, name: p.name, x: p.x, y: p.y, angle: p.angle, hp: p.hp, maxHp: p.maxHp, alive: p.alive, dashing: p.dashing, invincible: p.invincible, weapons: p.weapons, autoFire: p.autoFire, phalanxMode: p.phalanxMode, phalanxUnits: p.phalanxUnits, score: p.score, respawnTimer: p.respawnTimer, color: p.color, colorIdx: p.colorIdx }); }); io.to(this.id).emit('state', state); }
-    
-    removePlayer(playerId) { const wasHost = this.players.get(playerId)?.isHost; this.players.delete(playerId); if (this.players.size === 0) return false; if (wasHost) { const newHost = this.players.values().next().value; if (newHost) { newHost.isHost = true; io.to(newHost.id).emit('becameHost'); } } return true; }
-    stop() { if (this.loopInterval) { clearInterval(this.loopInterval); this.loopInterval = null; } }
+    broadcast(event, data) {
+        io.to(this.id).emit(event, data);
+    }
 }
 
-function generateRoomCode() { return String(Math.floor(1000 + Math.random() * 9000)); }
-
+// Socket.io 接続処理
 io.on('connection', (socket) => {
-    let currentRoom = null;
-    socket.on('hostRoom', (data) => { const name = data.name || 'Host', roomId = generateRoomCode(); const room = new GameRoom(roomId); rooms.set(roomId, room); currentRoom = room; socket.join(roomId); const player = room.addPlayer(socket, name, true); socket.emit('hosted', { roomId, playerId: socket.id, player, walls: room.walls, worldW: WORLD_W, worldH: WORLD_H, totalStages: 6 }); });
-    socket.on('joinRoom', (data) => { const roomId = data.roomId, name = data.name || 'Player'; if (!rooms.has(roomId)) { socket.emit('joinError', { message: 'Room not found' }); return; } const room = rooms.get(roomId); if (room.players.size >= 4) { socket.emit('joinError', { message: 'Room is full' }); return; } currentRoom = room; socket.join(roomId); const player = room.addPlayer(socket, name, false); socket.emit('joined', { roomId, playerId: socket.id, player, players: Array.from(room.players.values()), walls: room.walls, worldW: WORLD_W, worldH: WORLD_H, totalStages: 6, gameStarted: room.state === 'playing' }); socket.to(roomId).emit('playerJoined', { player }); });
-    socket.on('startGame', () => { if (!currentRoom) return; const p = currentRoom.players.get(socket.id); if (!p?.isHost) return; currentRoom.start(); io.to(currentRoom.id).emit('gameStarted'); });
-    socket.on('input', (data) => { if (!currentRoom) return; const p = currentRoom.players.get(socket.id); if (p) p.input = { dx: data.dx || 0, dy: data.dy || 0, dashing: data.dashing || false }; });
-    socket.on('toggleWeapon', (data) => { if (!currentRoom) return; const p = currentRoom.players.get(socket.id); if (p && p.autoFire.hasOwnProperty(data.weapon)) p.autoFire[data.weapon] = !p.autoFire[data.weapon]; });
-    socket.on('togglePhalanxMode', () => { if (!currentRoom) return; const p = currentRoom.players.get(socket.id); if (p) p.phalanxMode = p.phalanxMode === 'atk' ? 'def' : 'atk'; });
-    socket.on('attack', (data) => { if (currentRoom) currentRoom.handleAttack(socket.id, data); });
-    socket.on('playerBullets', (data) => { if (currentRoom) currentRoom.handlePlayerBullets(socket.id, data); });
-    socket.on('missileExplosion', (data) => { if (currentRoom) currentRoom.handleMissileExplosion(data); });
-    socket.on('destroyBullet', (data) => { if (currentRoom) currentRoom.handleDestroyBullet(data); });
-    socket.on('disconnect', () => { if (currentRoom) { const roomStillActive = currentRoom.removePlayer(socket.id); if (!roomStillActive) { currentRoom.stop(); rooms.delete(currentRoom.id); } else { io.to(currentRoom.id).emit('playerLeft', { playerId: socket.id }); } } });
+    console.log('Connected:', socket.id);
+
+    // CPU戦開始
+    socket.on('startCpuGame', (data) => {
+        const { role, cpuLevel, timeLimit } = data;
+        const roomId = 'cpu_' + socket.id;
+        const mode = role === 'fighter' ? 'cpu-invader' : 'cpu-fighter';
+        const room = new GameRoom(roomId, mode, cpuLevel, timeLimit);
+        rooms.set(roomId, room);
+        socket.join(roomId);
+        socket.roomId = roomId;
+        socket.role = role;
+
+        if (role === 'fighter') {
+            room.fighter = socket.id;
+        } else {
+            room.invader = socket.id;
+        }
+        room.initGame();
+        socket.emit('gameStart', { roomId, role, gameState: room.getState() });
+    });
+
+    // 対人戦ホスト
+    socket.on('hostPvp', (data) => {
+        const roomId = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const room = new GameRoom(roomId, 'pvp', 0, data.timeLimit);
+        rooms.set(roomId, room);
+        socket.join(roomId);
+        socket.roomId = roomId;
+        socket.role = data.role;
+        if (data.role === 'fighter') {
+            room.fighter = socket.id;
+        } else {
+            room.invader = socket.id;
+        }
+        socket.emit('hosted', { roomId, role: data.role });
+    });
+
+    // 対人戦参加
+    socket.on('joinPvp', (data) => {
+        const room = rooms.get(data.roomId);
+        if (!room) {
+            socket.emit('joinError', { message: 'ルームが見つかりません' });
+            return;
+        }
+        if (room.state !== 'waiting') {
+            socket.emit('joinError', { message: 'ゲームは既に開始しています' });
+            return;
+        }
+
+        socket.join(data.roomId);
+        socket.roomId = data.roomId;
+
+        if (!room.fighter) {
+            room.fighter = socket.id;
+            socket.role = 'fighter';
+        } else if (!room.invader) {
+            room.invader = socket.id;
+            socket.role = 'invader';
+        }
+
+        socket.emit('joined', { roomId: data.roomId, role: socket.role });
+
+        if (room.fighter && room.invader) {
+            room.initGame();
+            io.to(data.roomId).emit('gameStart', { roomId: data.roomId, gameState: room.getState() });
+        }
+    });
+
+    // ファイター入力
+    socket.on('fighterInput', (data) => {
+        const room = rooms.get(socket.roomId);
+        if (!room || socket.role !== 'fighter') return;
+        room.moveFighter(data.dx, data.dy);
+        if (data.shoot) room.fighterShoot();
+    });
+
+    // インベーダー出撃
+    socket.on('spawnUnit', (data) => {
+        const room = rooms.get(socket.roomId);
+        if (!room || socket.role !== 'invader') return;
+        const success = room.spawnInvaders(data.type, data.count || 5);
+        socket.emit('spawnResult', { success, resource: room.gameState.resource });
+    });
+
+    socket.on('disconnect', () => {
+        console.log('Disconnected:', socket.id);
+        if (socket.roomId) {
+            const room = rooms.get(socket.roomId);
+            if (room) {
+                room.stopLoop();
+                rooms.delete(socket.roomId);
+            }
+        }
+    });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('PLAZMERS Ver.1.017 - INNER SPACE Server on port ' + PORT));
+server.listen(PORT, () => console.log('PLAZMERS Ver.1.00 Server on port ' + PORT));
